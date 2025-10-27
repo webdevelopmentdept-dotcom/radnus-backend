@@ -17,13 +17,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/applicants", applicantRoutes);
 app.use("/api/admin", adminAuthRoutes);
 
-// Serve React frontend
-app.use(express.static(path.join(__dirname, "../radnus-frontend/build")));
+// // Serve React frontend
+// app.use(express.static(path.join(__dirname, "../radnus-frontend/build")));
 
-// ✅ Catch-all route for React
-app.use((req, res) => {
-  res.sendFile(path.resolve(__dirname, "../radnus-frontend/build", "index.html"));
-});
+// // ✅ Catch-all route for React
+// app.use((req, res) => {
+//   res.sendFile(path.resolve(__dirname, "../radnus-frontend/build", "index.html"));
+// });
 
 // Connect to MongoDB
 mongoose
