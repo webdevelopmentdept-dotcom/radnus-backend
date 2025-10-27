@@ -1,26 +1,18 @@
 const express = require("express");
 const router = express.Router();
-const bcrypt = require("bcryptjs");
 
-// Simple login route (NO TOKEN)
-router.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
+// simple admin login (no token)
+router.post("/login", (req, res) => {
+  const { email, password } = req.body;
 
-    if (email !== process.env.ADMIN_EMAIL) {
-      return res.status(400).json({ success: false, msg: "Invalid email" });
-    }
+  // replace these with your env values
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = "sundar"; // use plain text if no hash check
 
-    const isMatch = await bcrypt.compare(password, process.env.ADMIN_HASH_PASSWORD);
-    if (!isMatch) {
-      return res.status(400).json({ success: false, msg: "Invalid password" });
-    }
-
-    // ✅ Instead of token, just send success message
-    res.json({ success: true, msg: "Login successful" });
-  } catch (err) {
-    console.error("Login Error:", err);
-    res.status(500).json({ success: false, msg: "Server Error" });
+  if (email === adminEmail && password === adminPassword) {
+    return res.json({ success: true, msg: "Login successful!" });
+  } else {
+    return res.status(401).json({ success: false, msg: "Invalid credentials" });
   }
 });
 
