@@ -2,21 +2,20 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const path = require("path");
 
 const applicantRoutes = require("./routes/applicants");
 const adminAuthRoutes = require("./routes/adminAuth");
 
 const app = express();
 
-// ✅ Allow specific origins (include both localhost and Vercel)
+// ✅ Allowed origins
 const allowedOrigins = [
   "https://radnus-frontend.vercel.app",
   "https://radnus-frontend-3xb7.vercel.app",
   "http://localhost:5173",
 ];
 
-// ✅ Proper CORS setup with function check
+// ✅ Configure CORS safely
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -28,15 +27,31 @@ app.use(
       }
     },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// ✅ Handle preflight requests (important for POST from browser)
-app.options("*", cors());
+// ✅ Optional: handle OPTIONS preflight safely
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, OPTIONS"
+  );
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Requested-With"
+  );
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
-// ✅ Basic health check route (Render check)
+// ✅ Health check for Render
 app.get("/", (req, res) => {
-  res.send("✅ Backend is running and CORS configured properly!");
+  res.send("✅ Backend running fine with updated CORS config!");
 });
 
 // ✅ Middleware
