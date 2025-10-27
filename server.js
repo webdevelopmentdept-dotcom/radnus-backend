@@ -9,27 +9,37 @@ const adminAuthRoutes = require("./routes/adminAuth");
 
 const app = express();
 
-app.use(cors());
+// ✅ Allow specific origins
+const allowedOrigins = [
+  "https://radnus-frontend.vercel.app",
+  "http://localhost:5173",
+];
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  })
+);
+
+// ✅ Basic health check route
+app.get("/", (req, res) => {
+  res.send("Backend is running ✅");
+});
+
+// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// API routes
+// Routes
 app.use("/api/applicants", applicantRoutes);
 app.use("/api/admin", adminAuthRoutes);
 
-// // Serve React frontend
-// app.use(express.static(path.join(__dirname, "../radnus-frontend/build")));
-
-// // ✅ Catch-all route for React
-// app.use((req, res) => {
-//   res.sendFile(path.resolve(__dirname, "../radnus-frontend/build", "index.html"));
-// });
-
-// Connect to MongoDB
+// ✅ Connect MongoDB
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ DB connected"))
-  .catch((err) => console.log("❌ DB error:", err));
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch((err) => console.error("❌ MongoDB error:", err));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

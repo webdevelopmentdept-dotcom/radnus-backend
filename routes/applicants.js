@@ -1,24 +1,8 @@
 const express = require("express");
 const router = express.Router();
-const jwt = require("jsonwebtoken");
 const Applicant = require("../models/Applicant");
 
-// Middleware to verify JWT
-const verifyToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  if (!authHeader) return res.status(401).json({ success: false, msg: "No token provided" });
-
-  const token = authHeader.split(" ")[1];
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.admin = decoded;
-    next();
-  } catch (err) {
-    res.status(401).json({ success: false, msg: "Invalid token" });
-  }
-};
-
-// POST new applicant (public)
+// ✅ POST new applicant (public)
 router.post("/", async (req, res) => {
   try {
     const { name, email, phone, address, course } = req.body;
@@ -31,8 +15,8 @@ router.post("/", async (req, res) => {
   }
 });
 
-// GET all applicants (Admin only)
-router.get("/", verifyToken, async (req, res) => {
+// ✅ GET all applicants (no token check)
+router.get("/", async (req, res) => {
   try {
     const applicants = await Applicant.find().sort({ createdAt: -1 });
     res.status(200).json({ success: true, applicants });
