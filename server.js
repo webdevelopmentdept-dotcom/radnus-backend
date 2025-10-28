@@ -7,7 +7,6 @@ const applicantRoutes = require("./routes/applicants");
 const adminAuthRoutes = require("./routes/adminAuth");
 
 const app = express();
-
 // ✅ Configure CORS using regex for flexibility
 app.use(
   cors({
@@ -31,16 +30,20 @@ app.use(
   })
 );
 
-// ✅ Fix: use "/*" not "*"
-app.options("/*", (req, res) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With"
-  );
-  res.sendStatus(200);
+// ✅ Express 5–safe preflight handling (no wildcards)
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    res.header(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With"
+    );
+    return res.sendStatus(200);
+  }
+  next();
 });
+
 
 // ✅ Health check route
 app.get("/", (req, res) => {
