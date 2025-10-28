@@ -14,8 +14,8 @@ app.use(
     origin: function (origin, callback) {
       const allowed = [
         /https:\/\/(www\.)?radnus\.in$/,              // ✅ Matches radnus.in and www.radnus.in
-        /https:\/\/radnus-frontend.*\.vercel\.app$/,  // ✅ Matches any vercel frontend
-        /^http:\/\/localhost:5173$/                   // ✅ Matches local dev
+        /https:\/\/radnus-frontend.*\.vercel\.app$/,  // ✅ Matches any Vercel frontend
+        /^http:\/\/localhost:5173$/                   // ✅ Matches localhost:5173
       ];
 
       if (!origin || allowed.some((pattern) => pattern.test(origin))) {
@@ -31,9 +31,9 @@ app.use(
   })
 );
 
-// ✅ Handle preflight OPTIONS requests (required for CORS)
-app.options("*", (req, res) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin);
+// ✅ Fix: use "/*" not "*"
+app.options("/*", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.header(
     "Access-Control-Allow-Headers",
@@ -44,14 +44,14 @@ app.options("*", (req, res) => {
 
 // ✅ Health check route
 app.get("/", (req, res) => {
-  res.send("✅ Backend running fine with updated CORS & preflight config!");
+  res.send("✅ Backend running fine with updated CORS & fixed preflight route!");
 });
 
 // ✅ Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ API Routes
+// ✅ Routes
 app.use("/api/applicants", applicantRoutes);
 app.use("/api/admin", adminAuthRoutes);
 
