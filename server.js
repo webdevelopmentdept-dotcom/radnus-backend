@@ -8,19 +8,17 @@ const adminAuthRoutes = require("./routes/adminAuth");
 
 const app = express();
 
-// ✅ Allowed origins
-const allowedOrigins = [
-  "https://radnus-frontend.vercel.app",
-  "https://radnus-frontend-3xb7.vercel.app",
-  "http://localhost:5173",
-  "https://www.radnus.in", // ✅ Added your live domain
-];
-
-// ✅ Configure CORS safely
+// ✅ Configure CORS using regex for flexibility
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      const allowed = [
+        /https:\/\/(www\.)?radnus\.in$/,              // ✅ Matches radnus.in and www.radnus.in
+        /https:\/\/radnus-frontend.*\.vercel\.app$/,  // ✅ Matches any vercel frontend
+        /^http:\/\/localhost:5173$/                   // ✅ Matches local dev
+      ];
+
+      if (!origin || allowed.some((pattern) => pattern.test(origin))) {
         callback(null, true);
       } else {
         console.log("❌ Blocked by CORS:", origin);
@@ -33,25 +31,41 @@ app.use(
   })
 );
 
-// ✅ Health check for Render
+// ✅ Handle preflight OPTIONS requests (required for CORS)
+app.options("*", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin);
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Requested-With"
+  );
+  res.sendStatus(200);
+});
+
+// ✅ Health check route
 app.get("/", (req, res) => {
-  res.send("✅ Backend running fine with updated CORS config!");
+  res.send("✅ Backend running fine with updated CORS & preflight config!");
 });
 
 // ✅ Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Routes
+// ✅ API Routes
 app.use("/api/applicants", applicantRoutes);
 app.use("/api/admin", adminAuthRoutes);
 
 // ✅ MongoDB connection
 mongoose
-  .connect(process.env.MONGO_URI)
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
 // ✅ Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`🚀 Server running successfully on port ${PORT}`)
+);
