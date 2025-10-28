@@ -13,6 +13,7 @@ const allowedOrigins = [
   "https://radnus-frontend.vercel.app",
   "https://radnus-frontend-3xb7.vercel.app",
   "http://localhost:5173",
+  "https://www.radnus.in", // ✅ Added your live domain
 ];
 
 // ✅ Configure CORS safely
@@ -31,23 +32,6 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
-// ✅ Optional: handle OPTIONS preflight safely
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, OPTIONS"
-  );
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With"
-  );
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
 
 // ✅ Health check for Render
 app.get("/", (req, res) => {
