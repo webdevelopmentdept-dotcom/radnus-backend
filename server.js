@@ -44,6 +44,13 @@ app.use((req, res, next) => {
   next();
 });
 
+const prerender = require("prerender-node");
+
+app.use(
+  prerender
+    .set("prerenderToken", "N7ycVhRZGIhFLwN5sPFp")  // your actual token
+    .set("protocol", "https")
+);
 
 // ✅ Health check route
 app.get("/", (req, res) => {
