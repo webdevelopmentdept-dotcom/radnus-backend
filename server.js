@@ -3,92 +3,67 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const prerender = require("prerender-node");
+const path = require("path");
 
+const hrAuthRoutes = require("./routes/hrAuth");
+const hrApplyRoutes = require("./routes/hrApply");
 const applicantRoutes = require("./routes/applicants");
 const adminAuthRoutes = require("./routes/adminAuth");
+const hrApplicationsRoutes = require("./routes/hrApplications");
 
 const app = express();
 
-/* ---------------------------------------------
- ✅ 1. Secure & flexible CORS configuration
-----------------------------------------------*/
+// ✅ Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ✅ Allowed origins (local + live)
+const allowedOrigins = [
+  "https://www.radnus.in",                 // custom domain
+  "https://radnus-frontend-3xb7.vercel.app", // vercel preview domain
+  "http://localhost:5173",                 // local development
+];
+
+// ✅ CORS setup
 app.use(
   cors({
     origin: function (origin, callback) {
-      const allowed = [
-        /https:\/\/(www\.)?radnus\.in$/,              // radnus.in and www.radnus.in
-        /https:\/\/radnus-frontend.*\.vercel\.app$/,  // any vercel preview
-        /^http:\/\/localhost:5173$/                   // local dev
-      ];
-
-      if (!origin || allowed.some((pattern) => pattern.test(origin))) {
+      // allow requests with no origin (e.g. mobile apps, curl)
+      if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.log("❌ Blocked by CORS:", origin);
         callback(new Error("Not allowed by CORS"));
       }
     },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// ✅ Proper OPTIONS preflight handler
-app.use((req, res, next) => {
-  if (req.method === "OPTIONS") {
-    res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
-    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-    res.header(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Requested-With"
-    );
-    return res.sendStatus(200);
-  }
-  next();
-});
+// ✅ Serve uploads folder (for resume view/download)
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* ---------------------------------------------
- ✅ 2. Prerender.io setup for SEO bots
-----------------------------------------------*/
-app.use(
-  prerender
-    .set("prerenderToken", "N7ycVhRZGIhFLwN5sPFp") // your actual token
-    .set("protocol", "https")
-    .set("host", "www.radnus.in") // 👈 Add this line (important!)
-);
+// ✅ Prerender setup
+app.use(prerender.set("prerenderToken", "N7ycVhRZGIhFLwN5sPFp"));
 
-/* ---------------------------------------------
- ✅ 3. Health check route (for Render)
-----------------------------------------------*/
-app.get("/", (req, res) => {
-  res.send("✅ Backend running fine with CORS + Prerender integration!");
-});
-
-/* ---------------------------------------------
- ✅ 4. Middleware + Routes
-----------------------------------------------*/
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
+// ✅ Routes
+app.use("/api/hr", hrAuthRoutes);
+app.use("/api/hr", hrApplyRoutes);
+app.use("/api/hr", hrApplicationsRoutes);
 app.use("/api/applicants", applicantRoutes);
 app.use("/api/admin", adminAuthRoutes);
 
-/* ---------------------------------------------
- ✅ 5. MongoDB connection
-----------------------------------------------*/
-mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
+// ✅ Health check
+app.get("/", (req, res) => {
+  res.send("✅ Backend running fine!");
+});
 
-/* ---------------------------------------------
- ✅ 6. Start server
-----------------------------------------------*/
+// ✅ MongoDB Connection
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch((err) => console.error("❌ MongoDB error:", err));
+
+// ✅ Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () =>
-  console.log(`🚀 Server running successfully on port ${PORT}`)
-);
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
