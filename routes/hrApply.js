@@ -5,12 +5,12 @@ const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
 const HrApplicant = require("../models/HrApplicant");
 
-// ✅ Cloudinary storage
+// ✅ Cloudinary storage setup for resumes
 const storage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "resumes",
-    resource_type: "auto",
+    resource_type: "raw", // ✅ ensures PDF/DOC/DOCX are stored correctly
     public_id: (req, file) => file.originalname.split(".")[0],
   },
 });
@@ -22,7 +22,7 @@ router.post("/apply", upload.single("resume"), async (req, res) => {
   try {
     const { name, email, phone, address, jobTitle } = req.body;
 
-    if (!req.file) {
+    if (!req.file || !req.file.path) {
       return res.status(400).json({ success: false, msg: "Resume upload failed" });
     }
 
@@ -32,7 +32,7 @@ router.post("/apply", upload.single("resume"), async (req, res) => {
       phone,
       address,
       jobTitle,
-      resumeUrl: req.file.path || req.file.url, // ✅ corrected
+      resumeUrl: req.file.path || req.file.url, // ✅ correct field name
     });
 
     await newApplicant.save();
