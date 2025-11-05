@@ -18,7 +18,7 @@ const storage = new CloudinaryStorage({
 const upload = multer({ storage });
 
 // ✅ Route for HR form submission
-router.post("/", upload.single("resume"), async (req, res) => {
+router.post("/apply", upload.single("resume"), async (req, res) => {
   try {
     const { name, email, phone, address, jobTitle } = req.body;
 
