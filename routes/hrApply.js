@@ -1,44 +1,50 @@
 const express = require("express");
+const router = express.Router();
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("../config/cloudinary");
 const HrApplicant = require("../models/HrApplicant");
 
-const router = express.Router();
-
-// Ensure uploads folder exists
-const uploadDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
-
-// Multer setup
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
+// ✅ Cloudinary Storage Setup
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "resumes", // Folder name in Cloudinary
+    resource_type: "raw", // Allows PDF, DOC, DOCX etc
+  },
 });
+
 const upload = multer({ storage });
 
-// POST /api/hr/apply
+// ✅ Route: Apply for HR Job (with resume upload)
 router.post("/apply", upload.single("resume"), async (req, res) => {
   try {
-    const { name, email, phone, location, jobTitle } = req.body;
+    const { name, email, phone, address, jobTitle } = req.body;
 
-    if (!name || !email || !phone || !location || !jobTitle)
-      return res.status(400).json({ success: false, msg: "All fields required" });
-
-    const applicant = new HrApplicant({
+    // ✅ Create new applicant with Cloudinary file URL
+    const newApplicant = new HrApplicant({
       name,
       email,
       phone,
-      address: location,
+      address,
       jobTitle,
-      resumeUrl: req.file ? `/uploads/${req.file.filename}` : null,
+      resumeURL: req.file.path, // ✅ Cloudinary permanent link
     });
 
-    await applicant.save();
-    res.json({ success: true, msg: "HR application submitted successfully!" });
-  } catch (err) {
-    console.error("Error in HR apply:", err);
-    res.status(500).json({ success: false, msg: "Server error" });
+    await newApplicant.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Application submitted successfully!",
+      fileUrl: req.file.path, // For frontend confirmation
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Error submitting application",
+      error: error.message,
+    });
   }
 });
 

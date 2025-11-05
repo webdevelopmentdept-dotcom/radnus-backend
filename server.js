@@ -16,7 +16,7 @@ const app = express();
 // ✅ Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // ✅ Allowed origins (local + live)
 const allowedOrigins = [
   "https://www.radnus.in",                 // custom domain
@@ -40,8 +40,8 @@ app.use(
   })
 );
 
-// ✅ Serve uploads folder (for resume view/download)
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+
 
 // ✅ Prerender setup
 app.use(prerender.set("prerenderToken", "N7ycVhRZGIhFLwN5sPFp"));
