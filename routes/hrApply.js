@@ -5,46 +5,46 @@ const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
 const HrApplicant = require("../models/HrApplicant");
 
-// ✅ Cloudinary Storage Setup
+// ✅ Cloudinary storage
 const storage = new CloudinaryStorage({
   cloudinary,
   params: {
-    folder: "resumes", // Folder name in Cloudinary
-    resource_type: "raw", // Allows PDF, DOC, DOCX etc
+    folder: "resumes",
+    resource_type: "auto",
+    public_id: (req, file) => file.originalname.split(".")[0],
   },
 });
 
 const upload = multer({ storage });
 
-// ✅ Route: Apply for HR Job (with resume upload)
-router.post("/apply", upload.single("resume"), async (req, res) => {
+// ✅ Route for HR form submission
+router.post("/", upload.single("resume"), async (req, res) => {
   try {
     const { name, email, phone, address, jobTitle } = req.body;
 
-    // ✅ Create new applicant with Cloudinary file URL
+    if (!req.file) {
+      return res.status(400).json({ success: false, msg: "Resume upload failed" });
+    }
+
     const newApplicant = new HrApplicant({
       name,
       email,
       phone,
       address,
       jobTitle,
-      resumeURL: req.file.path, // ✅ Cloudinary permanent link
+      resumeUrl: req.file.path || req.file.url, // ✅ corrected
     });
 
     await newApplicant.save();
 
-    res.status(201).json({
+    res.status(200).json({
       success: true,
-      message: "Application submitted successfully!",
-      fileUrl: req.file.path, // For frontend confirmation
+      msg: "Application submitted successfully!",
+      fileURL: req.file.path || req.file.url,
     });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Error submitting application",
-      error: error.message,
-    });
+  } catch (err) {
+    console.error("Upload error:", err);
+    res.status(500).json({ success: false, msg: "Upload failed" });
   }
 });
 
