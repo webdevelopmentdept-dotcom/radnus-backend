@@ -1,7 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const bcrypt = require("bcryptjs");
-const Partner = require("../models/partner");
+const Partner = require("../models/Partner");
 const Lead = require("../models/Lead");
 const path = require("path");
 
