@@ -5,7 +5,7 @@ router.post("/login", (req, res) => {
   const { email, password } = req.body;
 
   const adminEmail = process.env.ADMIN_EMAIL;
-  const adminPassword = sundar;
+  const adminPassword = "sundar";
 
   if (!adminEmail || !adminPassword) {
     return res.status(500).json({
