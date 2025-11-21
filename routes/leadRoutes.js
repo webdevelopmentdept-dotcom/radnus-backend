@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 const Lead = require("../models/Lead");
-const Partner = require("../models/partner");
+const Partner = require("../models/Partner");
 const path = require("path");
 
 // Upload folder public
