@@ -123,8 +123,8 @@ const ShopOwnerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-<<<<<<< HEAD
+
 module.exports = mongoose.model("ShopOwner", ShopOwnerSchema);
-=======
+
 module.exports = mongoose.model("ShopOwner", ShopOwnerSchema);
->>>>>>> cc417bfb00ce009cf674a597f707a1ba33e4711c
+
