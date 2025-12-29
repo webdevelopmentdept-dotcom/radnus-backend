@@ -35,7 +35,7 @@ router.post("/", async (req, res) => {
   try {
     console.log("🔥 SHOP OWNER BODY:", req.body);
 
-    /* -------- REQUIRED FIELD VALIDATION -------- */
+    // Required fields
     for (const field of requiredFields) {
       if (isInvalidValue(req.body[field])) {
         return res.status(400).json({
@@ -45,7 +45,7 @@ router.post("/", async (req, res) => {
       }
     }
 
-    /* -------- ARRAY VALIDATION -------- */
+    // Arrays validation
     if (
       !Array.isArray(req.body.technicianTypes) ||
       req.body.technicianTypes.length === 0
@@ -56,17 +56,14 @@ router.post("/", async (req, res) => {
       });
     }
 
-    if (
-      !Array.isArray(req.body.machines) ||
-      req.body.machines.length === 0
-    ) {
+    if (!Array.isArray(req.body.machines) || req.body.machines.length === 0) {
       return res.status(400).json({
         success: false,
         message: "At least one machine is required",
       });
     }
 
-    /* -------- DUPLICATE MOBILE CHECK -------- */
+    // Duplicate mobile
     const existing = await ShopOwner.findOne({
       mobile: req.body.mobile,
     });
@@ -78,7 +75,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* -------- SAVE -------- */
+    // Save
     const newRequirement = new ShopOwner(req.body);
     await newRequirement.save();
 
@@ -87,9 +84,8 @@ router.post("/", async (req, res) => {
       message: "Shop owner requirement submitted successfully",
     });
   } catch (err) {
-    console.error("❌ SHOP OWNER ERROR:", err.message);
+    console.error("❌ SHOP OWNER ERROR:", err);
 
-    /* -------- DUPLICATE KEY SAFETY -------- */
     if (err.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -97,7 +93,6 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* -------- MONGOOSE VALIDATION ERROR -------- */
     if (err.name === "ValidationError") {
       return res.status(400).json({
         success: false,
@@ -118,7 +113,7 @@ router.get("/", async (req, res) => {
   try {
     const list = await ShopOwner.find().sort({ createdAt: -1 });
     res.json(list);
-  } catch (err) {
+  } catch {
     res.status(500).json({ success: false });
   }
 });
@@ -130,7 +125,7 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Not found" });
     }
     res.json(item);
-  } catch (err) {
+  } catch {
     res.status(400).json({ success: false });
   }
 });
@@ -143,7 +138,7 @@ router.put("/status/:id", async (req, res) => {
       status: req.body.status,
     });
     res.json({ success: true });
-  } catch (err) {
+  } catch {
     res.status(500).json({ success: false });
   }
 });
@@ -154,7 +149,7 @@ router.delete("/:id", async (req, res) => {
   try {
     await ShopOwner.findByIdAndDelete(req.params.id);
     res.json({ success: true });
-  } catch (err) {
+  } catch {
     res.status(500).json({ success: false });
   }
 });
