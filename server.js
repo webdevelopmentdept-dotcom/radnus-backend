@@ -5,6 +5,9 @@ const cors = require("cors");
 const prerender = require("prerender-node");
 const path = require("path");
 
+const dns = require("dns");
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
+
 const app = express();
 
 
@@ -91,14 +94,6 @@ app.use("/api/updates", require("./routes/updateRoutes"));
 
 app.use("/api/shop-owner", shopOwnerRoutes);
 app.use("/api/technician", technicianRoutes);
-
-
-
-
-
-
-
-
 
 /* --------------------------------------------------
    HEALTH CHECK
