@@ -6,7 +6,6 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const path = require("path");
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 // ================== MULTER SETUP ==================
 const storage = multer.diskStorage({
@@ -126,7 +125,7 @@ if (!doc) {
     const updated = await Document.findByIdAndUpdate(
       docId,
       {
-        fileUrl: `${API_BASE}/uploads/${req.file.filename}`
+        fileUrl: `${process.env.BASE_URL}/uploads/${req.file.filename}`
       },
       { new: true }
     );
@@ -189,7 +188,7 @@ router.post("/upload-doc", upload.single("file"), async (req, res) => {
     const newDoc = new Document({
       employeeId,
       docType,
-     fileUrl: `${API_BASE}/uploads/${req.file.filename}`
+     fileUrl: `${process.env.BASE_URL}/uploads/${req.file.filename}`
     });
 
     await newDoc.save();
@@ -284,7 +283,7 @@ router.post("/upload-profile", upload.single("file"), async (req, res) => {
     const user = await Employee.findByIdAndUpdate(
       employeeId,
       {
-        profileImage: `${API_BASE}/uploads/${req.file.filename}`
+        profileImage: `${process.env.BASE_URL}/uploads/${req.file.filename}`
       },
       { new: true }
     );
