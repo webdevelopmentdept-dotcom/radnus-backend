@@ -6,6 +6,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const path = require("path");
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 // ================== MULTER SETUP ==================
 const storage = multer.diskStorage({
