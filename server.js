@@ -4,6 +4,8 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const prerender = require("prerender-node");
 const path = require("path");
+const employeeAuth = require("./routes/employeeAuth");
+
 
 const dns = require("dns");
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -20,7 +22,7 @@ const app = express();
 // Parse JSON + Form Data
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
+app.use("/uploads", express.static("uploads"));
 // Static Uploads Folder (Important for partner documents)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
@@ -65,6 +67,8 @@ const hrApplyRoutes = require("./routes/hrApply");
 const applicantRoutes = require("./routes/applicants");
 const adminAuthRoutes = require("./routes/adminAuth");
 const hrApplicationsRoutes = require("./routes/hrApplications");
+const hrPendingRoutes = require("./routes/hrPendingRoutes");
+const hrRejectedRoutes = require("./routes/hrRejectedRoutes");
 
 const shopOwnerRoutes = require("./routes/shopownerRoutes");
 const technicianRoutes = require("./routes/technicianRoutes");
@@ -76,7 +80,7 @@ const technicianRoutes = require("./routes/technicianRoutes");
 
 app.use("/api/partners", partnerRoutes);
 app.use("/api/payments", paymentRoutes);
-
+app.use("/api/employee", employeeAuth);
 // Lead Correct Route (only one)
 app.use("/api/lead", leadRoutes);
 
@@ -84,12 +88,14 @@ app.use("/api/lead", leadRoutes);
 app.use("/api/hr", hrAuthRoutes);
 app.use("/api/hr", hrApplyRoutes);
 app.use("/api/hr", hrApplicationsRoutes);
+app.use("/api/hr", hrPendingRoutes);
 
 // Applicants & Admin
 app.use("/api/applicants", applicantRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/courses", require("./routes/courseRoutes"));
 app.use("/api/updates", require("./routes/updateRoutes"));
+app.use("/api/hr", hrRejectedRoutes);
 
 
 app.use("/api/shop-owner", shopOwnerRoutes);
