@@ -6,41 +6,41 @@ const Document = require("../models/Document");
 
 
 // ================= GET REJECTED EMPLOYEES =================
-router.get("/rejected", async (req, res) => {
-  try {
+// router.get("/rejected", async (req, res) => {
+//   try {
 
-    const employees = await Employee.find({
-      status: "rejected"
-    });
+//     const employees = await Employee.find({
+//       status: "rejected"
+//     });
 
-    const result = await Promise.all(
-      employees.map(async (emp) => {
+//     const result = await Promise.all(
+//       employees.map(async (emp) => {
 
-        const docs = await Document.find({
-          employeeId: emp._id
-        });
+//         const docs = await Document.find({
+//           employeeId: emp._id
+//         });
 
-        return {
-          _id: emp._id,
-          employeeId: emp.employeeId,
-          name: emp.name,
-          email: emp.email,
-          mobile: emp.mobile,
-          department: emp.department,
-          designation: emp.designation,
-          remarks: emp.remarks, // 🔥 IMPORTANT
-          documents: docs
-        };
-      })
-    );
+//         return {
+//           _id: emp._id,
+//           employeeId: emp.employeeId,
+//           name: emp.name,
+//           email: emp.email,
+//           mobile: emp.mobile,
+//           department: emp.department,
+//           designation: emp.designation,
+//           remarks: emp.remarks, // 🔥 IMPORTANT
+//           documents: docs
+//         };
+//       })
+//     );
 
-    res.json(result);
+//     res.json(result);
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching rejected employees" });
-  }
-});
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ message: "Error fetching rejected employees" });
+//   }
+// });
 
 
 // ================= RE-APPROVE (OPTIONAL 🔥) =================

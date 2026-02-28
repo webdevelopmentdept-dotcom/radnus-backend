@@ -22,7 +22,6 @@ const app = express();
 // Parse JSON + Form Data
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use("/uploads", express.static("uploads"));
 // Static Uploads Folder (Important for partner documents)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
