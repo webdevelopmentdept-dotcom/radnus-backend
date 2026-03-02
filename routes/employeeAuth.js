@@ -129,14 +129,14 @@ router.post("/upload-doc", (req, res) => {
       const newDoc = new Document({
         employeeId,
         docType,
-        fileUrl: req.file.path
+        fileUrl: req.file.secure_url
       });
 
       await newDoc.save();
 
       res.json({
         message: "Uploaded successfully",
-        fileUrl: req.file.path
+        fileUrl: req.file.secure_url
       });
 
     } catch (err) {
@@ -163,7 +163,7 @@ router.post("/replace-doc", (req, res) => {
 
       const updated = await Document.findByIdAndUpdate(
         docId,
-        { fileUrl: req.file.path },
+        { fileUrl: req.file.secure_url },
         { new: true }
       );
 
@@ -181,6 +181,23 @@ router.post("/replace-doc", (req, res) => {
     }
 
   });
+});
+
+router.put("/update-profile", async (req, res) => {
+  try {
+    const { employeeId, name, email, mobile, department, designation } = req.body;
+
+    const updated = await Employee.findByIdAndUpdate(
+      employeeId,
+      { name, email, mobile, department, designation },
+      { new: true }
+    );
+
+    res.json(updated);
+
+  } catch (err) {
+    res.status(500).json({ message: "Update failed" });
+  }
 });
 
 // ================== PROFILE IMAGE ==================
