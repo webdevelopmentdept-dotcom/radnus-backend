@@ -56,6 +56,61 @@ const extractCloudinaryFields = (file) => {
   return { fileUrl, publicId };
 };
 
+// ================== REGISTER ==================
+router.post("/register", async (req, res) => {
+  try {
+    const { name, email, password, mobile, department, designation } = req.body;
+
+    const existing = await Employee.findOne({ email });
+    if (existing) return res.status(400).json({ message: "EMPLOYEE_EXISTS" });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const employee = new Employee({
+      employeeId: "EMP" + Date.now(),
+      name,
+      email,
+      password: hashedPassword,
+      mobile,
+      department,
+      designation,
+      documentsCompleted: false
+    });
+
+    await employee.save();
+
+    res.json({ message: "REGISTER_SUCCESS" });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ================== LOGIN ==================
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await Employee.findOne({ email });
+    if (!user) return res.status(400).json({ message: "Invalid email" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ message: "Invalid password" });
+
+    const token = jwt.sign({ id: user._id }, "SECRETKEY", { expiresIn: "7d" });
+
+    res.json({
+      token,
+      documentsCompleted: user.documentsCompleted,
+      id: user._id
+    });
+
+  } catch {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+
 /* ================= UPLOAD DOCUMENT ================= */
 
 router.post("/upload-doc", (req, res) => {
