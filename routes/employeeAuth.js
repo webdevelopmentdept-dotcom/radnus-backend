@@ -2,158 +2,126 @@ const express = require("express");
 const router = express.Router();
 const Employee = require("../models/Employee");
 const Document = require("../models/Document");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const multer = require("multer");
-
-// ✅ Cloudinary
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
 
-// ================== CLOUDINARY STORAGE ==================
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: async (req, file) => {
-    console.log("BODY:", req.body);   // 🔥 debug
-    console.log("FILE TYPE:", file.mimetype);
+/* ================= CLOUDINARY + MULTER ================= */
 
-    return {
-      folder: "resumes", // 🔥 test folder
-      resource_type: "auto", // 🔥 IMPORTANT
-      public_id: Date.now() + "-" + file.originalname
-    };
-  }
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => ({
+    folder: "resumes",
+    resource_type: "auto",
+    public_id: Date.now() + "-" + file.originalname.replace(/\s+/g, "_"),
+  }),
 });
 
-// ================== MULTER ==================
 const upload = multer({
   storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/jpg",
-      // "application/pdf",
+    const allowed = [
+      "image/jpeg", "image/png", "image/jpg",
+      "application/pdf",
       "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ];
-
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Invalid file type: " + file.mimetype), false);
-    }
-  }
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Invalid file type"), false);
+  },
 });
 
-// ================== REGISTER ==================
-router.post("/register", async (req, res) => {
-  try {
-    const { name, email, password, mobile, department, designation } = req.body;
+/* ================= HELPER: EXTRACT CLOUDINARY URL ================= */
 
-    const existing = await Employee.findOne({ email });
-    if (existing) return res.status(400).json({ message: "EMPLOYEE_EXISTS" });
+// multer-storage-cloudinary stores fields differently across versions.
+// This helper safely extracts the URL and publicId regardless of version.
+const extractCloudinaryFields = (file) => {
+  console.log("🔍 FULL req.file:", JSON.stringify(file, null, 2));
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+  const fileUrl =
+    file.path ||          // v4.x — most common
+    file.secure_url ||    // v3.x
+    file.url ||           // fallback
+    (file.cloudinary && file.cloudinary.secure_url); // nested fallback
 
-    const employee = new Employee({
-      employeeId: "EMP" + Date.now(),
-      name,
-      email,
-      password: hashedPassword,
-      mobile,
-      department,
-      designation,
-      documentsCompleted: false
-    });
+  const publicId =
+    file.filename ||      // v4.x
+    file.public_id ||     // v3.x
+    (file.cloudinary && file.cloudinary.public_id);
 
-    await employee.save();
+  console.log("✅ Extracted fileUrl:", fileUrl);
+  console.log("✅ Extracted publicId:", publicId);
 
-    res.json({ message: "REGISTER_SUCCESS" });
+  return { fileUrl, publicId };
+};
 
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+/* ================= UPLOAD DOCUMENT ================= */
 
-// ================== LOGIN ==================
-router.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    const user = await Employee.findOne({ email });
-    if (!user) return res.status(400).json({ message: "Invalid email" });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid password" });
-
-    const token = jwt.sign({ id: user._id }, "SECRETKEY", { expiresIn: "7d" });
-
-    res.json({
-      token,
-      documentsCompleted: user.documentsCompleted,
-      id: user._id
-    });
-
-  } catch {
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// ================== UPLOAD DOCUMENT ==================
 router.post("/upload-doc", (req, res) => {
   upload.single("file")(req, res, async (err) => {
-
     if (err) {
-      console.log("UPLOAD ERROR:", err.message);
+      console.log("❌ Multer/Cloudinary error:", err.message);
       return res.status(400).json({ message: err.message });
     }
 
     try {
       const { employeeId, docType } = req.body;
 
-      if (!employeeId) {
+      console.log("📦 BODY:", req.body);
+
+      if (!employeeId)
         return res.status(400).json({ message: "EMPLOYEE_ID_MISSING" });
-      }
 
-      if (!req.file) {
+      if (!req.file)
         return res.status(400).json({ message: "NO_FILE_UPLOADED" });
+
+      const { fileUrl, publicId } = extractCloudinaryFields(req.file);
+
+      if (!fileUrl) {
+        console.log("❌ fileUrl is undefined. req.file keys:", Object.keys(req.file));
+        return res.status(500).json({
+          message: "Cloudinary URL missing. Check server logs.",
+          fileKeys: Object.keys(req.file), // helps debug version mismatch
+        });
       }
 
-      const existingDoc = await Document.findOne({ employeeId, docType });
-
-      if (existingDoc) {
+      // Check duplicate
+      const existing = await Document.findOne({ employeeId, docType });
+      if (existing) {
         return res.status(400).json({ message: "DOCUMENT_ALREADY_UPLOADED" });
       }
 
       const newDoc = new Document({
         employeeId,
         docType,
-        fileUrl: req.file.secure_url
+        fileUrl,
+        publicId,
       });
 
       await newDoc.save();
+      console.log("✅ Saved to MongoDB:", newDoc);
 
-      res.json({
-        message: "Uploaded successfully",
-        fileUrl: req.file.secure_url
-      });
+      res.json({ message: "Uploaded successfully", fileUrl });
 
     } catch (err) {
-      console.log(err);
-      res.status(500).json({ message: "Upload failed" });
+      // 🔥 Show full Mongoose validation error
+      console.log("❌ SAVE ERROR:", err.message);
+      if (err.errors) {
+        Object.keys(err.errors).forEach(key => {
+          console.log(`   • ${key}: ${err.errors[key].message}`);
+        });
+      }
+      res.status(500).json({ message: err.message || "Upload failed" });
     }
-
   });
 });
 
-// ================== REPLACE DOCUMENT ==================
+/* ================= REPLACE DOCUMENT ================= */
+
 router.post("/replace-doc", (req, res) => {
   upload.single("file")(req, res, async (err) => {
-
-    if (err) {
-      return res.status(400).json({ message: err.message });
-    }
+    if (err) return res.status(400).json({ message: err.message });
 
     try {
       const { docId } = req.body;
@@ -161,107 +129,136 @@ router.post("/replace-doc", (req, res) => {
       const doc = await Document.findById(docId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
 
-      const updated = await Document.findByIdAndUpdate(
-        docId,
-        { fileUrl: req.file.secure_url },
-        { new: true }
-      );
+      // Delete old file from Cloudinary
+      if (doc.publicId) {
+        try {
+          await cloudinary.uploader.destroy(doc.publicId);
+          console.log("🗑️ Deleted old Cloudinary file:", doc.publicId);
+        } catch (cloudErr) {
+          console.log("⚠️ Cloudinary delete failed:", cloudErr.message);
+        }
+      }
+
+      const { fileUrl, publicId } = extractCloudinaryFields(req.file);
+
+      if (!fileUrl) {
+        return res.status(500).json({ message: "Cloudinary URL missing from upload response" });
+      }
+
+      doc.fileUrl = fileUrl;
+      doc.publicId = publicId;
+      await doc.save();
 
       await Employee.findByIdAndUpdate(doc.employeeId, {
+        documentsCompleted: false,
         status: "pending",
-        remarks: "",
-        reuploaded: true,
-        documentsCompleted: false
       });
 
-      res.json(updated);
+      res.json({ message: "Replaced successfully", doc });
 
-    } catch {
-      res.status(500).json({ message: "Replace failed" });
+    } catch (err) {
+      console.log("❌ Replace error:", err.message);
+      res.status(500).json({ message: err.message || "Replace failed" });
     }
-
   });
 });
 
-router.put("/update-profile", async (req, res) => {
-  try {
-    const { employeeId, name, email, mobile, department, designation } = req.body;
+/* ================= UPLOAD PROFILE IMAGE ================= */
 
-    const updated = await Employee.findByIdAndUpdate(
-      employeeId,
-      { name, email, mobile, department, designation },
-      { new: true }
-    );
-
-    res.json(updated);
-
-  } catch (err) {
-    res.status(500).json({ message: "Update failed" });
-  }
+const profileStorage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => ({
+    folder: "profile_images",
+    resource_type: "image",
+    public_id: "profile-" + Date.now(),
+  }),
 });
 
-// ================== PROFILE IMAGE ==================
-router.post("/upload-profile", (req, res) => {
-  upload.single("file")(req, res, async (err) => {
+const profileUpload = multer({ storage: profileStorage });
 
+router.post("/upload-profile", (req, res) => {
+  profileUpload.single("file")(req, res, async (err) => {
     if (err) return res.status(400).json({ message: err.message });
 
     try {
       const { employeeId } = req.body;
 
-      const user = await Employee.findByIdAndUpdate(
-        employeeId,
-        { profileImage: req.file.path },
-        { new: true }
-      );
+      if (!req.file)
+        return res.status(400).json({ message: "NO_FILE_UPLOADED" });
 
-      res.json({ message: "Profile uploaded", user });
+      const { fileUrl } = extractCloudinaryFields(req.file);
 
-    } catch {
-      res.status(500).json({ message: "Upload failed" });
+      if (!fileUrl)
+        return res.status(500).json({ message: "Cloudinary URL missing" });
+
+      await Employee.findByIdAndUpdate(employeeId, { profileImage: fileUrl });
+
+      res.json({ message: "Profile image updated", profileImage: fileUrl });
+
+    } catch (err) {
+      console.log("❌ Profile upload error:", err.message);
+      res.status(500).json({ message: err.message || "Upload failed" });
     }
-
   });
 });
 
-// ================== COMPLETE ==================
-router.put("/complete-documents", async (req, res) => {
+/* ================= UPDATE PROFILE ================= */
+
+router.put("/update-profile", async (req, res) => {
   try {
-    const { employeeId } = req.body;
-
-    const requiredDocs = [
-      "Aadhaar",
-      "PAN",
-      "Passport Photo",
-      "10th Marksheet",
-      "12th Marksheet",
-      "Resume"
-    ];
-
-    const uploaded = await Document.find({ employeeId });
-    const types = uploaded.map(d => d.docType);
-
-    const ok = requiredDocs.every(doc => types.includes(doc));
-
-    if (!ok) {
-      return res.status(400).json({ message: "UPLOAD_ALL_REQUIRED_DOCS_FIRST" });
-    }
+    const { employeeId, name, email, mobile, department, designation } = req.body;
 
     await Employee.findByIdAndUpdate(employeeId, {
-      documentsCompleted: true
+      name, email, mobile, department, designation,
     });
 
-    res.json({ message: "Documents completed" });
+    res.json({ message: "Profile updated successfully" });
 
-  } catch {
-    res.status(500).json({ message: "Error updating" });
+  } catch (err) {
+    console.log("❌ Update profile error:", err.message);
+    res.status(500).json({ message: err.message || "Update failed" });
   }
 });
 
-// ================== GET USER ==================
+/* ================= COMPLETE DOCUMENTS ================= */
+
+router.put("/complete-documents", async (req, res) => {
+  try {
+    const { employeeId } = req.body;
+    console.log("PUT employeeId:", employeeId);
+
+    const requiredDocs = [
+      "Aadhaar", "PAN", "Passport Photo",
+      "10th Marksheet", "12th Marksheet", "Resume",
+    ];
+
+    const uploaded = await Document.find({ employeeId });
+    const uploadedTypes = uploaded.map((d) => d.docType);
+
+    const allUploaded = requiredDocs.every((doc) => uploadedTypes.includes(doc));
+
+    if (!allUploaded) {
+      return res.status(400).json({ message: "UPLOAD_ALL_REQUIRED_DOCS_FIRST" });
+    }
+
+    await Employee.findByIdAndUpdate(employeeId, { documentsCompleted: true });
+
+    res.json({ message: "Documents completed" });
+
+  } catch (err) {
+    console.log("❌ Complete docs error:", err.message);
+    res.status(500).json({ message: err.message || "Error updating" });
+  }
+});
+
+/* ================= GET USER ================= */
+
 router.get("/me/:id", async (req, res) => {
   try {
     const user = await Employee.findById(req.params.id);
+
+    if (!user) return res.status(404).json({ message: "Employee not found" });
+
     const documents = await Document.find({ employeeId: req.params.id });
 
     res.json({
@@ -273,13 +270,15 @@ router.get("/me/:id", async (req, res) => {
       designation: user.designation,
       status: user.status,
       remarks: user.remarks,
+      profileImage: user.profileImage || null,
       documentsCompleted: user.documentsCompleted,
-      profileImage: user.profileImage,
-      documents
+      reuploaded: user.reuploaded,
+      documents,
     });
 
-  } catch {
-    res.status(500).json({ message: "Error fetching user" });
+  } catch (err) {
+    console.log("❌ Get user error:", err.message);
+    res.status(500).json({ message: err.message || "Error fetching user" });
   }
 });
 
