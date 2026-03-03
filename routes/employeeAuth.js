@@ -266,4 +266,25 @@ router.get("/me/:id", async (req, res) => {
   }
 });
 
+// ================== DELETE EMPLOYEE ==================
+router.delete("/employees/:id", async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+
+    if (!emp) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    // 🔥 delete related documents also (important)
+    await Document.deleteMany({ employeeId: req.params.id });
+
+    await Employee.findByIdAndDelete(req.params.id);
+
+    res.json({ message: "Employee deleted successfully" });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
