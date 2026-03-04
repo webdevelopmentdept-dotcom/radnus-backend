@@ -52,13 +52,33 @@ router.post("/register", async (req, res) => {
 
     const { name, email, password, mobile, department, designation } = req.body;
 
-    const existing = await Employee.findOne({ email });
+    // check required fields
+    if (!name || !email || !password || !mobile || !department || !designation) {
+      return res.status(400).json({ message: "ALL_FIELDS_REQUIRED" });
+    }
 
-    if (existing)
-      return res.status(400).json({ message: "EMPLOYEE_EXISTS" });
+    // check email already exists
+    const existingEmail = await Employee.findOne({ email });
 
+    if (existingEmail) {
+      return res.status(400).json({
+        message: "EMAIL_ALREADY_REGISTERED"
+      });
+    }
+
+    // check mobile already exists
+    const existingMobile = await Employee.findOne({ mobile });
+
+    if (existingMobile) {
+      return res.status(400).json({
+        message: "MOBILE_ALREADY_REGISTERED"
+      });
+    }
+
+    // hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // create employee
     const employee = new Employee({
       employeeId: "EMP" + Date.now(),
       name,
@@ -67,16 +87,24 @@ router.post("/register", async (req, res) => {
       mobile,
       department,
       designation,
-      documentsCompleted: false
+      documentsCompleted: false,
+      status: "pending"
     });
 
     await employee.save();
 
-    res.json({ message: "REGISTER_SUCCESS" });
+    res.status(201).json({
+      message: "REGISTER_SUCCESS",
+      employeeId: employee._id
+    });
 
   } catch (err) {
 
-    res.status(500).json({ message: err.message });
+    console.log(err);
+
+    res.status(500).json({
+      message: "SERVER_ERROR"
+    });
 
   }
 

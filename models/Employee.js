@@ -6,8 +6,14 @@ const employeeSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
   password: String,
+ 
 
-  mobile: String,
+mobile: {
+  type: String,
+  unique: true
+}
+
+,
   department: String,
   designation: String,
 
