@@ -29,15 +29,13 @@ const storage = new CloudinaryStorage({
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/jpg",
-      "application/pdf",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ];
-
+   const allowedTypes = [
+  "image/jpeg",
+  "image/png",
+  "image/jpg",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -133,6 +131,33 @@ router.post("/upload-doc", (req, res) => {
       });
 
       await newDoc.save();
+
+      // 🔥 CHECK REQUIRED DOCUMENTS
+      const requiredDocs = [
+        "Aadhaar",
+        "PAN",
+        "Passport Photo",
+        "10th Marksheet",
+        "12th Marksheet",
+        "Resume"
+      ];
+
+      const uploadedDocs = await Document.find({ employeeId });
+
+      const uploadedTypes = uploadedDocs.map(d => d.docType);
+
+      const allUploaded = requiredDocs.every(doc =>
+        uploadedTypes.includes(doc)
+      );
+
+      // 🔥 UPDATE EMPLOYEE
+      if (allUploaded) {
+        await Employee.findByIdAndUpdate(employeeId, {
+          documentsCompleted: true
+        });
+
+        console.log("✅ All required docs uploaded. Employee verified.");
+      }
 
       res.json({
         message: "Uploaded successfully",
@@ -265,7 +290,35 @@ router.get("/me/:id", async (req, res) => {
     res.status(500).json({ message: "Error fetching user" });
   }
 });
+// ================== UPDATE PROFILE ==================
+router.put("/update-profile", async (req, res) => {
+  try {
 
+    const { employeeId, name, email, mobile, department, designation } = req.body;
+
+    const updatedEmployee = await Employee.findByIdAndUpdate(
+      employeeId,
+      {
+        name,
+        email,
+        mobile,
+        department,
+        designation
+      },
+      { new: true }
+    );
+
+    if (!updatedEmployee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    res.json(updatedEmployee);
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Profile update failed" });
+  }
+});
 // ================== DELETE EMPLOYEE ==================
 router.delete("/employees/:id", async (req, res) => {
   try {
