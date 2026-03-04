@@ -6,36 +6,36 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 
-// ✅ Cloudinary
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
 
-// ================== CLOUDINARY STORAGE ==================
+
+// ================= CLOUDINARY STORAGE =================
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: async (req, file) => {
-    console.log("BODY:", req.body);   // 🔥 debug
-    console.log("FILE TYPE:", file.mimetype);
-
     return {
-      folder: "resumes", // 🔥 test folder
-      resource_type: "auto", // 🔥 IMPORTANT
+      folder: "documents",
+      resource_type: "auto",
       public_id: Date.now() + "-" + file.originalname
     };
   }
 });
 
-// ================== MULTER ==================
+
+// ================= MULTER =================
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-   const allowedTypes = [
-  "image/jpeg",
-  "image/png",
-  "image/jpg",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-];
+
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/jpg",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ];
+
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -44,13 +44,18 @@ const upload = multer({
   }
 });
 
-// ================== REGISTER ==================
+
+// ================= REGISTER =================
 router.post("/register", async (req, res) => {
+
   try {
+
     const { name, email, password, mobile, department, designation } = req.body;
 
     const existing = await Employee.findOne({ email });
-    if (existing) return res.status(400).json({ message: "EMPLOYEE_EXISTS" });
+
+    if (existing)
+      return res.status(400).json({ message: "EMPLOYEE_EXISTS" });
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -70,59 +75,73 @@ router.post("/register", async (req, res) => {
     res.json({ message: "REGISTER_SUCCESS" });
 
   } catch (err) {
+
     res.status(500).json({ message: err.message });
+
   }
+
 });
 
-// ================== LOGIN ==================
+
+// ================= LOGIN =================
 router.post("/login", async (req, res) => {
+
   try {
+
     const { email, password } = req.body;
 
     const user = await Employee.findOne({ email });
-    if (!user) return res.status(400).json({ message: "Invalid email" });
+
+    if (!user)
+      return res.status(400).json({ message: "Invalid email" });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid password" });
 
-    const token = jwt.sign({ id: user._id }, "SECRETKEY", { expiresIn: "7d" });
+    if (!isMatch)
+      return res.status(400).json({ message: "Invalid password" });
+
+    const token = jwt.sign({ id: user._id }, "SECRETKEY", {
+      expiresIn: "7d"
+    });
 
     res.json({
       token,
-      documentsCompleted: user.documentsCompleted,
+      documentsCompleted: !!user.documentsCompleted,
       id: user._id
     });
 
   } catch {
+
     res.status(500).json({ message: "Server error" });
+
   }
+
 });
 
-// ================== UPLOAD DOCUMENT ==================
+
+// ================= UPLOAD DOCUMENT =================
 router.post("/upload-doc", (req, res) => {
+
   upload.single("file")(req, res, async (err) => {
 
     if (err) {
-      console.log("UPLOAD ERROR:", err.message);
       return res.status(400).json({ message: err.message });
     }
 
     try {
+
       const { employeeId, docType } = req.body;
 
-      if (!employeeId) {
+      if (!employeeId)
         return res.status(400).json({ message: "EMPLOYEE_ID_MISSING" });
-      }
 
-      if (!req.file) {
+      if (!req.file)
         return res.status(400).json({ message: "NO_FILE_UPLOADED" });
-      }
 
       const existingDoc = await Document.findOne({ employeeId, docType });
 
-      if (existingDoc) {
+      if (existingDoc)
         return res.status(400).json({ message: "DOCUMENT_ALREADY_UPLOADED" });
-      }
 
       const newDoc = new Document({
         employeeId,
@@ -132,7 +151,8 @@ router.post("/upload-doc", (req, res) => {
 
       await newDoc.save();
 
-      // 🔥 CHECK REQUIRED DOCUMENTS
+
+      // CHECK REQUIRED DOCS
       const requiredDocs = [
         "Aadhaar",
         "PAN",
@@ -150,13 +170,13 @@ router.post("/upload-doc", (req, res) => {
         uploadedTypes.includes(doc)
       );
 
-      // 🔥 UPDATE EMPLOYEE
+
       if (allUploaded) {
+
         await Employee.findByIdAndUpdate(employeeId, {
           documentsCompleted: true
         });
 
-        console.log("✅ All required docs uploaded. Employee verified.");
       }
 
       res.json({
@@ -164,27 +184,33 @@ router.post("/upload-doc", (req, res) => {
         fileUrl: req.file.path
       });
 
-    } catch (err) {
-      console.log(err);
+    } catch {
+
       res.status(500).json({ message: "Upload failed" });
+
     }
 
   });
+
 });
 
-// ================== REPLACE DOCUMENT ==================
+
+// ================= REPLACE DOCUMENT =================
 router.post("/replace-doc", (req, res) => {
+
   upload.single("file")(req, res, async (err) => {
 
-    if (err) {
+    if (err)
       return res.status(400).json({ message: err.message });
-    }
 
     try {
+
       const { docId } = req.body;
 
       const doc = await Document.findById(docId);
-      if (!doc) return res.status(404).json({ message: "Document not found" });
+
+      if (!doc)
+        return res.status(404).json({ message: "Document not found" });
 
       const updated = await Document.findByIdAndUpdate(
         docId,
@@ -192,28 +218,35 @@ router.post("/replace-doc", (req, res) => {
         { new: true }
       );
 
-     await Employee.findByIdAndUpdate(doc.employeeId, {
-  status: "pending",
-  remarks: "",
-  reuploaded: true
-});
+      await Employee.findByIdAndUpdate(doc.employeeId, {
+        status: "pending",
+        remarks: "",
+        reuploaded: true
+      });
 
       res.json(updated);
 
     } catch {
+
       res.status(500).json({ message: "Replace failed" });
+
     }
 
   });
+
 });
 
-// ================== PROFILE IMAGE ==================
+
+// ================= PROFILE IMAGE =================
 router.post("/upload-profile", (req, res) => {
+
   upload.single("file")(req, res, async (err) => {
 
-    if (err) return res.status(400).json({ message: err.message });
+    if (err)
+      return res.status(400).json({ message: err.message });
 
     try {
+
       const { employeeId } = req.body;
 
       const user = await Employee.findByIdAndUpdate(
@@ -225,15 +258,21 @@ router.post("/upload-profile", (req, res) => {
       res.json({ message: "Profile uploaded", user });
 
     } catch {
+
       res.status(500).json({ message: "Upload failed" });
+
     }
 
   });
+
 });
 
-// ================== COMPLETE ==================
+
+// ================= COMPLETE DOCUMENTS =================
 router.put("/complete-documents", async (req, res) => {
+
   try {
+
     const { employeeId } = req.body;
 
     const requiredDocs = [
@@ -246,13 +285,13 @@ router.put("/complete-documents", async (req, res) => {
     ];
 
     const uploaded = await Document.find({ employeeId });
+
     const types = uploaded.map(d => d.docType);
 
     const ok = requiredDocs.every(doc => types.includes(doc));
 
-    if (!ok) {
+    if (!ok)
       return res.status(400).json({ message: "UPLOAD_ALL_REQUIRED_DOCS_FIRST" });
-    }
 
     await Employee.findByIdAndUpdate(employeeId, {
       documentsCompleted: true
@@ -261,15 +300,24 @@ router.put("/complete-documents", async (req, res) => {
     res.json({ message: "Documents completed" });
 
   } catch {
+
     res.status(500).json({ message: "Error updating" });
+
   }
+
 });
 
-// ================== GET USER ==================
+
+// ================= GET USER =================
 router.get("/me/:id", async (req, res) => {
+
   try {
+
     const user = await Employee.findById(req.params.id);
-    const documents = await Document.find({ employeeId: req.params.id });
+
+    const documents = await Document.find({
+      employeeId: req.params.id
+    });
 
     res.json({
       id: user._id,
@@ -280,63 +328,49 @@ router.get("/me/:id", async (req, res) => {
       designation: user.designation,
       status: user.status,
       remarks: user.remarks,
-      documentsCompleted: user.documentsCompleted,
+      documentsCompleted: !!user.documentsCompleted,
       profileImage: user.profileImage,
       documents
     });
 
   } catch {
+
     res.status(500).json({ message: "Error fetching user" });
+
   }
+
 });
-// ================== UPDATE PROFILE ==================
+
+
+// ================= UPDATE PROFILE =================
 router.put("/update-profile", async (req, res) => {
+
   try {
 
-    const { employeeId, name, email, mobile, department, designation } = req.body;
+    const {
+      employeeId,
+      name,
+      email,
+      mobile,
+      department,
+      designation
+    } = req.body;
 
     const updatedEmployee = await Employee.findByIdAndUpdate(
       employeeId,
-      {
-        name,
-        email,
-        mobile,
-        department,
-        designation
-      },
+      { name, email, mobile, department, designation },
       { new: true }
     );
 
-    if (!updatedEmployee) {
-      return res.status(404).json({ message: "Employee not found" });
-    }
-
     res.json(updatedEmployee);
 
-  } catch (err) {
-    console.log(err);
+  } catch {
+
     res.status(500).json({ message: "Profile update failed" });
+
   }
+
 });
-// ================== DELETE EMPLOYEE ==================
-router.delete("/employees/:id", async (req, res) => {
-  try {
-    const emp = await Employee.findById(req.params.id);
 
-    if (!emp) {
-      return res.status(404).json({ message: "Employee not found" });
-    }
-
-    // 🔥 delete related documents also (important)
-    await Document.deleteMany({ employeeId: req.params.id });
-
-    await Employee.findByIdAndDelete(req.params.id);
-
-    res.json({ message: "Employee deleted successfully" });
-
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
 
 module.exports = router;
