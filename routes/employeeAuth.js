@@ -192,12 +192,11 @@ router.post("/replace-doc", (req, res) => {
         { new: true }
       );
 
-      await Employee.findByIdAndUpdate(doc.employeeId, {
-        status: "pending",
-        remarks: "",
-        reuploaded: true,
-        documentsCompleted: false
-      });
+     await Employee.findByIdAndUpdate(doc.employeeId, {
+  status: "pending",
+  remarks: "",
+  reuploaded: true
+});
 
       res.json(updated);
 
