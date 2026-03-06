@@ -18,7 +18,11 @@ const storage = new CloudinaryStorage({
       folder: "documents",
       resource_type: "auto",
       public_id: Date.now() + "-" + file.originalname
-    };
+    };          
+
+
+
+
   }
 });
 
@@ -399,6 +403,31 @@ router.put("/update-profile", async (req, res) => {
   }
 
 });
+// ================= DELETE EMPLOYEE =================
+router.delete("/employees/:id", async (req, res) => {
+  try {
 
+    const employeeId = req.params.id;
+
+    // delete employee
+    await Employee.findByIdAndDelete(employeeId);
+
+    // delete all documents of employee
+    await Document.deleteMany({ employeeId });
+
+    res.json({
+      message: "Employee deleted successfully"
+    });
+
+  } catch (error) {
+
+    console.log(error);
+
+    res.status(500).json({
+      message: "Delete failed"
+    });
+
+  }
+});
 
 module.exports = router;
