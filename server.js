@@ -84,7 +84,7 @@ const variablePayRoutes = require("./routes/variablePay");
 const feedbackSubmission = require("./routes/feedbacksubmission");
 
 const feedbackTaskRoutes = require("./routes/feedbackTask.routes");
-const feedbackNominationRoutes = require("./routes/Feedbacknomination");
+const feedbackNominationRoutes = require("./routes/feedbacknomination");
 const employeeAwardRoutes = require("./routes/employeeAwards");
 const esopRoutes = require("./routes/esop");
 const impactBonusRoutes = require("./routes/impactBonus");
