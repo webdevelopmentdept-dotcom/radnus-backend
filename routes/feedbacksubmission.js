@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const FeedbackSubmission = require('../models/FeedbackSubmission');
-const FeedbackNomination = require('../models/FeedbackNomination');
+const FeedbackNomination = require('../models/Feedbacknomination');
 const FeedbackCycle = require('../models/Feedbackcycle');
 const FeedbackTask = require("../models/FeedbackTask");
 

@@ -40,4 +40,6 @@ const feedbackNominationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model("FeedbackNomination", feedbackNominationSchema);
+module.exports =
+  mongoose.models.FeedbackNomination ||
+  mongoose.model("FeedbackNomination", feedbackNominationSchema);
