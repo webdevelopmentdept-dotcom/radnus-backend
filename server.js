@@ -79,7 +79,7 @@ const jobRoutes = require("./routes/jobRoutes");
 const okrDashboard = require('./routes/okrdashboardRoutes');
 const gradeRoutes = require("./routes/gradeRoutes");
 const okrRoutes = require('./routes/okr');
-const FeedbackCycle = require('./routes/Feedbackcycle');
+const FeedbackCycle = require('./routes/FeedbackCycle');
 const variablePayRoutes = require("./routes/variablePay"); 
 const feedbackSubmission = require("./routes/feedbacksubmission");
 
