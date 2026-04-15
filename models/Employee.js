@@ -36,10 +36,53 @@ mobile: {
   reuploaded: {
   type: Boolean,
   default: false
-}
+},
 
-}, {
-  timestamps: true   // 🔥 THIS LINE IMPORTANT
+profileImage: { type: String, default: "" } ,
+
+
+leadershipTrack: {
+    stage: { type: Number, min: 1, max: 5, default: null },
+    stageLabel: { type: String, default: "" },
+    targetRole: { type: String, default: "" },
+    timeline: { type: String, default: "" },
+    focusAreas: [{ type: String }],
+    expectedOutput: { type: String, default: "" },
+    enrolledAt: { type: Date },
+    isHiPo: { type: Boolean, default: false },
+  },
+  mentor: {
+    name: { type: String, default: "" },
+    designation: { type: String, default: "" },
+    employeeId: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
+    lastSessionDate: { type: Date },
+    nextSessionDate: { type: Date },
+  },
+  kpis: [
+    {
+      metric:    { type: String },
+      target:    { type: String },
+      frequency: { type: String },
+      current:   { type: String, default: "" },
+      status:    { type: String, enum: ["on_track","at_risk","achieved"], default: "on_track" },
+    }
+  ],
+  leadershipProgress: [
+    {
+      date:     { type: Date, default: Date.now },
+      note:     { type: String },
+      addedBy:  { type: String },
+      type:     { type: String, enum: ["mentorship","rotation","training","assessment","milestone"], default: "milestone" },
+    }
+  ],
+
+}, 
+
+{
+  timestamps: true  
 });
+
+
+
 
 module.exports = mongoose.model("Employee", employeeSchema);

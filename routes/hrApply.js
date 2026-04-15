@@ -4,13 +4,15 @@ const multer = require("multer");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
 const HrApplicant = require("../models/HrApplicant");
+const Job = require("../models/Job");                                    
+const { screenApplicant } = require("../helpers/aiScreening");           
 
 // ✅ Cloudinary storage setup for resumes
 const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => ({
     folder: "resumes",
-    resource_type: "raw",   // 👈 Forces Cloudinary to treat PDFs/DOCs correctly
+    resource_type: "raw",
     public_id: file.originalname.replace(/\.[^/.]+$/, ""),
   }),
 });
@@ -20,9 +22,20 @@ const upload = multer({ storage });
 router.post("/apply", upload.single("resume"), async (req, res) => {
   try {
     const { name, email, phone, address, jobTitle, location, about } = req.body;
+
+    // ✅ Already applied check
+    const existing = await HrApplicant.findOne({ email, jobTitle });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        msg: "You have already applied for this position.",
+      });
+    }
+
     if (!req.file?.path)
       return res.status(400).json({ success: false, msg: "Resume upload failed" });
 
+    // ✅ Applicant save
     const applicant = new HrApplicant({
       name,
       email,
@@ -31,11 +44,27 @@ router.post("/apply", upload.single("resume"), async (req, res) => {
       jobTitle,
       location,
       about,
-      resumeUrl: req.file.path, // this will now include /raw/upload/
+      resumeUrl: req.file.path,
     });
-
     await applicant.save();
+
+    // ✅ Candidate-க்கு உடனே response போகும்
     res.json({ success: true, msg: "Application submitted!", fileURL: req.file.path });
+
+    // ✅ Background-ல AI screening (response delay வராது)
+    try {
+      const job = await Job.findOne({ title: jobTitle });
+      if (job) {
+        const aiResult = await screenApplicant(applicant, job);
+        await HrApplicant.findByIdAndUpdate(applicant._id, aiResult);
+        console.log(`✅ AI Screened: ${name} — Score: ${aiResult.aiScore} | Grade: ${aiResult.aiGrade}`);
+      } else {
+        console.log(`⚠️ Job not found for AI screening: ${jobTitle}`);
+      }
+    } catch (aiErr) {
+      console.error("❌ AI screening failed:", aiErr.message);
+    }
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, msg: "Server error" });

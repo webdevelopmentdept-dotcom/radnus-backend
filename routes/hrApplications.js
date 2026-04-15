@@ -8,7 +8,7 @@ router.get("/applications", async (req, res) => {
     const applications = await HrApplicant.find().sort({ createdAt: -1 });
     res.json({ success: true, applications });
   } catch (err) {
-    console.error("Error fetching HR applications:", err);
+    console.error("Error fetching HR applications:", err);ch
     res.status(500).json({ success: false, msg: "Server error" });
   }
 });
@@ -23,6 +23,23 @@ router.delete("/applications/:id", async (req, res) => {
     res.json({ success: true, msg: "HR applicant deleted successfully!" });
   } catch (err) {
     console.error("Error deleting HR applicant:", err);
+    res.status(500).json({ success: false, msg: "Server error" });
+  }
+});
+
+
+// ✅ இந்த route மட்டும் add பண்ணு existing file-ல
+router.put("/applications/:id/status", async (req, res) => {
+  try {
+    const { status } = req.body;
+    const updated = await HrApplicant.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true }
+    );
+    if (!updated) return res.status(404).json({ success: false, msg: "Not found" });
+    res.json({ success: true, msg: "Status updated!", applicant: updated });
+  } catch (err) {
     res.status(500).json({ success: false, msg: "Server error" });
   }
 });

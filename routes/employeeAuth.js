@@ -5,6 +5,7 @@ const Document = require("../models/Document");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
+const Counter = require("../models/Counter");
 
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
@@ -19,10 +20,6 @@ const storage = new CloudinaryStorage({
       resource_type: "auto",
       public_id: Date.now() + "-" + file.originalname
     };          
-
-
-
-
   }
 });
 
@@ -48,7 +45,17 @@ const upload = multer({
   }
 });
 
-
+// ================= AUTO EMPLOYEE ID GENERATOR =================
+const generateEmployeeId = async () => {
+  const existingCount = await Employee.countDocuments();
+  const counter = await Counter.findOneAndUpdate(
+    { name: "employeeId" },
+    { $set: { seq: existingCount + 1 } },
+    { new: true, upsert: true }
+  );
+  return "EMP-" + String(counter.seq).padStart(3, "0");
+};
+ 
 // ================= REGISTER =================
 router.post("/register", async (req, res) => {
 
@@ -84,7 +91,7 @@ router.post("/register", async (req, res) => {
 
     // create employee
     const employee = new Employee({
-      employeeId: "EMP" + Date.now(),
+      employeeId: await generateEmployeeId(),
       name,
       email,
       password: hashedPassword,
@@ -99,7 +106,7 @@ router.post("/register", async (req, res) => {
 
     res.status(201).json({
       message: "REGISTER_SUCCESS",
-      employeeId: employee._id
+      employeeId: employee.employeeId
     });
 
   } catch (err) {
@@ -427,6 +434,31 @@ router.delete("/employees/:id", async (req, res) => {
       message: "Delete failed"
     });
 
+  }
+});
+
+// ✅ GET /api/employees — status filter with
+router.get("/employees", async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filter = status ? { status } : {};
+    const employees = await Employee.find(filter);
+    res.json({ total: employees.length, data: employees });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ✅ GET /api/employees/department-distribution
+router.get("/employees/department-distribution", async (req, res) => {
+  try {
+    const dist = await Employee.aggregate([
+      { $group: { _id: "$department", count: { $sum: 1 } } },
+      { $project: { department: "$_id", count: 1, _id: 0 } }
+    ]);
+    res.json({ data: dist });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
