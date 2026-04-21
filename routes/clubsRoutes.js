@@ -87,7 +87,36 @@ router.post("/:club/members", async (req, res) => {
   }
 });
 
-// APPROVE member
+// ✅ NEW — PATCH /:club/members/:id/status  (approve / reject)
+// Frontend: PATCH /api/clubs/tech/members/69e0b59.../status
+router.patch("/:club/members/:id/status", async (req, res) => {
+  try {
+    const { status } = req.body; // "approved" | "rejected"
+
+    if (!["approved", "rejected"].includes(status)) {
+      return res.status(400).json({ success: false, message: "status must be 'approved' or 'rejected'" });
+    }
+
+    const updateData = { status };
+    if (status === "approved") updateData.joined_at = new Date();
+
+    const mem = await ClubMember.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true }
+    ).populate("employee_id", "name department");
+
+    if (!mem) {
+      return res.status(404).json({ success: false, message: "Member not found" });
+    }
+
+    res.json({ success: true, data: mem });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// APPROVE member (old route — kept for backward compatibility)
 router.patch("/:club/members/:id/approve", async (req, res) => {
   try {
     const mem = await ClubMember.findByIdAndUpdate(
@@ -265,9 +294,9 @@ router.delete("/:club/points/:id", async (req, res) => {
 });
 
 
-// ═════════════════════ STATS (FIXED) ═════════════════════
+// ═════════════════════ STATS ═════════════════════
 
-// 🔥 THIS FIXES YOUR 404
+// GET /:club/stats
 router.get("/:club/stats", async (req, res) => {
   try {
     const club = req.params.club;
@@ -292,6 +321,63 @@ router.get("/:club/stats", async (req, res) => {
         pendingMembers,
         upcomingEvents,
         totalPointsAwarded: totalPoints[0]?.total || 0,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ═════════════════════ SUMMARY (NEW — fixes 404) ═════════════════════
+
+// ✅ NEW — GET /:club/summary
+// Frontend: GET /api/clubs/tech/summary
+router.get("/:club/summary", async (req, res) => {
+  try {
+    const club = req.params.club;
+
+    const [
+      totalMembers,
+      pendingMembers,
+      approvedMembers,
+      rejectedMembers,
+      upcomingEvents,
+      completedEvents,
+      totalPointsAgg,
+      recentMembers,
+    ] = await Promise.all([
+      ClubMember.countDocuments({ club }),
+      ClubMember.countDocuments({ club, status: "pending" }),
+      ClubMember.countDocuments({ club, status: "approved" }),
+      ClubMember.countDocuments({ club, status: "rejected" }),
+      ClubEvent.countDocuments({ club, status: { $in: ["upcoming", "ongoing"] } }),
+      ClubEvent.countDocuments({ club, status: "completed" }),
+      ClubPoints.aggregate([
+        { $match: { club } },
+        { $group: { _id: null, total: { $sum: "$points" } } },
+      ]),
+      ClubMember.find({ club, status: "approved" })
+        .populate("employee_id", "name department")
+        .sort({ joined_at: -1 })
+        .limit(5),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        club,
+        members: {
+          total:    totalMembers,
+          approved: approvedMembers,
+          pending:  pendingMembers,
+          rejected: rejectedMembers,
+        },
+        events: {
+          upcoming:  upcomingEvents,
+          completed: completedEvents,
+        },
+        totalPointsAwarded: totalPointsAgg[0]?.total || 0,
+        recentMembers,
       },
     });
   } catch (err) {

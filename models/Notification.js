@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const notificationSchema = new mongoose.Schema({
-  recipient_id:   { type: mongoose.Schema.Types.ObjectId, ref: "Employee", required: true },
+  recipient_id:   { type: mongoose.Schema.Types.ObjectId, ref: "Employee", required: false },
   recipient_role: { type: String, enum: ["employee", "hr"], required: true },
 
   // ✅ Types matching your existing frontend TYPE_META

@@ -159,6 +159,9 @@ router.post("/login", async (req, res) => {
 
 
 // ================= UPLOAD DOCUMENT =================
+// ================= UPLOAD DOCUMENT =================
+// 🔥 ONLY THIS ROUTE CHANGED — replace this function in your employee route file
+
 router.post("/upload-doc", (req, res) => {
 
   upload.single("file")(req, res, async (err) => {
@@ -190,7 +193,6 @@ router.post("/upload-doc", (req, res) => {
 
       await newDoc.save();
 
-
       // CHECK REQUIRED DOCS
       const requiredDocs = [
         "Aadhaar",
@@ -202,21 +204,15 @@ router.post("/upload-doc", (req, res) => {
       ];
 
       const uploadedDocs = await Document.find({ employeeId });
-
       const uploadedTypes = uploadedDocs.map(d => d.docType);
+      const allUploaded = requiredDocs.every(doc => uploadedTypes.includes(doc));
 
-      const allUploaded = requiredDocs.every(doc =>
-        uploadedTypes.includes(doc)
-      );
-
-
-      if (allUploaded) {
-
-        await Employee.findByIdAndUpdate(employeeId, {
-          documentsCompleted: true
-        });
-
-      }
+      // 🔥 FIX: Always set status to "pending" when a new doc is uploaded
+      // This ensures HR can see the employee in the Pending list
+      await Employee.findByIdAndUpdate(employeeId, {
+        status: "pending",
+        documentsCompleted: allUploaded ? true : undefined
+      });
 
       res.json({
         message: "Uploaded successfully",
@@ -459,6 +455,37 @@ router.get("/employees/department-distribution", async (req, res) => {
     res.json({ data: dist });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+// ================= SAVE SOCIAL LINK (LinkedIn / Facebook) =================
+// Add this route to your employee.js file (before module.exports)
+
+router.post("/save-link", async (req, res) => {
+  try {
+    const { employeeId, docType, url } = req.body;
+
+    if (!employeeId) return res.status(400).json({ message: "EMPLOYEE_ID_MISSING" });
+    if (!url)        return res.status(400).json({ message: "URL_MISSING" });
+
+    // Check if already exists
+    const existingDoc = await Document.findOne({ employeeId, docType });
+
+    if (existingDoc) {
+      // Update existing
+      await Document.findByIdAndUpdate(existingDoc._id, { fileUrl: url });
+    } else {
+      // Create new
+      await Document.create({ employeeId, docType, fileUrl: url });
+    }
+
+    // Set status to pending so HR can see it
+    await Employee.findByIdAndUpdate(employeeId, { status: "pending" });
+
+    res.json({ message: "Link saved successfully" });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Failed to save link" });
   }
 });
 

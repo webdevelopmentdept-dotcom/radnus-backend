@@ -91,4 +91,30 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// ✅ Add — HR all notifications (no ID needed)
+router.get("/hr/all", async (req, res) => {
+  try {
+    const notifications = await Notification.find({
+      recipient_role: "hr"
+    }).sort({ createdAt: -1 }).limit(50);
+    const unreadCount = notifications.filter(n => !n.isRead).length;
+    res.json({ success: true, data: notifications, unreadCount });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ✅ Add — HR mark all read
+router.put("/mark-all-read/hr", async (req, res) => {
+  try {
+    await Notification.updateMany(
+      { recipient_role: "hr", isRead: false },
+      { isRead: true }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

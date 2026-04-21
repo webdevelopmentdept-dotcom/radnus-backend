@@ -55,7 +55,6 @@ const partnerRoutes = require("./routes/partnerRoutes");
 const leadRoutes = require("./routes/leadRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 
-
 // HR / Training Modules
 const hrAuthRoutes = require("./routes/hrAuth");
 const hrApplyRoutes = require("./routes/hrApply");
@@ -96,6 +95,7 @@ const leadershipRoutes = require("./routes/leadership.routes");
 const retentionRoutes = require("./routes/retention.routes");
 const alumniRoutes = require("./routes/alumniRoutes");
 const trainingRoutes = require("./routes/trainingrcaRoutes");
+const appraisalRoutes = require("./routes/appraisalRoutes");
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
@@ -127,7 +127,6 @@ app.use("/api/retention", retentionRoutes);
 app.use("/api", alumniRoutes);
 app.use("/api", trainingRoutes);
 
-
 // HR Modules
 app.use("/api/hr", hrAuthRoutes);
 app.use("/api/hr", hrApplyRoutes);
@@ -138,6 +137,11 @@ app.use('/api/wellness', wellnessRoutes);
 app.use('/api/wellnesshr', require('./routes/wellnesshr'));
 app.use('/api/wellnessemployee', require('./routes/wellnessemployee'));
 app.use('/api/employee-auth', require('./routes/employeeAuth'));
+app.use("/api/appraisals", appraisalRoutes);
+app.use("/api/incentive-plans",       require("./routes/incentivePlans"));
+app.use("/api/incentive-assignments", require("./routes/incentiveAssignments"));
+app.use("/api/incentive-results",     require("./routes/incentiveResults"));
+
 
 // Applicants & Admin
 app.use("/api/applicants", applicantRoutes);
