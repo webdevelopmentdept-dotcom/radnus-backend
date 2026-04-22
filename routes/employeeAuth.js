@@ -46,13 +46,24 @@ const upload = multer({
 });
 
 // ================= AUTO EMPLOYEE ID GENERATOR =================
+// const generateEmployeeId = async () => {
+//   const existingCount = await Employee.countDocuments();
+//   const counter = await Counter.findOneAndUpdate(
+//     { name: "employeeId" },
+//     { $set: { seq: existingCount + 1 } },
+//     { new: true, upsert: true }
+//   );
+//   return "EMP-" + String(counter.seq).padStart(3, "0");
+// };
+
 const generateEmployeeId = async () => {
-  const existingCount = await Employee.countDocuments();
+
   const counter = await Counter.findOneAndUpdate(
     { name: "employeeId" },
-    { $set: { seq: existingCount + 1 } },
+    { $inc: { seq: 1 } },
     { new: true, upsert: true }
   );
+
   return "EMP-" + String(counter.seq).padStart(3, "0");
 };
  
@@ -110,14 +121,12 @@ router.post("/register", async (req, res) => {
     });
 
   } catch (err) {
+  console.log("REGISTER ERROR:", err);
 
-    console.log(err);
-
-    res.status(500).json({
-      message: "SERVER_ERROR"
-    });
-
-  }
+  res.status(500).json({
+    message: err.message
+  });
+}
 
 });
 
