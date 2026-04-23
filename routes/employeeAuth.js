@@ -19,7 +19,7 @@ const storage = new CloudinaryStorage({
       folder: "documents",
       resource_type: "auto",
       public_id: Date.now() + "-" + file.originalname
-    };          
+    };
   }
 });
 
@@ -66,7 +66,7 @@ const generateEmployeeId = async () => {
 
   return "EMP-" + String(counter.seq).padStart(3, "0");
 };
- 
+
 // ================= REGISTER =================
 router.post("/register", async (req, res) => {
 
@@ -121,12 +121,12 @@ router.post("/register", async (req, res) => {
     });
 
   } catch (err) {
-  console.log("REGISTER ERROR:", err);
+    console.log("REGISTER ERROR:", err);
 
-  res.status(500).json({
-    message: err.message
-  });
-}
+    res.status(500).json({
+      message: err.message
+    });
+  }
 
 });
 
@@ -173,28 +173,28 @@ router.post("/upload-doc", (req, res) => {
     if (err) {
       return res.status(400).json({ message: err.message });
     }
- 
+
     try {
       const { employeeId, docType } = req.body;
- 
+
       if (!employeeId)
         return res.status(400).json({ message: "EMPLOYEE_ID_MISSING" });
- 
+
       if (!req.file)
         return res.status(400).json({ message: "NO_FILE_UPLOADED" });
- 
+
       const existingDoc = await Document.findOne({ employeeId, docType });
       if (existingDoc)
         return res.status(400).json({ message: "DOCUMENT_ALREADY_UPLOADED" });
- 
+
       const newDoc = new Document({
         employeeId,
         docType,
         fileUrl: req.file.path
       });
- 
+
       await newDoc.save();
- 
+
       // ✅ UPDATED: Ration Card Front & Back added as required docs
       const requiredDocs = [
         "Aadhaar",
@@ -207,21 +207,21 @@ router.post("/upload-doc", (req, res) => {
         "Ration Card Front",
         "Ration Card Back"
       ];
- 
+
       const uploadedDocs = await Document.find({ employeeId });
       const uploadedTypes = uploadedDocs.map(d => d.docType);
       const allUploaded = requiredDocs.every(doc => uploadedTypes.includes(doc));
- 
+
       await Employee.findByIdAndUpdate(employeeId, {
         status: "pending",
         documentsCompleted: allUploaded ? true : undefined
       });
- 
+
       res.json({
         message: "Uploaded successfully",
         fileUrl: req.file.path
       });
- 
+
     } catch {
       res.status(500).json({ message: "Upload failed" });
     }
@@ -306,7 +306,7 @@ router.post("/upload-profile", (req, res) => {
 router.put("/complete-documents", async (req, res) => {
   try {
     const { employeeId } = req.body;
- 
+
     // ✅ UPDATED: Ration Card Front & Back added as required docs
     const requiredDocs = [
       "Aadhaar",
@@ -319,20 +319,20 @@ router.put("/complete-documents", async (req, res) => {
       "Ration Card Front",
       "Ration Card Back"
     ];
- 
+
     const uploaded = await Document.find({ employeeId });
     const types = uploaded.map(d => d.docType);
     const ok = requiredDocs.every(doc => types.includes(doc));
- 
+
     if (!ok)
       return res.status(400).json({ message: "UPLOAD_ALL_REQUIRED_DOCS_FIRST" });
- 
+
     await Employee.findByIdAndUpdate(employeeId, {
       documentsCompleted: true
     });
- 
+
     res.json({ message: "Documents completed" });
- 
+
   } catch {
     res.status(500).json({ message: "Error updating" });
   }
@@ -355,6 +355,9 @@ router.get("/me/:id", async (req, res) => {
       name: user.name,
       email: user.email,
       mobile: user.mobile,
+      altMobile: user.altMobile,
+      dob: user.dob,
+      address: user.address,
       department: user.department,
       designation: user.designation,
       status: user.status,
@@ -374,33 +377,56 @@ router.get("/me/:id", async (req, res) => {
 
 
 // ================= UPDATE PROFILE =================
+// router.put("/update-profile", async (req, res) => {
+
+//   try {
+
+//     const {
+//       employeeId,
+//       name,
+//       email,
+//       mobile,
+//       altMobile,
+//       dob,
+//       address,
+//       department,
+//       designation
+//     } = req.body;
+
+//     const updatedEmployee = await Employee.findByIdAndUpdate(
+//       employeeId,
+//       { name, email, mobile, altMobile, dob, address, department, designation },
+//       { new: true }
+//     );
+//     res.json(updatedEmployee);
+
+//   } catch {
+
+//     res.status(500).json({ message: "Profile update failed" });
+
+//   }
+
+// });
+
 router.put("/update-profile", async (req, res) => {
-
   try {
+    const { employeeId, name, email, mobile, altMobile, dob, address, department, designation } = req.body;
 
-    const {
-      employeeId,
-      name,
-      email,
-      mobile,
-      department,
-      designation
-    } = req.body;
+    console.log("🔍 UPDATE BODY:", req.body); // ✅ இந்த line add பண்ணு
 
     const updatedEmployee = await Employee.findByIdAndUpdate(
       employeeId,
-      { name, email, mobile, department, designation },
+      { name, email, mobile, altMobile, dob, address, department, designation },
       { new: true }
     );
 
+    console.log("✅ UPDATED:", updatedEmployee); // ✅ இந்த line add பண்ணு
+
     res.json(updatedEmployee);
-
-  } catch {
-
+  } catch(err) {
+    console.log("❌ ERROR:", err);
     res.status(500).json({ message: "Profile update failed" });
-
   }
-
 });
 // ================= DELETE EMPLOYEE =================
 router.delete("/employees/:id", async (req, res) => {
@@ -461,7 +487,7 @@ router.post("/save-link", async (req, res) => {
     const { employeeId, docType, url } = req.body;
 
     if (!employeeId) return res.status(400).json({ message: "EMPLOYEE_ID_MISSING" });
-    if (!url)        return res.status(400).json({ message: "URL_MISSING" });
+    if (!url) return res.status(400).json({ message: "URL_MISSING" });
 
     // Check if already exists
     const existingDoc = await Document.findOne({ employeeId, docType });

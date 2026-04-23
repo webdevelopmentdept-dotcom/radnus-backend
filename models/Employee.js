@@ -11,9 +11,13 @@ const employeeSchema = new mongoose.Schema({
 mobile: {
   type: String,
   unique: true
-}
+},
 
-,
+// ✅ இந்த 3 fields add பண்ணு
+altMobile: { type: String, default: "" },
+dob:       { type: String, default: "" },
+address:   { type: String, default: "" },
+
   department: String,
   designation: String,
 
