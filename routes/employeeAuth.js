@@ -168,74 +168,64 @@ router.post("/login", async (req, res) => {
 
 
 // ================= UPLOAD DOCUMENT =================
-// ================= UPLOAD DOCUMENT =================
-// 🔥 ONLY THIS ROUTE CHANGED — replace this function in your employee route file
-
 router.post("/upload-doc", (req, res) => {
-
   upload.single("file")(req, res, async (err) => {
-
     if (err) {
       return res.status(400).json({ message: err.message });
     }
-
+ 
     try {
-
       const { employeeId, docType } = req.body;
-
+ 
       if (!employeeId)
         return res.status(400).json({ message: "EMPLOYEE_ID_MISSING" });
-
+ 
       if (!req.file)
         return res.status(400).json({ message: "NO_FILE_UPLOADED" });
-
+ 
       const existingDoc = await Document.findOne({ employeeId, docType });
-
       if (existingDoc)
         return res.status(400).json({ message: "DOCUMENT_ALREADY_UPLOADED" });
-
+ 
       const newDoc = new Document({
         employeeId,
         docType,
         fileUrl: req.file.path
       });
-
+ 
       await newDoc.save();
-
-      // CHECK REQUIRED DOCS
+ 
+      // ✅ UPDATED: Ration Card Front & Back added as required docs
       const requiredDocs = [
         "Aadhaar",
         "PAN",
         "Passport Photo",
         "10th Marksheet",
         "12th Marksheet",
-        "Resume"
+        "Resume",
+        "Bank Passbook",
+        "Ration Card Front",
+        "Ration Card Back"
       ];
-
+ 
       const uploadedDocs = await Document.find({ employeeId });
       const uploadedTypes = uploadedDocs.map(d => d.docType);
       const allUploaded = requiredDocs.every(doc => uploadedTypes.includes(doc));
-
-      // 🔥 FIX: Always set status to "pending" when a new doc is uploaded
-      // This ensures HR can see the employee in the Pending list
+ 
       await Employee.findByIdAndUpdate(employeeId, {
         status: "pending",
         documentsCompleted: allUploaded ? true : undefined
       });
-
+ 
       res.json({
         message: "Uploaded successfully",
         fileUrl: req.file.path
       });
-
+ 
     } catch {
-
       res.status(500).json({ message: "Upload failed" });
-
     }
-
   });
-
 });
 
 
@@ -314,41 +304,38 @@ router.post("/upload-profile", (req, res) => {
 
 // ================= COMPLETE DOCUMENTS =================
 router.put("/complete-documents", async (req, res) => {
-
   try {
-
     const { employeeId } = req.body;
-
+ 
+    // ✅ UPDATED: Ration Card Front & Back added as required docs
     const requiredDocs = [
       "Aadhaar",
       "PAN",
       "Passport Photo",
       "10th Marksheet",
       "12th Marksheet",
-      "Resume"
+      "Resume",
+      "Bank Passbook",
+      "Ration Card Front",
+      "Ration Card Back"
     ];
-
+ 
     const uploaded = await Document.find({ employeeId });
-
     const types = uploaded.map(d => d.docType);
-
     const ok = requiredDocs.every(doc => types.includes(doc));
-
+ 
     if (!ok)
       return res.status(400).json({ message: "UPLOAD_ALL_REQUIRED_DOCS_FIRST" });
-
+ 
     await Employee.findByIdAndUpdate(employeeId, {
       documentsCompleted: true
     });
-
+ 
     res.json({ message: "Documents completed" });
-
+ 
   } catch {
-
     res.status(500).json({ message: "Error updating" });
-
   }
-
 });
 
 
