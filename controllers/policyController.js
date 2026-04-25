@@ -146,7 +146,7 @@ exports.getPolicyStats = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
+  
 // HR - Soft delete
 exports.deletePolicy = async (req, res) => {
   try {
