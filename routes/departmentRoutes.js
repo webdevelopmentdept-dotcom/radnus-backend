@@ -12,8 +12,8 @@ router.get("/", async (req, res) => {
       {
         $lookup: {
           from: "employees",
-          localField: "_id",
-          foreignField: "department",
+          localField: "name",        // ✅ CHANGED: was "_id"
+          foreignField: "department", // ✅ matches Employee.department (String)
           as: "employees",
         },
       },
@@ -24,7 +24,7 @@ router.get("/", async (req, res) => {
               $filter: {
                 input: "$employees",
                 as: "emp",
-                cond: { $eq: ["$$emp.status", "active"] },
+                cond: { $eq: ["$$emp.status", "active"] },  // ✅ only approved active employees
               },
             },
           },
@@ -52,10 +52,27 @@ router.get("/active", async (req, res) => {
 });
 
 // ── GET /:id/employee-count ──
+// router.get("/:id/employee-count", async (req, res) => {
+//   try {
+//     const count = await Employee.countDocuments({
+//       department: req.params.id,
+//       status: "active",
+//     });
+//     res.json({ success: true, count });
+//   } catch {
+//     res.json({ success: true, count: 0 });
+//   }
+// });
+
+
+// ── GET /:id/employee-count ──
 router.get("/:id/employee-count", async (req, res) => {
   try {
+    const dept = await Department.findById(req.params.id).lean();
+    if (!dept) return res.json({ success: true, count: 0 });
+
     const count = await Employee.countDocuments({
-      department: req.params.id,
+      department: dept.name,   // ✅ CHANGED: match by name string
       status: "active",
     });
     res.json({ success: true, count });
@@ -63,6 +80,7 @@ router.get("/:id/employee-count", async (req, res) => {
     res.json({ success: true, count: 0 });
   }
 });
+
 
 // ── POST — create department ──
 router.post("/", async (req, res) => {

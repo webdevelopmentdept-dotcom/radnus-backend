@@ -97,6 +97,8 @@ const alumniRoutes = require("./routes/alumniRoutes");
 const trainingRoutes = require("./routes/trainingrcaRoutes");
 const appraisalRoutes = require("./routes/appraisalRoutes");
 const policyRoutes = require("./routes/policyRoutes");
+const sopRoutes = require("./routes/sopRoutes");
+const policyQuizRoutes = require("./routes/policyQuizRoutes");
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
@@ -143,6 +145,8 @@ app.use("/api/incentive-plans",       require("./routes/incentivePlans"));
 app.use("/api/incentive-assignments", require("./routes/incentiveAssignments"));
 app.use("/api/incentive-results",     require("./routes/incentiveResults"));
 app.use("/api/policies", policyRoutes);
+app.use("/api/sops", sopRoutes);
+app.use("/api/policy-quiz", policyQuizRoutes);
 
 // Applicants & Admin
 app.use("/api/applicants", applicantRoutes);

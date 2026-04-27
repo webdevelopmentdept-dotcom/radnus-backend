@@ -155,7 +155,8 @@ router.post("/login", async (req, res) => {
     res.json({
       token,
       documentsCompleted: !!user.documentsCompleted,
-      id: user._id
+      id: user._id,
+       employeeId: user.employeeId 
     });
 
   } catch {
@@ -508,6 +509,19 @@ router.post("/save-link", async (req, res) => {
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Failed to save link" });
+  }
+});
+
+
+// ================= GET EMPLOYEE BY EMPLOYEE ID =================
+router.get("/employees/:id", async (req, res) => {
+  try {
+    const employee = await Employee.findOne({ employeeId: req.params.id }); // ✅ employeeId மூலம் தேடு
+    if (!employee)
+      return res.status(404).json({ message: "Employee not found" });
+    res.json({ data: employee });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
