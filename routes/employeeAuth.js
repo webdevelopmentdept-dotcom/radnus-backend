@@ -10,6 +10,8 @@ const Counter = require("../models/Counter");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
 
+const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
 // ================= CLOUDINARY STORAGE =================
 const storage = new CloudinaryStorage({
@@ -316,9 +318,9 @@ router.put("/complete-documents", async (req, res) => {
       "10th Marksheet",
       "12th Marksheet",
       "Resume",
-      "Bank Passbook",
-      "Ration Card Front",
-      "Ration Card Back"
+      "Bank Passbook"
+      // "Ration Card Front",
+      // "Ration Card Back"
     ];
 
     const uploaded = await Document.find({ employeeId });
@@ -522,6 +524,96 @@ router.get("/employees/:id", async (req, res) => {
     res.json({ data: employee });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+
+// ================= FORGOT PASSWORD =================
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await Employee.findOne({ email });
+    if (!user)
+      return res.status(404).json({ message: "EMAIL_NOT_FOUND" });
+
+    // Generate secure token
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiry = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+    // Save token + expiry to employee
+    await Employee.findByIdAndUpdate(user._id, {
+      resetPasswordToken: token,
+      resetPasswordExpiry: expiry,
+    });
+
+    // Build reset link
+    const resetLink = `${process.env.FRONTEND_URL}/employee/reset-password/${token}`;
+
+    // Send email
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.MAIL_USER,   // your Gmail
+        pass: process.env.MAIL_PASS,   // Gmail App Password
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"HR Portal Radnus" <${process.env.MAIL_USER}>`,
+      to: user.email,
+      subject: "Reset Your Password — HR Portal",
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px">
+          <h2 style="color:#1e40af">Password Reset Request</h2>
+          <p>Hi <strong>${user.name}</strong>,</p>
+          <p>Click the button below to reset your password. This link is valid for <strong>15 minutes</strong>.</p>
+          <a href="${resetLink}" 
+             style="display:inline-block;margin:16px 0;padding:12px 28px;background:#1e40af;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
+            Reset Password
+          </a>
+          <p style="color:#6b7280;font-size:13px">If you didn't request this, ignore this email.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb">
+          <p style="color:#9ca3af;font-size:12px">HR Portal &bull; Link expires in 15 minutes</p>
+        </div>
+      `,
+    });
+
+    res.json({ message: "RESET_LINK_SENT" });
+
+  } catch (err) {
+    console.log("FORGOT PASSWORD ERROR:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+
+// ================= RESET PASSWORD =================
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    const user = await Employee.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpiry: { $gt: Date.now() }, // not expired
+    });
+
+    if (!user)
+      return res.status(400).json({ message: "TOKEN_INVALID_OR_EXPIRED" });
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+
+    await Employee.findByIdAndUpdate(user._id, {
+      password: hashed,
+      resetPasswordToken: undefined,
+      resetPasswordExpiry: undefined,
+    });
+
+    res.json({ message: "PASSWORD_RESET_SUCCESS" });
+
+  } catch (err) {
+    console.log("RESET PASSWORD ERROR:", err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 

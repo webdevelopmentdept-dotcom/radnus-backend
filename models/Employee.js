@@ -45,6 +45,10 @@ address:   { type: String, default: "" },
 profileImage: { type: String, default: "" } ,
 
 
+resetPasswordToken:  { type: String, default: null },
+resetPasswordExpiry: { type: Number, default: null },
+
+
 leadershipTrack: {
     stage: { type: Number, min: 1, max: 5, default: null },
     stageLabel: { type: String, default: "" },
