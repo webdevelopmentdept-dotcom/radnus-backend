@@ -561,6 +561,8 @@ router.post("/forgot-password", async (req, res) => {
   },
 });
 
+
+
     await transporter.sendMail({
       from: `"HR Portal Radnus" <${process.env.MAIL_USER}>`,
       to: user.email,

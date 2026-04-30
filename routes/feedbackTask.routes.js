@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const FeedbackTask = require("../models/FeedbackTask");
 
-// GET tasks for employee
+
 router.get("/:employeeId", async (req, res) => {
   try {
     const tasks = await FeedbackTask.find({
