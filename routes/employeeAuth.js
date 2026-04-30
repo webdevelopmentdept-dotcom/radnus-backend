@@ -552,12 +552,14 @@ router.post("/forgot-password", async (req, res) => {
 
     // Send email
     const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.MAIL_USER,   // your Gmail
-        pass: process.env.MAIL_PASS,   // Gmail App Password
-      },
-    });
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.MAIL_USER,
+    pass: process.env.MAIL_PASS,
+  },
+});
 
     await transporter.sendMail({
       from: `"HR Portal Radnus" <${process.env.MAIL_USER}>`,
