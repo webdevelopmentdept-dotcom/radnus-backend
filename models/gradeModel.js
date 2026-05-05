@@ -39,6 +39,11 @@ const gradeSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    salary_band_mid: {      // ✅ இதை add பண்ணுங்க
+  type: Number,
+  default: null,
+},
+
     salary_band_max: {
       type: Number,
       default: null,

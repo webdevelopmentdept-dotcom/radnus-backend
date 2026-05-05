@@ -10,20 +10,27 @@ router.post('/', async (req, res) => {
   try {
     const { employee_id, template_id, period, period_type, notes, assigned_by } = req.body;
 
+    if (!notes || !notes.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Notes / Instructions are required'
+      });
+    }
+
     const existing = await KpiAssignment.findOne({
       employee_id,
       period,
       status: 'active'
     });
     if (existing) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'KPI already assigned to this employee for the selected period' 
+      return res.status(400).json({
+        success: false,
+        message: 'KPI already assigned to this employee for the selected period'
       });
     }
 
     const assignment = new KpiAssignment({
-      employee_id, template_id, period, period_type, notes, assigned_by
+      employee_id, template_id, period, period_type, notes: notes.trim(), assigned_by
     });
     await assignment.save();
 
@@ -42,7 +49,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ✅ GET /api/kpi-assignments/top-performers — முதல்ல வேணும்
+// GET /api/kpi-assignments/top-performers — must be before /:id routes
 router.get('/top-performers', async (req, res) => {
   try {
     const assignments = await KpiAssignment.find({ status: { $in: ['active', 'completed'] } })
@@ -110,13 +117,70 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ✅ GET /api/kpi-assignments/:employeeId — கடைசில வேணும்
+// PUT /api/kpi-assignments/:id — Edit assignment
+router.put('/:id', async (req, res) => {
+  try {
+
+      console.log("PUT hit — id:", req.params.id); 
+    console.log("Body:", req.body);       
+    const { employee_id, template_id, period, period_type, notes } = req.body;
+
+    if (!notes || !notes.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Notes / Instructions are required'
+      });
+    }
+
+    const updated = await KpiAssignment.findByIdAndUpdate(
+      req.params.id,
+      {
+        employee_id,
+        template_id,
+        period,
+        period_type,
+        notes: notes.trim()
+      },
+      { new: true, runValidators: true }
+    )
+      .populate('employee_id', 'name email department designation')
+      .populate('template_id', 'template_name role department kpi_items');
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Assignment not found' });
+    }
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// PATCH /api/kpi-assignments/:id/cancel
+router.patch('/:id/cancel', async (req, res) => {
+  try {
+    const updated = await KpiAssignment.findByIdAndUpdate(
+      req.params.id,
+      { status: 'cancelled' },
+      { new: true }
+    );
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Assignment not found' });
+    }
+    res.json({ success: true, message: 'Assignment cancelled', data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/kpi-assignments/:employeeId — Single employee assignment
 router.get('/:employeeId', async (req, res) => {
   try {
     const assignment = await KpiAssignment.findOne({
       employee_id: req.params.employeeId,
       status: { $in: ['active', 'completed'] }
-    }).populate('template_id')
+    })
+      .populate('template_id')
       .sort({ createdAt: -1 });
 
     res.json({ success: true, data: assignment || null });
@@ -128,8 +192,11 @@ router.get('/:employeeId', async (req, res) => {
 // DELETE /api/kpi-assignments/:id
 router.delete('/:id', async (req, res) => {
   try {
-    await KpiAssignment.findByIdAndUpdate(req.params.id, { status: 'cancelled' });
-    res.json({ success: true, message: 'Assignment cancelled' });
+    const deleted = await KpiAssignment.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Assignment not found' });
+    }
+    res.json({ success: true, message: 'Assignment deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

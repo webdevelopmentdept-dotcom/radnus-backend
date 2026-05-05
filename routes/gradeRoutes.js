@@ -46,7 +46,7 @@ router.get("/:id", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
-    const { level, designation, experience_range, core_responsibility, performance_expectation, bgr_stage, salary_band_min, salary_band_max, notes } = req.body;
+    const { level, designation, experience_range, core_responsibility, performance_expectation, bgr_stage, salary_band_min, salary_band_mid, salary_band_max, notes } = req.body;
 
     if (!level || !designation || !experience_range || !bgr_stage)
       return res.status(400).json({ success: false, message: "Level, Designation, Experience Range and BGR Stage are required" });
@@ -63,6 +63,7 @@ router.post("/", async (req, res) => {
       performance_expectation: performance_expectation || "",
       bgr_stage,
       salary_band_min: salary_band_min || null,
+      salary_band_mid: salary_band_mid || null,
       salary_band_max: salary_band_max || null,
       notes: notes || "",
     });
@@ -78,8 +79,7 @@ router.post("/", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.put("/:id", async (req, res) => {
   try {
-    const { level, designation, experience_range, core_responsibility, performance_expectation, bgr_stage, salary_band_min, salary_band_max, notes } = req.body;
-
+const { level, designation, experience_range, core_responsibility, performance_expectation, bgr_stage, salary_band_min, salary_band_mid, salary_band_max, notes } = req.body;
     if (!level || !designation || !experience_range || !bgr_stage)
       return res.status(400).json({ success: false, message: "Level, Designation, Experience Range and BGR Stage are required" });
 
@@ -97,6 +97,7 @@ router.put("/:id", async (req, res) => {
         performance_expectation: performance_expectation || "",
         bgr_stage,
         salary_band_min: salary_band_min || null,
+        salary_band_mid: salary_band_mid || null,
         salary_band_max: salary_band_max || null,
         notes: notes || "",
       },
