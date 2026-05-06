@@ -504,7 +504,7 @@ router.post("/forgot-password", async (req, res) => {
     const resend = new Resend(process.env.RESEND_API_KEY);
 
     await resend.emails.send({
-      from: "HR Portal <onboarding@resend.dev>",
+      from: "HR Portal <noreply@service.radnus.in>",
       to: user.email,
       subject: "Reset Your Password — HR Portal",
       html: `
