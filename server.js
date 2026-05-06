@@ -99,6 +99,7 @@ const appraisalRoutes = require("./routes/appraisalRoutes");
 const policyRoutes = require("./routes/policyRoutes");
 const sopRoutes = require("./routes/sopRoutes");
 const policyQuizRoutes = require("./routes/policyQuizRoutes");
+const programRoutes = require("./routes/programRoutes");
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
@@ -129,6 +130,7 @@ app.use("/api/leadership", leadershipRoutes);
 app.use("/api/retention", retentionRoutes);
 app.use("/api", alumniRoutes);
 app.use("/api", trainingRoutes);
+app.use("/api/programs", programRoutes);
 
 // HR Modules
 app.use("/api/hr", hrAuthRoutes);
