@@ -10,7 +10,7 @@ const Counter = require("../models/Counter");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
 
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 const crypto = require("crypto");
 
 // ================= CLOUDINARY STORAGE =================
@@ -48,16 +48,6 @@ const upload = multer({
 });
 
 // ================= AUTO EMPLOYEE ID GENERATOR =================
-// const generateEmployeeId = async () => {
-//   const existingCount = await Employee.countDocuments();
-//   const counter = await Counter.findOneAndUpdate(
-//     { name: "employeeId" },
-//     { $set: { seq: existingCount + 1 } },
-//     { new: true, upsert: true }
-//   );
-//   return "EMP-" + String(counter.seq).padStart(3, "0");
-// };
-
 const generateEmployeeId = async () => {
 
   const counter = await Counter.findOneAndUpdate(
@@ -158,7 +148,7 @@ router.post("/login", async (req, res) => {
       token,
       documentsCompleted: !!user.documentsCompleted,
       id: user._id,
-       employeeId: user.employeeId 
+      employeeId: user.employeeId
     });
 
   } catch {
@@ -198,7 +188,6 @@ router.post("/upload-doc", (req, res) => {
 
       await newDoc.save();
 
-      // ✅ UPDATED: Ration Card Front & Back added as required docs
       const requiredDocs = [
         "Aadhaar",
         "PAN",
@@ -310,7 +299,6 @@ router.put("/complete-documents", async (req, res) => {
   try {
     const { employeeId } = req.body;
 
-    // ✅ UPDATED: Ration Card Front & Back added as required docs
     const requiredDocs = [
       "Aadhaar",
       "PAN",
@@ -319,8 +307,6 @@ router.put("/complete-documents", async (req, res) => {
       "12th Marksheet",
       "Resume",
       "Bank Passbook"
-      // "Ration Card Front",
-      // "Ration Card Back"
     ];
 
     const uploaded = await Document.find({ employeeId });
@@ -380,42 +366,11 @@ router.get("/me/:id", async (req, res) => {
 
 
 // ================= UPDATE PROFILE =================
-// router.put("/update-profile", async (req, res) => {
-
-//   try {
-
-//     const {
-//       employeeId,
-//       name,
-//       email,
-//       mobile,
-//       altMobile,
-//       dob,
-//       address,
-//       department,
-//       designation
-//     } = req.body;
-
-//     const updatedEmployee = await Employee.findByIdAndUpdate(
-//       employeeId,
-//       { name, email, mobile, altMobile, dob, address, department, designation },
-//       { new: true }
-//     );
-//     res.json(updatedEmployee);
-
-//   } catch {
-
-//     res.status(500).json({ message: "Profile update failed" });
-
-//   }
-
-// });
-
 router.put("/update-profile", async (req, res) => {
   try {
     const { employeeId, name, email, mobile, altMobile, dob, address, department, designation } = req.body;
 
-    console.log("🔍 UPDATE BODY:", req.body); // ✅ இந்த line add பண்ணு
+    console.log("🔍 UPDATE BODY:", req.body);
 
     const updatedEmployee = await Employee.findByIdAndUpdate(
       employeeId,
@@ -423,7 +378,7 @@ router.put("/update-profile", async (req, res) => {
       { new: true }
     );
 
-    console.log("✅ UPDATED:", updatedEmployee); // ✅ இந்த line add பண்ணு
+    console.log("✅ UPDATED:", updatedEmployee);
 
     res.json(updatedEmployee);
   } catch(err) {
@@ -431,16 +386,15 @@ router.put("/update-profile", async (req, res) => {
     res.status(500).json({ message: "Profile update failed" });
   }
 });
+
+
 // ================= DELETE EMPLOYEE =================
 router.delete("/employees/:id", async (req, res) => {
   try {
 
     const employeeId = req.params.id;
 
-    // delete employee
     await Employee.findByIdAndDelete(employeeId);
-
-    // delete all documents of employee
     await Document.deleteMany({ employeeId });
 
     res.json({
@@ -458,7 +412,8 @@ router.delete("/employees/:id", async (req, res) => {
   }
 });
 
-// ✅ GET /api/employees — status filter with
+
+// ================= GET ALL EMPLOYEES =================
 router.get("/employees", async (req, res) => {
   try {
     const { status } = req.query;
@@ -470,7 +425,8 @@ router.get("/employees", async (req, res) => {
   }
 });
 
-// ✅ GET /api/employees/department-distribution
+
+// ================= DEPARTMENT DISTRIBUTION =================
 router.get("/employees/department-distribution", async (req, res) => {
   try {
     const dist = await Employee.aggregate([
@@ -482,9 +438,9 @@ router.get("/employees/department-distribution", async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-// ================= SAVE SOCIAL LINK (LinkedIn / Facebook) =================
-// Add this route to your employee.js file (before module.exports)
 
+
+// ================= SAVE SOCIAL LINK =================
 router.post("/save-link", async (req, res) => {
   try {
     const { employeeId, docType, url } = req.body;
@@ -492,18 +448,14 @@ router.post("/save-link", async (req, res) => {
     if (!employeeId) return res.status(400).json({ message: "EMPLOYEE_ID_MISSING" });
     if (!url) return res.status(400).json({ message: "URL_MISSING" });
 
-    // Check if already exists
     const existingDoc = await Document.findOne({ employeeId, docType });
 
     if (existingDoc) {
-      // Update existing
       await Document.findByIdAndUpdate(existingDoc._id, { fileUrl: url });
     } else {
-      // Create new
       await Document.create({ employeeId, docType, fileUrl: url });
     }
 
-    // Set status to pending so HR can see it
     await Employee.findByIdAndUpdate(employeeId, { status: "pending" });
 
     res.json({ message: "Link saved successfully" });
@@ -518,7 +470,7 @@ router.post("/save-link", async (req, res) => {
 // ================= GET EMPLOYEE BY EMPLOYEE ID =================
 router.get("/employees/:id", async (req, res) => {
   try {
-    const employee = await Employee.findOne({ employeeId: req.params.id }); // ✅ employeeId மூலம் தேடு
+    const employee = await Employee.findOne({ employeeId: req.params.id });
     if (!employee)
       return res.status(404).json({ message: "Employee not found" });
     res.json({ data: employee });
@@ -541,30 +493,18 @@ router.post("/forgot-password", async (req, res) => {
     const token = crypto.randomBytes(32).toString("hex");
     const expiry = Date.now() + 15 * 60 * 1000; // 15 minutes
 
-    // Save token + expiry to employee
     await Employee.findByIdAndUpdate(user._id, {
       resetPasswordToken: token,
       resetPasswordExpiry: expiry,
     });
 
-    // Build reset link
     const resetLink = `${process.env.FRONTEND_URL}/employee/reset-password/${token}`;
 
-    // Send email
-    const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS,
-  }
-});
+    // ================= RESEND EMAIL =================
+    const resend = new Resend(process.env.RESEND_API_KEY);
 
-
-
-    await transporter.sendMail({
-      from: `"HR Portal Radnus" <${process.env.MAIL_USER}>`,
+    await resend.emails.send({
+      from: "HR Portal <onboarding@resend.dev>",
       to: user.email,
       subject: "Reset Your Password — HR Portal",
       html: `
@@ -599,7 +539,7 @@ router.post("/reset-password", async (req, res) => {
 
     const user = await Employee.findOne({
       resetPasswordToken: token,
-      resetPasswordExpiry: { $gt: Date.now() }, // not expired
+      resetPasswordExpiry: { $gt: Date.now() },
     });
 
     if (!user)
