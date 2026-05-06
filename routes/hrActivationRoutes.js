@@ -155,4 +155,71 @@ router.get("/:employeeId", async (req, res) => {
   }
 });
 
+// ================= UPDATE EMPLOYEE INFO BY HR =================
+// Add this route to your activation router (routes/hr/activation.js)
+// or wherever appropriate in your backend
+
+// PUT /api/hr/employee/update/:employeeId
+router.put("/update/:employeeId", async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const {
+      name,
+      email,
+      mobile,
+      employeeId: empId,
+      department,
+      designation,
+      date_of_joining,
+      salary,
+    } = req.body;
+
+    // 1. Update Employee basic info
+    const updatedEmployee = await Employee.findByIdAndUpdate(
+      employeeId,
+      {
+        ...(name        && { name }),
+        ...(email       && { email }),
+        ...(mobile      && { mobile }),
+        ...(empId       && { employeeId: empId }),
+        ...(department  && { department }),
+        ...(designation && { designation }),
+      },
+      { new: true }
+    );
+
+    if (!updatedEmployee) {
+      return res.status(404).json({ success: false, message: "Employee not found" });
+    }
+
+    // 2. Update EmploymentDetails (department, designation, date_of_joining, salary)
+    const empDetailsUpdate = {};
+    if (department || designation || date_of_joining) {
+      empDetailsUpdate["employment.department"]    = department;
+      empDetailsUpdate["employment.designation"]   = designation;
+      empDetailsUpdate["employment.date_of_joining"] = date_of_joining;
+    }
+    if (salary) {
+      empDetailsUpdate["salary"] = salary;
+    }
+
+    if (Object.keys(empDetailsUpdate).length > 0) {
+      await EmploymentDetails.findOneAndUpdate(
+        { employee_id: employeeId },
+        { $set: empDetailsUpdate },
+        { upsert: true, new: true }
+      );
+    }
+
+    res.json({
+      success: true,
+      message: "Employee updated successfully",
+      data: updatedEmployee,
+    });
+  } catch (err) {
+    console.error("Update employee error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
