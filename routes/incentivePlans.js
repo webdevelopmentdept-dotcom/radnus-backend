@@ -3,7 +3,7 @@ const express       = require("express");
 const router        = express.Router();
 const IncentivePlan = require("../models/IncentivePlan");
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildPeriodFields(body) {
   const { period_type, period_month, period_quarter, period_half, period_year } = body;
@@ -16,37 +16,51 @@ function buildPeriodFields(body) {
   };
 }
 
+function sanitizeKpiConfigs(kpi_configs = []) {
+  return kpi_configs.map(cfg => {
+    const base = {
+      kpi_name:         cfg.kpi_name,
+      weight:           cfg.weight           || 0,
+      target:           cfg.target           || "",
+      value_type:       cfg.value_type       || "count",
+      operator:         cfg.operator         || ">=",
+      rule_label:       cfg.rule_label       || "",
+      is_admission_kpi: cfg.is_admission_kpi || false,
+      slabs:            cfg.slabs            || [],
+      program_targets:  cfg.program_targets  || [],
+      program_slabs:    cfg.program_slabs    || [],   // ✅ KEY FIX — always carry through
+    };
+    return base;
+  });
+}
+
 function buildKpiFields(body) {
-  const { kpi_template_id, kpi_configs,
-          completion_reward_type, completion_reward_value, completion_reward_label } = body;
   return {
-    kpi_template_id:         kpi_template_id  || null,
-    kpi_configs:             kpi_configs       || [],
-    completion_reward_type:  completion_reward_type  || "none",
-    completion_reward_value: completion_reward_value || 0,
-    completion_reward_label: completion_reward_label || "",
+    kpi_template_id:         body.kpi_template_id         || null,
+    kpi_configs:             sanitizeKpiConfigs(body.kpi_configs),
+    completion_reward_type:  body.completion_reward_type  || "none",
+    completion_reward_value: body.completion_reward_value || 0,
+    completion_reward_label: body.completion_reward_label || "",
   };
 }
 
 function buildStandaloneFields(body) {
-  const { standalone_metric, standalone_metric_label,
-          standalone_payout_type, standalone_payout_value, slabs } = body;
   return {
-    standalone_metric:       standalone_metric       || "manual",
-    standalone_metric_label: standalone_metric_label || "",
-    standalone_payout_type:  standalone_payout_type  || "fixed",
-    standalone_payout_value: standalone_payout_value || 0,
-    slabs:                   slabs                   || [],
+    standalone_metric:       body.standalone_metric       || "manual",
+    standalone_metric_label: body.standalone_metric_label || "",
+    standalone_payout_type:  body.standalone_payout_type  || "fixed",
+    standalone_payout_value: body.standalone_payout_value || 0,
+    slabs:                   body.slabs                   || [],
   };
 }
 
-// ── GET /api/incentive-plans ─────────────────────────────────────────────────
+// ── GET /api/incentive-plans ──────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
     const filter = {};
-    if (req.query.department)   filter.department   = req.query.department;
-    if (req.query.period_type)  filter.period_type  = req.query.period_type;
-    if (req.query.period_year)  filter.period_year  = Number(req.query.period_year);
+    if (req.query.department)  filter.department  = req.query.department;
+    if (req.query.period_type) filter.period_type = req.query.period_type;
+    if (req.query.period_year) filter.period_year = Number(req.query.period_year);
 
     const plans = await IncentivePlan.find(filter)
       .populate("kpi_template_id", "template_name role kpi_items")
@@ -70,7 +84,7 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// ── POST /api/incentive-plans ────────────────────────────────────────────────
+// ── POST /api/incentive-plans ─────────────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
     const { name, department, plan_type } = req.body;
@@ -100,7 +114,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ── PUT /api/incentive-plans/:id ─────────────────────────────────────────────
+// ── PUT /api/incentive-plans/:id ──────────────────────────────────────────────
 router.put("/:id", async (req, res) => {
   try {
     const { name, department, plan_type } = req.body;
@@ -111,13 +125,25 @@ router.put("/:id", async (req, res) => {
       department,
       plan_type: plan_type || "kpi_linked",
       ...buildPeriodFields(req.body),
-      ...(isKpi  ? buildKpiFields(req.body)        : { kpi_template_id: null, kpi_configs: [], completion_reward_type: "none", completion_reward_value: 0 }),
-      ...(!isKpi ? buildStandaloneFields(req.body) : { standalone_metric: null, standalone_metric_label: null, standalone_payout_type: null, standalone_payout_value: null, slabs: [] }),
+      ...(isKpi ? buildKpiFields(req.body) : {
+        kpi_template_id:         null,
+        kpi_configs:             [],
+        completion_reward_type:  "none",
+        completion_reward_value: 0,
+        completion_reward_label: "",
+      }),
+      ...(!isKpi ? buildStandaloneFields(req.body) : {
+        standalone_metric:       "manual",
+        standalone_metric_label: "",
+        standalone_payout_type:  "fixed",
+        standalone_payout_value: 0,
+        slabs:                   [],
+      }),
     };
 
     const plan = await IncentivePlan.findByIdAndUpdate(
       req.params.id,
-      updateData,
+      { $set: updateData },          // ✅ $set ensures nested arrays are fully replaced
       { new: true, runValidators: true }
     ).populate("kpi_template_id", "template_name role kpi_items");
 
@@ -128,7 +154,7 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// ── DELETE /api/incentive-plans/:id ─────────────────────────────────────────
+// ── DELETE /api/incentive-plans/:id ──────────────────────────────────────────
 router.delete("/:id", async (req, res) => {
   try {
     const plan = await IncentivePlan.findByIdAndDelete(req.params.id);

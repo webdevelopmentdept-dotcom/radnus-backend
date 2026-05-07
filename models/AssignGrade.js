@@ -1,4 +1,4 @@
-// models/AssignGrade.js — UPDATED with grade history
+// models/AssignGrade.js
 
 const mongoose = require("mongoose");
 
@@ -8,13 +8,14 @@ const GradeHistorySchema = new mongoose.Schema({
     ref: "Grade",
     required: true
   },
-  grade_level:      { type: String },   // snapshot: e.g. "L3"
-  grade_designation:{ type: String },   // snapshot: e.g. "Assistant Manager"
-  bgr_stage:        { type: String },   // snapshot: "Build" / "Grow" / "Retain"
-  effective_date:   { type: Date },
-  changed_at:       { type: Date, default: Date.now },
-  change_type:      { type: String, enum: ["initial", "promote", "demote", "lateral"], default: "initial" },
-  reason:           { type: String, default: "" },
+  grade_level:        { type: String },
+  grade_designation:  { type: String },
+  bgr_stage:          { type: String },
+  effective_date:     { type: Date },
+  changed_at:         { type: Date, default: Date.now },
+  change_type:        { type: String, enum: ["initial", "promote", "demote", "lateral"], default: "initial" },
+  reason:             { type: String, default: "" },
+  salary_scale_point: { type: String, enum: ["min", "mid", "max", ""], default: "" }, // ✅ ADD
 }, { _id: true });
 
 const AssignGradeSchema = new mongoose.Schema({
@@ -32,7 +33,8 @@ const AssignGradeSchema = new mongoose.Schema({
     type: Date,
     required: true,
   },
-  // ── Grade change history ──────────────────────────────────
+  salary_scale_point: { type: String, enum: ["min", "mid", "max", ""], default: "" }, // ✅ ADD
+
   grade_history: [GradeHistorySchema],
 
 }, { timestamps: true });

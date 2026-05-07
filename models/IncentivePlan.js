@@ -1,68 +1,88 @@
 // models/IncentivePlan.js
 const mongoose = require("mongoose");
 
-// Per-KPI slab (score range → payout)
+// ── Slab schema (score range → payout) ───────────────────────────────────────
 const KpiSlabSchema = new mongoose.Schema({
   min_score: { type: Number, required: true },
   max_score: { type: Number, required: true },
-  type:      { type: String, enum: ["none", "fixed", "percentage"], default: "none" },
+  type:      { type: String, enum: ["none", "fixed", "target_percentage"], default: "none" },
   value:     { type: Number, default: 0 },
 }, { _id: false });
 
-// Per-KPI configuration block
-const KpiConfigSchema = new mongoose.Schema({
-  kpi_name:    { type: String, required: true },   // from template
-  weight:      { type: Number, default: 0 },        // from template (read-only reference)
-  target:      { type: String, default: "" },        // HR types e.g. "120 units"
-  value_type:  { type: String, enum: ["count", "percentage", "amount", "rating"], default: "count" },
-  operator:    { type: String, enum: [">=", ">", "=", "<=", "<"], default: ">=" },
-  rule_label:  { type: String, default: "" },        // auto-generated summary
-  slabs:       { type: [KpiSlabSchema], default: [] },
+// ── Per-program slab block (for Admission KPIs) ───────────────────────────────
+const ProgramSlabSchema = new mongoose.Schema({
+  program_id:   { type: String, required: true },
+  program_name: { type: String, default: "" },
+  slabs:        { type: [KpiSlabSchema], default: [] },
 }, { _id: false });
 
+// ── Program target (mirrors KPI template) ────────────────────────────────────
+const ProgramTargetSchema = new mongoose.Schema({
+  program_id:   { type: String, required: true },
+  program_name: { type: String, default: "" },
+  target:       { type: Number, default: 0 },
+}, { _id: false });
+
+// ── Per-KPI configuration block ───────────────────────────────────────────────
+const KpiConfigSchema = new mongoose.Schema({
+  kpi_name:         { type: String, required: true },
+  weight:           { type: Number, default: 0 },
+  target:           { type: String, default: "" },
+  value_type:       { type: String, enum: ["count", "percentage", "amount", "rating"], default: "count" },
+  operator:         { type: String, enum: [">=", ">", "=", "<=", "<"], default: ">=" },
+  rule_label:       { type: String, default: "" },
+
+  // ── Admission KPI fields ──────────────────────────────────────────────────
+  is_admission_kpi: { type: Boolean, default: false },
+  program_targets:  { type: [ProgramTargetSchema], default: [] },
+  program_slabs:    { type: [ProgramSlabSchema],   default: [] },
+
+  // ── Normal KPI slabs ──────────────────────────────────────────────────────
+  slabs: { type: [KpiSlabSchema], default: [] },
+}, { _id: false });
+
+// ── Main IncentivePlan Schema ─────────────────────────────────────────────────
 const IncentivePlanSchema = new mongoose.Schema({
   name:       { type: String, required: true, trim: true },
   department: { type: String, required: true },
 
-  // ── Time Period ────────────────────────────────────────────────────────────
+  // Time Period
   period_type: {
     type:    String,
     enum:    ["Monthly", "Quarterly", "Half-Yearly", "Yearly"],
     default: "Monthly",
   },
-  period_month:   { type: Number, default: null },   // 1-12 (Monthly)
-  period_quarter: { type: String, default: null },   // "Q1" | "Q2" | "Q3" | "Q4"
-  period_half:    { type: String, default: null },   // "H1" | "H2"
+  period_month:   { type: Number, default: null },
+  period_quarter: { type: String, default: null },
+  period_half:    { type: String, default: null },
   period_year:    { type: Number, default: () => new Date().getFullYear() },
 
-  // ── Plan type ──────────────────────────────────────────────────────────────
+  // Plan type
   plan_type: {
     type:    String,
     enum:    ["kpi_linked", "standalone"],
     default: "kpi_linked",
   },
 
-  // ── KPI-Linked fields ──────────────────────────────────────────────────────
+  // KPI-Linked fields
   kpi_template_id: {
     type:    mongoose.Schema.Types.ObjectId,
     ref:     "KpiTemplate",
     default: null,
   },
-
-  // Selected & configured KPIs (replaces flat slabs)
   kpi_configs: { type: [KpiConfigSchema], default: [] },
 
-  // Completion reward: if employee hits 100% on ALL selected KPIs
+  // Completion reward
   completion_reward_type:  { type: String, enum: ["none", "fixed", "percentage"], default: "none" },
   completion_reward_value: { type: Number, default: 0 },
-  completion_reward_label: { type: String, default: "" }, // e.g. "Star Performer Bonus"
+  completion_reward_label: { type: String, default: "" },
 
-  // ── Standalone fields ──────────────────────────────────────────────────────
+  // Standalone fields
   standalone_metric:       { type: String, enum: ["manual", "attendance", "custom"], default: "manual" },
   standalone_metric_label: { type: String, default: "" },
   standalone_payout_type:  { type: String, enum: ["fixed", "percentage"], default: "fixed" },
   standalone_payout_value: { type: Number, default: 0 },
-  slabs:                   { type: [KpiSlabSchema], default: [] }, // kept for standalone
+  slabs:                   { type: [KpiSlabSchema], default: [] },
 
 }, { timestamps: true });
 
