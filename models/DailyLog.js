@@ -17,7 +17,8 @@ const dailyLogSchema = new mongoose.Schema({
   value: { type: Number, required: true },   // e.g. 5 calls today
   note: { type: String },                     // optional note
   log_date: { type: String, required: true }, // "2026-03-11"
-  period: { type: String, required: true }    // "March 2026"
+  period: { type: String, required: true } ,   // "March 2026"
+  program_values: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
 module.exports = mongoose.model('DailyLog', dailyLogSchema);

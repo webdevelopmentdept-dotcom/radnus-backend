@@ -168,6 +168,7 @@ router.get('/by-assignment/:assignmentId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/self-assessment/completed/:employeeId
 // Employee Completed tab — ⚠️ Must be BEFORE /:employeeId
+// FIX: populate template_id inside assignment_id to get program_targets
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/completed/:employeeId', async (req, res) => {
   try {
@@ -175,13 +176,20 @@ router.get('/completed/:employeeId', async (req, res) => {
       employee_id: req.params.employeeId,
       status: 'reviewed'
     })
-      .populate('assignment_id')
+      .populate({
+        path: 'assignment_id',
+        populate: { path: 'template_id' }   // ← FIX: template_id nested populate
+      })
       .populate('reviewed_by', 'name')
       .sort({ reviewed_at: -1 });
 
     const data = assessments.map(a => {
       const selfScore  = calcSelfScore(a.items);
       const finalScore = a.hr_final_score || selfScore;
+
+      // Get kpi_items from populated template to merge program_targets
+      const kpiItems = a.assignment_id?.template_id?.kpi_items || [];
+
       return {
         ...a.toObject(),
         self_score:       selfScore,
@@ -189,7 +197,19 @@ router.get('/completed/:employeeId', async (req, res) => {
         reviewed_by_name: a.reviewed_by?.name || 'HR Team',
         department:       a.assignment_id?.department || '',
         role:             a.assignment_id?.role || '',
-        submitted_at:     a.updatedAt
+        submitted_at:     a.updatedAt,
+
+        // ← FIX: Merge program_targets + is_admission_kpi from template into each item
+        items: (a.items || []).map(item => {
+          const tmplItem = kpiItems.find(
+            k => String(k._id) === String(item.kpi_item_id)
+          );
+          return {
+            ...item.toObject(),
+            is_admission_kpi: tmplItem?.is_admission_kpi || item.is_admission_kpi || false,
+            program_targets:  tmplItem?.program_targets  || item.program_targets  || []
+          };
+        })
       };
     });
 

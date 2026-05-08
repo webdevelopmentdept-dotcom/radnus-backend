@@ -5,11 +5,16 @@ const DailyLog = require('../models/DailyLog');
 // POST /api/daily-logs — Add a daily log entry
 router.post('/', async (req, res) => {
   try {
-    const { employee_id, assignment_id, kpi_item_id, kpi_name, unit, value, note, log_date, period } = req.body;
+    const { 
+      employee_id, assignment_id, kpi_item_id, 
+      kpi_name, unit, value, note, log_date, period,
+      program_values  // ✅ ADD THIS
+    } = req.body;
 
     const log = new DailyLog({
       employee_id, assignment_id, kpi_item_id,
-      kpi_name, unit, value, note, log_date, period
+      kpi_name, unit, value, note, log_date, period,
+      program_values: program_values || {}  // ✅ ADD THIS
     });
     await log.save();
 
