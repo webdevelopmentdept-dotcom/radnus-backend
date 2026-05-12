@@ -43,6 +43,13 @@ app.use(
   })
 );
 
+
+// const helmet = require("helmet");
+// const mongoSanitize = require("express-mongo-sanitize");
+ 
+// app.use(helmet());           // XSS, clickjacking, MIME sniff block
+// app.use(mongoSanitize());
+
 // SEO Prerender
 app.use(prerender.set("prerenderToken", "N7ycVhRZGIhFLwN5sPFp"));
 

@@ -40,7 +40,7 @@ router.get('/summary', async (req, res) => {
     const [total, submitted, approved, announced] = await Promise.all([
       ImpactBonus.countDocuments(),
       ImpactBonus.countDocuments({ status: 'submitted' }),
-      ImpactBonus.countDocuments({ status: { $in: ['approved', 'announced'] } }), // ✅ FIXED
+      ImpactBonus.countDocuments({ status: { $in: ['approved', 'announced'] } }),
       ImpactBonus.countDocuments({ status: 'announced' }),
     ]);
 
@@ -69,20 +69,27 @@ router.get('/summary', async (req, res) => {
   }
 });
 
-// ✅ NEW — GET all announced innovations as announcements (all employees காண்பிக்கும்)
+// ✅ FIXED — GET all announced innovations as announcements
 router.get('/announcements', async (req, res) => {
   try {
-    const announced = await ImpactBonus.find({ status: 'announced' })
-      .populate('employee_id', 'name department')
-      .sort({ announced_at: -1 })
-      .limit(10);
+  const announced = await ImpactBonus.find({ status: 'announced' })
+  .populate('employee_id', 'name department')
+  .sort({ announced_at: -1 })
+  .limit(10);
 
-    const data = announced.map(s => ({
-      _id:       s._id,
-      title:     `🏆 ${s.employee_id?.name} — "${s.title}"`,
-      message:   `${s.employee_id?.department} · Bonus: ₹${s.bonus_amount?.toLocaleString('en-IN')} · Score: ${s.total_score}/100`,
-      createdAt: s.announced_at || s.updatedAt,
-      type:      'impact_bonus',
+// ✅ employee_id populate ஆகலன்னா filter பண்ணிடு
+const data = announced
+  .filter(s => s.employee_id && s.employee_id.name)
+  .map(s => ({ 
+      _id:           s._id,
+      title:         s.title,                          // ✅ innovation title மட்டும்
+      employee_name: s.employee_id?.name || '',        // ✅ separate field
+      department:    s.employee_id?.department || '',  // ✅ separate field
+      bonus_amount:  s.bonus_amount,
+      total_score:   s.total_score,
+      message:       `${s.employee_id?.department || ''} · Bonus: ₹${s.bonus_amount?.toLocaleString('en-IN')} · Score: ${s.total_score}/100`,
+      createdAt:     s.announced_at || s.updatedAt,
+      type:          'impact_bonus',
     }));
 
     res.json({ success: true, data });

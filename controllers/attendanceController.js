@@ -228,13 +228,12 @@ exports.getMonthlyRecords = async (req, res) => {
 };
 
 // ── GET /api/attendance/daily ─────────────────────────────────
-// ✅ FIX: Only active employees fetch pannurom
 exports.getDailyReport = async (req, res) => {
   try {
     const date = req.query.date || todayStr();
     const [records, employees] = await Promise.all([
-      Attendance.find({ date }).populate("employee_id", "name employee_code department designation"),
-      Employee.find({ status: "active" }, "name employee_code department designation"), // ✅ FIXED
+      Attendance.find({ date }).populate("employee_id", "name employeeId employee_code department designation"),
+      Employee.find({ status: "active" }, "name employeeId employee_code department designation"),
     ]);
 
     const recordMap = {};
@@ -256,7 +255,6 @@ exports.getDailyReport = async (req, res) => {
 };
 
 // ── GET /api/attendance/monthly-report ───────────────────────
-// ✅ FIX: Only active employees fetch pannurom
 exports.getMonthlyReport = async (req, res) => {
   try {
     const { year, month } = req.query;
@@ -264,7 +262,7 @@ exports.getMonthlyReport = async (req, res) => {
     const m = month || new Date().getMonth() + 1;
 
     const [employees, records] = await Promise.all([
-      Employee.find({ status: "active" }, "name employee_code department"),
+      Employee.find({ status: "active" }, "name employeeId employee_code department"),
       Attendance.find({
         date: {
           $gte: `${y}-${String(m).padStart(2,"0")}-01`,
@@ -293,8 +291,11 @@ exports.getMonthlyReport = async (req, res) => {
         : 0;
 
       return {
-        _id: emp._id, name: emp.name,
-        employee_code: emp.employee_code, department: emp.department,
+        _id:           emp._id,
+        name:          emp.name,
+        employeeId:    emp.employeeId,        // ✅ FIXED
+        employee_code: emp.employee_code,
+        department:    emp.department,
         present, late, half_day, on_leave, absent,
         work_days: workingDays, avg_work_hours: avgHours, attendance_pct: pct,
       };
@@ -339,8 +340,8 @@ exports.hrMarkAttendance = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
 // ── GET /api/attendance/export ────────────────────────────────
-// ✅ FIX: Only active employees fetch pannurom
 exports.exportExcel = async (req, res) => {
   try {
     const ExcelJS = require("exceljs");
@@ -349,7 +350,7 @@ exports.exportExcel = async (req, res) => {
     const m = month || new Date().getMonth() + 1;
 
     const [employees, records] = await Promise.all([
-      Employee.find({ status: "active" }, "name employee_code department"), // ✅ FIXED
+      Employee.find({ status: "active" }, "name employeeId employee_code department"), // ✅ FIXED
       Attendance.find({
         date: {
           $gte: `${y}-${String(m).padStart(2,"0")}-01`,
@@ -397,7 +398,9 @@ exports.exportExcel = async (req, res) => {
       const pct      = workingDays ? Math.round(((present + late + half_day * 0.5) / workingDays) * 100) : 0;
 
       const row = worksheet.addRow({
-        name: emp.name, employee_code: emp.employee_code, department: emp.department,
+        name:          emp.name,
+        employee_code: emp.employeeId || emp.employee_code, // ✅ FIXED
+        department:    emp.department,
         present, absent, late, half_day, on_leave,
         avg_work_hours: avgHours, attendance_pct: pct + "%",
       });

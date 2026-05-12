@@ -1,7 +1,10 @@
 const mongoose = require("mongoose");
 
 const notificationSchema = new mongoose.Schema({
-  recipient_id:   { type: mongoose.Schema.Types.ObjectId, ref: "Employee", required: false },
+    recipient_id: { 
+    type: String,  // ✅ ObjectId → String-ஆ மாத்து
+    required: false 
+  },
   recipient_role: { type: String, enum: ["employee", "hr"], required: true },
 
   // ✅ Types matching your existing frontend TYPE_META
@@ -15,7 +18,8 @@ const notificationSchema = new mongoose.Schema({
       // Common
       "general", "kpi_assigned", "review_done",
       "leave_approved", "leave_rejected",
-      "employee_activated", "new_applicant"
+      "employee_activated", "new_applicant",
+       "hr_message"
     ],
     default: "general"
   },
@@ -23,7 +27,7 @@ const notificationSchema = new mongoose.Schema({
   title:   { type: String, required: true },
   message: { type: String, required: true },
   link:    { type: String, default: "" },
-  isRead:  { type: Boolean, default: false },  // ✅ isRead (not read) — matches frontend
+  isRead:  { type: Boolean, default: false },
 
 }, { timestamps: true });
 
