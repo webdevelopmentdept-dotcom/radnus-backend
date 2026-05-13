@@ -6,7 +6,7 @@ const cloudinary = require("../config/cloudinary");
 const EmploymentDetails = require("../models/EmploymentDetails");
 const Employee = require("../models/Employee");
 const Document = require("../models/Document");
-const { createNotification } = require("../helpers/notificationHelper"); // ✅ added
+const { createNotification } = require("../helpers/notificationHelper");
 
 // ================= CLOUDINARY STORAGE =================
 const storage = new CloudinaryStorage({
@@ -106,14 +106,13 @@ router.post("/activate", async (req, res) => {
     const employee = await Employee.findByIdAndUpdate(
       employee_id,
       {
-        status: "active",
+        status:      "active",
         designation: details.employment?.designation,
         department:  details.employment?.department,
       },
       { new: true }
     );
 
-    // ✅ Notify employee — account activated
     await createNotification({
       recipient_id:   employee_id,
       recipient_role: "employee",
@@ -130,14 +129,26 @@ router.post("/activate", async (req, res) => {
 });
 
 // ================= SAVE EMPLOYMENT + SALARY =================
+// ✅ CHANGE 1: essl_id → Employee model-ல save பண்றோம்
 router.post("/", async (req, res) => {
   try {
     const { employee_id, employment, salary } = req.body;
+
+    // ✅ essl_id இருந்தா Employee model-ல update பண்ணு
+    if (employment?.essl_id) {
+      await Employee.findByIdAndUpdate(
+        employee_id,
+        { essl_id: employment.essl_id },
+        { new: true }
+      );
+    }
+
     const details = await EmploymentDetails.findOneAndUpdate(
       { employee_id },
       { employee_id, employment, salary, status: "draft" },
       { upsert: true, new: true }
     );
+
     res.json({ success: true, data: details });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
@@ -156,10 +167,7 @@ router.get("/:employeeId", async (req, res) => {
 });
 
 // ================= UPDATE EMPLOYEE INFO BY HR =================
-// Add this route to your activation router (routes/hr/activation.js)
-// or wherever appropriate in your backend
-
-// PUT /api/hr/employee/update/:employeeId
+// ✅ CHANGE 2: essl_id → update route-லயும் handle பண்றோம்
 router.put("/update/:employeeId", async (req, res) => {
   try {
     const { employeeId } = req.params;
@@ -171,6 +179,7 @@ router.put("/update/:employeeId", async (req, res) => {
       department,
       designation,
       date_of_joining,
+      essl_id,        // ✅ இந்த line add பண்ணினோம்
       salary,
     } = req.body;
 
@@ -184,6 +193,8 @@ router.put("/update/:employeeId", async (req, res) => {
         ...(empId       && { employeeId: empId }),
         ...(department  && { department }),
         ...(designation && { designation }),
+        // ✅ essl_id: value இருந்தாலும் null ஆனாலும் update பண்ணு
+        ...(essl_id !== undefined && { essl_id: essl_id || null }),
       },
       { new: true }
     );
@@ -192,11 +203,11 @@ router.put("/update/:employeeId", async (req, res) => {
       return res.status(404).json({ success: false, message: "Employee not found" });
     }
 
-    // 2. Update EmploymentDetails (department, designation, date_of_joining, salary)
+    // 2. Update EmploymentDetails
     const empDetailsUpdate = {};
     if (department || designation || date_of_joining) {
-      empDetailsUpdate["employment.department"]    = department;
-      empDetailsUpdate["employment.designation"]   = designation;
+      empDetailsUpdate["employment.department"]      = department;
+      empDetailsUpdate["employment.designation"]     = designation;
       empDetailsUpdate["employment.date_of_joining"] = date_of_joining;
     }
     if (salary) {

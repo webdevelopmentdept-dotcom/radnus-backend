@@ -21,6 +21,11 @@ address:   { type: String, default: "" },
   department: String,
   designation: String,
 
+    essl_id: {
+    type:    String,
+    default: null,
+  },
+
   documentsCompleted: {
     type: Boolean,
     default: false

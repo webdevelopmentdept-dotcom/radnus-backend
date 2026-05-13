@@ -349,6 +349,7 @@ router.get("/me/:id", async (req, res) => {
       address: user.address,
       department: user.department,
       designation: user.designation,
+       essl_id: user.essl_id, 
       status: user.status,
       remarks: user.remarks,
       documentsCompleted: !!user.documentsCompleted,

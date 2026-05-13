@@ -173,7 +173,7 @@ app.use('/api/daily-logs', dailyLogRoutes);
 app.use("/api/hr/settings", require("./routes/hrSettingsRoutes"));
 
 app.use("/api", attendanceRoutes);
-
+app.use("/", require("./routes/esslRoutes"));
 app.use("/api/shop-owner", shopOwnerRoutes);
 app.use("/api/technician", technicianRoutes);
 
