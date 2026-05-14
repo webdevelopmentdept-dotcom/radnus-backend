@@ -178,6 +178,7 @@ router.put("/update/:employeeId", async (req, res) => {
       employeeId: empId,
       department,
       designation,
+        employment_type, 
       date_of_joining,
       essl_id,        // ✅ இந்த line add பண்ணினோம்
       salary,
@@ -193,7 +194,7 @@ router.put("/update/:employeeId", async (req, res) => {
         ...(empId       && { employeeId: empId }),
         ...(department  && { department }),
         ...(designation && { designation }),
-        // ✅ essl_id: value இருந்தாலும் null ஆனாலும் update பண்ணு
+         ...(employment_type  && { employment_type }), 
         ...(essl_id !== undefined && { essl_id: essl_id || null }),
       },
       { new: true }
@@ -205,11 +206,12 @@ router.put("/update/:employeeId", async (req, res) => {
 
     // 2. Update EmploymentDetails
     const empDetailsUpdate = {};
-    if (department || designation || date_of_joining) {
-      empDetailsUpdate["employment.department"]      = department;
-      empDetailsUpdate["employment.designation"]     = designation;
-      empDetailsUpdate["employment.date_of_joining"] = date_of_joining;
-    }
+    if (department || designation || date_of_joining || employment_type) {
+  empDetailsUpdate["employment.department"]       = department;
+  empDetailsUpdate["employment.designation"]      = designation;
+  empDetailsUpdate["employment.date_of_joining"]  = date_of_joining;
+  empDetailsUpdate["employment.employment_type"]  = employment_type;  // ← ADD
+}
     if (salary) {
       empDetailsUpdate["salary"] = salary;
     }

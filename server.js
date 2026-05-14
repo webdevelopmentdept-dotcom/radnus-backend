@@ -10,6 +10,14 @@ const dns = require("dns");
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 const app = express();
+// ✅ MB20 HTTP requests allow பண்ணு
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+});
+
+// ✅ Trust Render proxy
+app.set('trust proxy', true);
 
 /* --------------------------------------------------
    MIDDLEWARES
@@ -108,6 +116,7 @@ const sopRoutes = require("./routes/sopRoutes");
 const policyQuizRoutes = require("./routes/policyQuizRoutes");
 const programRoutes = require("./routes/programRoutes");
 const dgsRoutes = require("./routes/departmentGradeSalary");
+const announcementsRouter = require('./routes/announcements');
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
@@ -158,6 +167,7 @@ app.use("/api/incentive-results",     require("./routes/incentiveResults"));
 app.use("/api/policies", policyRoutes);
 app.use("/api/sops", sopRoutes);
 app.use("/api/policy-quiz", policyQuizRoutes);
+app.use('/api/announcements', announcementsRouter);
 
 // Applicants & Admin
 app.use("/api/applicants", applicantRoutes);
