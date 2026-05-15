@@ -24,8 +24,8 @@ app.set('trust proxy', true);
 -------------------------------------------------- */
 
 // Parse JSON + Form Data
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Static Uploads Folder (Important for partner documents)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
@@ -124,6 +124,7 @@ const announcementsRouter = require('./routes/announcements');
 app.use("/api/partners", partnerRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/employee", employeeAuth);
+app.use("/api", employeeAuth);  
 // Lead Correct Route (only one)
 app.use("/api/lead", leadRoutes);
 app.use("/api/notifications", require("./routes/NotificationRoutes"));
