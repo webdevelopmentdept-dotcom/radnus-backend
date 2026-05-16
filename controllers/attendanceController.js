@@ -22,19 +22,16 @@ const toMins   = (date) => new Date(date).getHours() * 60 + new Date(date).getMi
 //  CORE HELPERS
 // ══════════════════════════════════════════
 
-// Late minutes based on first punch-in
 const getLateMinutes = (firstIn) => {
   if (!firstIn) return 0;
   return Math.max(toMins(firstIn) - LATE_THRESHOLD, 0);
 };
 
-// Early-out based on last punch-out
 const getEarlyOutMinutes = (lastOut) => {
   if (!lastOut) return 0;
   return Math.max(SHIFT_END_TOTAL - toMins(lastOut), 0);
 };
 
-// Overtime based on last punch-out
 const getOvertimeMinutes = (lastOut) => {
   if (!lastOut) return 0;
   return Math.max(toMins(lastOut) - SHIFT_END_TOTAL, 0);
@@ -42,14 +39,12 @@ const getOvertimeMinutes = (lastOut) => {
 
 // ══════════════════════════════════════════
 //  PUNCH CALCULATION ENGINE
-//  Takes punches[], returns computed stats
 // ══════════════════════════════════════════
 const computeFromPunches = (punches) => {
-  // Sort punches by time ascending
   const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
 
-  let netWorkMs   = 0;   // total work milliseconds
-  let breakMs     = 0;   // total break milliseconds
+  let netWorkMs   = 0;
+  let breakMs     = 0;
   let lastInTime  = null;
   let lastOutTime = null;
   let firstIn     = null;
@@ -59,15 +54,12 @@ const computeFromPunches = (punches) => {
     if (p.type === "in") {
       lastInTime = new Date(p.time);
       if (!firstIn) firstIn = lastInTime;
-
-      // If there was a previous out, calculate break
       if (lastOutTime) {
-        breakMs += lastInTime - lastOutTime;
+        breakMs    += lastInTime - lastOutTime;
         lastOutTime = null;
       }
     } else if (p.type === "out") {
       if (lastInTime) {
-        // Calculate work session
         const outTime = new Date(p.time);
         netWorkMs  += outTime - lastInTime;
         lastOutTime = outTime;
@@ -77,9 +69,6 @@ const computeFromPunches = (punches) => {
     }
   }
 
-  // If currently punched in (no final out), don't count ongoing session
-  // lastInTime being non-null means employee is currently "in"
-
   const workHours    = parseFloat((netWorkMs / 3600000).toFixed(2));
   const breakMinutes = Math.round(breakMs / 60000);
 
@@ -87,7 +76,6 @@ const computeFromPunches = (punches) => {
   const earlyOutMinutes  = getEarlyOutMinutes(lastOut);
   const overtimeMinutes  = getOvertimeMinutes(lastOut);
 
-  // Determine status
   let status = "absent";
   if (firstIn) {
     const firstInMins = toMins(firstIn);
@@ -96,10 +84,8 @@ const computeFromPunches = (punches) => {
     } else if (workHours >= 7) {
       status = firstInMins <= LATE_THRESHOLD ? "present" : "late";
     } else if (!lastOut) {
-      // Still inside — tentative status
       status = firstInMins <= LATE_THRESHOLD ? "present" : "late";
     } else {
-      // Checked out with < 4 hrs
       status = "half_day";
     }
   }
@@ -113,7 +99,7 @@ const computeFromPunches = (punches) => {
     early_out_minutes: earlyOutMinutes,
     overtime_minutes:  overtimeMinutes,
     status,
-    is_currently_in:   lastInTime !== null, // employee is currently punched in
+    is_currently_in:   lastInTime !== null,
   };
 };
 
@@ -125,7 +111,6 @@ exports.checkIn = async (req, res) => {
     const { employee_id, location, method = "manual" } = req.body;
     const today = todayStr();
 
-    // Check approved leave
     const onLeave = await LeaveRequest.findOne({
       employee_id,
       status:    "approved",
@@ -136,32 +121,32 @@ exports.checkIn = async (req, res) => {
       return res.status(400).json({ success: false, message: "You are on approved leave today" });
     }
 
-    // Get or create today's record
     let record = await Attendance.findOne({ employee_id, date: today });
     if (!record) {
       record = new Attendance({
         employee_id,
-        date:   today,
-        shift:  "General (9:45 AM – 7:00 PM)",
+        date:    today,
+        shift:   "General (9:45 AM – 7:00 PM)",
         punches: [],
       });
     }
 
-    // Check: last punch must not be "in" (can't punch-in twice without punch-out)
-    const sortedPunches = [...record.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
-    const lastPunch = sortedPunches[sortedPunches.length - 1];
-    if (lastPunch && lastPunch.type === "in") {
-      return res.status(400).json({
-        success: false,
-        message: "Already punched in. Please punch out before punching in again.",
-      });
+    // ✅ HYBRID FIX: if auto-marked with no punches, allow check-in normally
+    // Just skip the "already punched in" check when punches is empty
+    if (record.punches.length > 0) {
+      const sortedPunches = [...record.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+      const lastPunch     = sortedPunches[sortedPunches.length - 1];
+      if (lastPunch && lastPunch.type === "in") {
+        return res.status(400).json({
+          success: false,
+          message: "Already punched in. Please punch out before punching in again.",
+        });
+      }
     }
 
-    // Add punch-in
     const now = new Date();
     record.punches.push({ type: "in", time: now, method, location: location || {} });
 
-    // Recompute stats
     const computed = computeFromPunches(record.punches);
     Object.assign(record, computed);
 
@@ -173,7 +158,7 @@ exports.checkIn = async (req, res) => {
     res.json({
       success: true,
       message: isReturn ? "Welcome back! Punched in again." : "Checked in successfully",
-      data: record,
+      data:    record,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -189,13 +174,60 @@ exports.checkOut = async (req, res) => {
     const today = todayStr();
 
     const record = await Attendance.findOne({ employee_id, date: today });
-    if (!record || record.punches.length === 0) {
-      return res.status(400).json({ success: false, message: "You haven't punched in today" });
+
+    // ✅ HYBRID FIX: No record at all → reject
+    if (!record) {
+      return res.status(400).json({
+        success: false,
+        message: "No attendance record for today. Please check in first.",
+      });
     }
 
-    // Last punch must be "in"
+    // ✅ HYBRID FIX: Auto-marked employee (status present/late, punches empty)
+    // → Allow checkout by adding a single "out" punch directly
+    const isAutoMarked = ["present", "late"].includes(record.status) && record.punches.length === 0;
+
+    if (isAutoMarked) {
+      const now = new Date();
+      record.punches.push({
+        type:   "out",
+        time:   now,
+        method: "manual",
+        location: location || {},
+        remark: "checkout after auto check-in",
+      });
+
+      // Compute — note: no "in" punch so work_hours will be 0
+      // Status stays as-is (present/late) since HR auto-marked it
+      const computed = computeFromPunches(record.punches);
+
+      // Keep the original auto status, only update last_out and checkout time
+      record.last_out          = now;
+      record.checkOut          = now; // legacy compat
+      record.early_out_minutes = computed.early_out_minutes;
+      record.overtime_minutes  = computed.overtime_minutes;
+      // Don't overwrite status — keep HR's auto-marked "present"/"late"
+
+      await record.save();
+
+      return res.json({
+        success: true,
+        message: "Checked out successfully",
+        data:    record,
+      });
+    }
+
+    // ✅ Normal punch-based flow
+    if (record.punches.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "You haven't punched in today.",
+      });
+    }
+
     const sortedPunches = [...record.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
-    const lastPunch = sortedPunches[sortedPunches.length - 1];
+    const lastPunch     = sortedPunches[sortedPunches.length - 1];
+
     if (!lastPunch || lastPunch.type !== "in") {
       return res.status(400).json({
         success: false,
@@ -203,16 +235,14 @@ exports.checkOut = async (req, res) => {
       });
     }
 
-    // Add punch-out
     const now = new Date();
     record.punches.push({
-      type: "out",
-      time: now,
-      method: "manual",
+      type:     "out",
+      time:     now,
+      method:   "manual",
       location: location || {},
     });
 
-    // Recompute
     const computed = computeFromPunches(record.punches);
     Object.assign(record, computed);
 
@@ -222,7 +252,7 @@ exports.checkOut = async (req, res) => {
     res.json({
       success: true,
       message: outCount > 1 ? "Punched out. Come back soon!" : "Checked out successfully",
-      data: record,
+      data:    record,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -230,17 +260,15 @@ exports.checkOut = async (req, res) => {
 };
 
 // ══════════════════════════════════════════
-//  BREAK START / END  (legacy — kept for
-//  compatibility; internally just punch out/in)
+//  BREAK START / END  (legacy — internally
+//  just punch out / punch in)
 // ══════════════════════════════════════════
 exports.breakStart = async (req, res) => {
-  // breakStart = punch out (leaving desk)
   req.body.location = req.body.location || {};
   return exports.checkOut(req, res);
 };
 
 exports.breakEnd = async (req, res) => {
-  // breakEnd = punch in (back at desk)
   req.body.method   = req.body.method || "manual";
   req.body.location = req.body.location || {};
   return exports.checkIn(req, res);
@@ -253,9 +281,49 @@ exports.getTodayRecord = async (req, res) => {
   try {
     const record = await Attendance.findOne({
       employee_id: req.params.employeeId,
-      date: todayStr(),
+      date:        todayStr(),
     });
-    res.json({ success: true, data: record || null });
+
+    if (!record) {
+      return res.json({ success: true, data: null });
+    }
+
+    const obj = record.toObject();
+
+    // ✅ Expose legacy checkIn/checkOut fields from punches for frontend compat
+    if (obj.punches && obj.punches.length > 0) {
+      const sorted = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+      const firstIn  = sorted.find(p => p.type === "in");
+      const lastOut  = [...sorted].reverse().find(p => p.type === "out");
+      const lastIn   = [...sorted].reverse().find(p => p.type === "in");
+      const prevOut  = sorted.filter(p => p.type === "out").slice(-2, -1)[0]; // second-to-last out
+
+      obj.checkIn    = firstIn  ? firstIn.time  : obj.checkIn  || null;
+      obj.checkOut   = lastOut  ? lastOut.time  : obj.checkOut || null;
+
+      // ✅ breakStart/breakEnd: for legacy UI compat
+      // breakStart = first "out" punch (if more than one punch pair)
+      // breakEnd   = last "in" punch after first out
+      const outPunches = sorted.filter(p => p.type === "out");
+      const inPunches  = sorted.filter(p => p.type === "in");
+
+      if (outPunches.length > 1) {
+        // Multiple out punches → first out is break start
+        obj.breakStart = outPunches[0].time;
+        // Break end = second in punch
+        obj.breakEnd   = inPunches.length > 1 ? inPunches[1].time : null;
+        // break_minutes already computed
+      } else if (outPunches.length === 1 && inPunches.length > 1) {
+        // One out followed by another in → break scenario
+        obj.breakStart = outPunches[0].time;
+        obj.breakEnd   = inPunches[1].time;
+      } else {
+        obj.breakStart = null;
+        obj.breakEnd   = null;
+      }
+    }
+
+    res.json({ success: true, data: obj });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -309,7 +377,20 @@ exports.getMonthlyRecords = async (req, res) => {
       },
     }).sort({ date: 1 });
 
-    res.json({ success: true, data: records });
+    // ✅ Expose legacy checkIn/checkOut for each record
+    const enriched = records.map(r => {
+      const obj = r.toObject();
+      if (obj.punches && obj.punches.length > 0) {
+        const sorted  = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+        const firstIn = sorted.find(p => p.type === "in");
+        const lastOut = [...sorted].reverse().find(p => p.type === "out");
+        obj.checkIn   = firstIn ? firstIn.time : obj.checkIn  || null;
+        obj.checkOut  = lastOut ? lastOut.time  : obj.checkOut || null;
+      }
+      return obj;
+    });
+
+    res.json({ success: true, data: enriched });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -338,7 +419,6 @@ exports.getDailyReport = async (req, res) => {
       if (rec) {
         const obj = rec.toObject();
 
-        // Always recompute from punches for accuracy
         if (obj.punches && obj.punches.length > 0) {
           const computed = computeFromPunches(obj.punches);
           Object.assign(obj, computed);
@@ -350,7 +430,6 @@ exports.getDailyReport = async (req, res) => {
           return new Date().getHours() >= 20;
         })();
 
-        // Backwards-compat: expose checkIn / checkOut from computed
         obj.checkIn  = obj.first_in  || obj.checkIn  || null;
         obj.checkOut = obj.last_out  || obj.checkOut  || null;
 
@@ -411,7 +490,6 @@ exports.getMonthlyReport = async (req, res) => {
     const result = employees.map(emp => {
       const empRecs = records.filter(r => r.employee_id.toString() === emp._id.toString());
 
-      // Recompute each record from punches
       const enriched = empRecs.map(r => {
         const obj = r.toObject ? r.toObject() : { ...r };
         if (obj.punches && obj.punches.length > 0) {
@@ -469,12 +547,7 @@ exports.getMonthlyReport = async (req, res) => {
 };
 
 // ══════════════════════════════════════════
-//  HR MARK ATTENDANCE  (manual override)
-//
-//  HR can:
-//  1. Add/edit individual punches
-//  2. Or set a simple checkIn + checkOut
-//     (system converts to 2 punches)
+//  HR MARK ATTENDANCE
 // ══════════════════════════════════════════
 exports.hrMarkAttendance = async (req, res) => {
   try {
@@ -483,7 +556,6 @@ exports.hrMarkAttendance = async (req, res) => {
     let newPunches = [];
 
     if (punches && Array.isArray(punches) && punches.length > 0) {
-      // HR provided explicit punch array
       newPunches = punches.map(p => ({
         type:   p.type,
         time:   new Date(p.time),
@@ -491,22 +563,19 @@ exports.hrMarkAttendance = async (req, res) => {
         remark: p.remark || "",
       }));
     } else if (checkIn) {
-      // Legacy: convert checkIn/checkOut to punches
       newPunches.push({ type: "in",  time: new Date(checkIn),  method: "hr_manual" });
       if (checkOut) {
         newPunches.push({ type: "out", time: new Date(checkOut), method: "hr_manual" });
       }
     }
 
-    // Compute from punches
     const computed = newPunches.length > 0
       ? computeFromPunches(newPunches)
       : { work_hours: 0, late_minutes: 0, early_out_minutes: 0, overtime_minutes: 0 };
 
-    // If HR explicitly passed status (leave, holiday, etc.) respect it
     const finalStatus = status && ["leave", "holiday", "weekend", "absent"].includes(status)
       ? status
-      : computed.status;
+      : computed.status || status || "present";
 
     const record = await Attendance.findOneAndUpdate(
       { employee_id, date },
@@ -538,8 +607,7 @@ exports.hrMarkAttendance = async (req, res) => {
 };
 
 // ══════════════════════════════════════════
-//  ADD SINGLE PUNCH  (HR — add one punch
-//  without replacing everything)
+//  ADD SINGLE PUNCH  (HR)
 // ══════════════════════════════════════════
 exports.hrAddPunch = async (req, res) => {
   try {
@@ -635,8 +703,8 @@ exports.exportExcel = async (req, res) => {
     ];
 
     worksheet.getRow(1).eachCell(cell => {
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
-      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
+      cell.font      = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
       cell.alignment = { vertical: "middle", horizontal: "center" };
     });
     worksheet.getRow(1).height = 28;
@@ -671,7 +739,9 @@ exports.exportExcel = async (req, res) => {
       const overtimeDays  = enriched.filter(r => (r.overtime_minutes || 0) > 0).length;
       const earlyOutDays  = enriched.filter(r => (r.early_out_minutes || 0) > 0).length;
       const missingPunch  = enriched.filter(r => r.is_currently_in && r.date !== todayS).length;
-      const pct           = workingDays ? Math.round(((present + late + half_day * 0.5) / workingDays) * 100) : 0;
+      const pct           = workingDays
+        ? Math.round(((present + late + half_day * 0.5) / workingDays) * 100)
+        : 0;
 
       const row = worksheet.addRow({
         name:               emp.name,
@@ -716,13 +786,10 @@ exports.exportExcel = async (req, res) => {
 };
 
 // ══════════════════════════════════════════
-//  MIGRATION HELPER
-//  Run once to convert old checkIn/checkOut
-//  records to punches[] format
+//  MIGRATION HELPER  (run once)
 // ══════════════════════════════════════════
 exports.migrateOldRecords = async (req, res) => {
   try {
-    // Find records that have checkIn but empty punches
     const old = await Attendance.find({
       checkIn:  { $exists: true, $ne: null },
       $or: [{ punches: { $exists: false } }, { punches: { $size: 0 } }],
