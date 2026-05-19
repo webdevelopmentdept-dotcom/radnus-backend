@@ -15,8 +15,6 @@ const { Resend } = require('resend');
 const crypto = require('crypto');
 
 // ─── eSSL Server URL ─────────────────────────────────────────
-// HRMS backend .env-ல் இதை add பண்ணு:
-// ESSL_SERVER_URL=http://192.168.0.70:5000
 const ESSL_SERVER = process.env.ESSL_SERVER_URL || 'http://localhost:5000';
 
 // ─── eSSL Bridge Helper ───────────────────────────────────────
@@ -121,6 +119,30 @@ router.post('/register', async (req, res) => {
 });
 
 // ================= LOGIN =================
+// router.post('/login', async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     const user = await Employee.findOne({ email });
+//     if (!user) return res.status(400).json({ message: 'Invalid email' });
+
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     if (!isMatch) return res.status(400).json({ message: 'Invalid password' });
+
+//     const token = jwt.sign({ id: user._id }, 'SECRETKEY', { expiresIn: '7d' });
+
+//     res.json({
+//       token,
+//       documentsCompleted: !!user.documentsCompleted,
+//       id: user._id,
+//       employeeId: user.employeeId,
+//     });
+//   } catch {
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// });
+
+// ================= LOGIN =================
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -130,6 +152,14 @@ router.post('/login', async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid password' });
+
+    // ✅ INGA MATUM ADD PANNU — இந்த 2 check
+    if (user.accessDeactivated) {
+      return res.status(403).json({ message: 'ACCESS_DEACTIVATED' });
+    }
+    if (user.exitType === 'relieved' || user.exitType === 'fired') {
+      return res.status(403).json({ message: 'ACCOUNT_INACTIVE' });
+    }
 
     const token = jwt.sign({ id: user._id }, 'SECRETKEY', { expiresIn: '7d' });
 
@@ -306,40 +336,6 @@ router.put('/update-profile', async (req, res) => {
   }
 });
 
-// ================= DELETE EMPLOYEE =================
-// ── eSSL sync added ──
-router.delete('/employees/:id', async (req, res) => {
-  try {
-    const employeeId = req.params.id;
-
-    const emp = await Employee.findById(employeeId);
-    if (!emp) return res.status(404).json({ message: 'Employee not found' });
-
-    const esslId = emp.essl_id;
-
-    await Employee.findByIdAndDelete(employeeId);
-    await Document.deleteMany({ employeeId });
-
-    // eSSL machine sync
-    let esslResult = { ok: false, error: 'No eSSL ID' };
-    if (esslId) {
-      esslResult = await callEsslBridge('employee/delete', { essl_id: esslId });
-      console.log(`🗑️  eSSL sync → Delete ${emp.name} (${esslId}) → ${esslResult.ok ? '✅' : '❌'}`);
-    }
-
-    res.json({
-      message: 'Employee deleted successfully',
-      essl_sync: {
-        attempted: !!esslId,
-        success:   esslResult.ok,
-        message:   esslResult.ok ? 'Removed from machine' : (esslResult.error || ''),
-      },
-    });
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: 'Delete failed' });
-  }
-});
 
 // ================= GET ALL EMPLOYEES =================
 router.get('/employees', async (req, res) => {
@@ -366,6 +362,126 @@ router.get('/employees/department-distribution', async (req, res) => {
   }
 });
 
+
+// ================= RELIEVE EMPLOYEE =================
+router.patch('/employees/:id/relieve', async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    await Employee.findByIdAndUpdate(req.params.id, {
+      exitType: 'relieved',
+      accessDeactivated: false,
+      status: 'relieved',
+    });
+
+    res.json({ message: 'Employee marked as relieved' });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to update' });
+  }
+});
+
+// ================= FIRE EMPLOYEE =================
+router.patch('/employees/:id/fire', async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    await Employee.findByIdAndUpdate(req.params.id, {
+      exitType: 'fired',
+      accessDeactivated: false,
+      status: 'fired',
+    });
+
+    res.json({ message: 'Employee marked as fired' });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to update' });
+  }
+});
+
+// ================= DEACTIVATE ACCESS =================
+router.patch('/employees/:id/deactivate-access', async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    await Employee.findByIdAndUpdate(req.params.id, {
+      accessDeactivated: true,
+    });
+
+    res.json({ message: 'Access deactivated successfully' });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to deactivate access' });
+  }
+});
+// ================= REACTIVATE EMPLOYEE =================
+router.patch('/employees/:id/reactivate', async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    await Employee.findByIdAndUpdate(req.params.id, {
+      exitType: null,
+      accessDeactivated: false,
+      status: 'active',
+    });
+
+    res.json({ message: 'Employee reactivated successfully' });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to reactivate' });
+  }
+});
+
+
+// ================= DELETE EMPLOYEE =================
+router.delete('/employees/:id', async (req, res) => {
+  try {
+    const employeeId = req.params.id;
+
+    const emp = await Employee.findById(employeeId);
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    const esslId = emp.essl_id;
+
+    await Employee.findByIdAndDelete(employeeId);
+    await Document.deleteMany({ employeeId });
+
+    let esslResult = { ok: false, error: 'No eSSL ID' };
+    if (esslId) {
+      esslResult = await callEsslBridge('employee/delete', { essl_id: esslId });
+      console.log(`🗑️  eSSL sync → Delete ${emp.name} (${esslId}) → ${esslResult.ok ? '✅' : '❌'}`);
+    }
+
+    res.json({
+      message: 'Employee deleted successfully',
+      essl_sync: {
+        attempted: !!esslId,
+        success:   esslResult.ok,
+        message:   esslResult.ok ? 'Removed from machine' : (esslResult.error || ''),
+      },
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: 'Delete failed' });
+  }
+});
+
+// ================= GET EMPLOYEE BY EMPLOYEE ID =================
+router.get('/employees/:id', async (req, res) => {
+  try {
+    const employee = await Employee.findOne({ employeeId: req.params.id });
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    res.json({ data: employee });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
 // ================= SAVE SOCIAL LINK =================
 router.post('/save-link', async (req, res) => {
   try {
@@ -389,257 +505,282 @@ router.post('/save-link', async (req, res) => {
   }
 });
 
-// ================= GET EMPLOYEE BY EMPLOYEE ID =================
-router.get('/employees/:id', async (req, res) => {
-  try {
-    const employee = await Employee.findOne({ employeeId: req.params.id });
-    if (!employee) return res.status(404).json({ message: 'Employee not found' });
-    res.json({ data: employee });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+
 
 // ═══════════════════════════════════════════════════════════════
-//  NEW: eSSL Employee Management Routes
-//  HR இந்த routes use பண்ணி employee add/update + machine sync
+//  eSSL Employee Management Routes
 // ═══════════════════════════════════════════════════════════════
 
-// ── ADD EMPLOYEE (eSSL sync with) ────────────────────────────
+// ── ADD EMPLOYEE ──────────────────────────────────────────────
 // POST /api/essl/employees/add
-router.post('/essl/employees/add', async (req, res) => {
-  try {
-    const {
-      name, employeeId, essl_id,
-      department, designation,
-      mobile, email, status,
-    } = req.body;
+// router.post('/essl/employees/add', async (req, res) => {
+//   try {
+//     const {
+//       name, employeeId, essl_id,
+//       department, designation,
+//       mobile, email, status,
+//     } = req.body;
 
-    if (!name) return res.status(400).json({ success: false, message: 'Name required' });
+//     if (!name) return res.status(400).json({ success: false, message: 'Name required' });
 
-    // Duplicate essl_id check
-    if (essl_id) {
-      const dup = await Employee.findOne({ essl_id });
-      if (dup) {
-        return res.status(400).json({
-          success: false,
-          message: `eSSL ID "${essl_id}" already assigned to ${dup.name}`,
-        });
-      }
-    }
+//     if (essl_id) {
+//       const dup = await Employee.findOne({ essl_id });
+//       if (dup) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `eSSL ID "${essl_id}" already assigned to ${dup.name}`,
+//         });
+//       }
+//     }
 
-    // 1. Save to MongoDB
-    const emp = await Employee.create({
-      name,
-      employeeId: employeeId || await generateEmployeeId(),
-      essl_id:    essl_id || null,
-      department, designation,
-      mobile, email,
-      status: status || 'active',
-    });
+//     // ✅ Save to MongoDB — essl_sync: false initially
+//     const emp = await Employee.create({
+//       name,
+//       employeeId: employeeId || await generateEmployeeId(),
+//       essl_id:    essl_id || null,
+//       department, designation,
+//       mobile, email,
+//       status:    status || 'active',
+//       essl_sync: false,  // ✅ NEW: initial state
+//     });
 
-    // 2. Sync to eSSL machine
-    let esslResult = { ok: false, error: 'No eSSL ID — skipped' };
-    if (essl_id) {
-      esslResult = await callEsslBridge('employee/add', { essl_id, name });
-      console.log(`🔗 eSSL Add: ${name} (${essl_id}) → ${esslResult.ok ? '✅' : '❌'}`);
-    }
+//     // Sync to eSSL machine
+//     let esslResult = { ok: false, error: 'No eSSL ID — skipped' };
+//     if (essl_id) {
+//       esslResult = await callEsslBridge('employee/add', { essl_id, name });
+//       console.log(`🔗 eSSL Add: ${name} (${essl_id}) → ${esslResult.ok ? '✅' : '❌'}`);
 
-    res.json({
-      success: true,
-      message: 'Employee added successfully',
-      data:    emp,
-      essl_sync: {
-        attempted: !!essl_id,
-        success:   esslResult.ok,
-        message:   esslResult.message || esslResult.error || '',
-      },
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+//       // ✅ FIX: DB-ல் essl_sync update பண்ணு
+//       if (esslResult.ok) {
+//         await Employee.findByIdAndUpdate(emp._id, { essl_sync: true });
+//       }
+//     }
 
-// ── UPDATE EMPLOYEE (eSSL sync with) ─────────────────────────
+//     // Return updated doc
+//     const updatedEmp = await Employee.findById(emp._id);
+
+//     res.json({
+//       success: true,
+//       message: 'Employee added successfully',
+//       data:    updatedEmp,
+//       essl_sync: {
+//         attempted: !!essl_id,
+//         success:   esslResult.ok,
+//         message:   esslResult.message || esslResult.error || '',
+//       },
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+// ── UPDATE EMPLOYEE ───────────────────────────────────────────
 // PUT /api/essl/employees/:id
-router.put('/essl/employees/:id', async (req, res) => {
-  try {
-    const {
-      name, employeeId, essl_id,
-      department, designation,
-      mobile, email, status,
-    } = req.body;
+// router.put('/essl/employees/:id', async (req, res) => {
+//   try {
+//     const {
+//       name, employeeId, essl_id,
+//       department, designation,
+//       mobile, email, status,
+//     } = req.body;
 
-    const oldEmp = await Employee.findById(req.params.id);
-    if (!oldEmp) return res.status(404).json({ success: false, message: 'Employee not found' });
+//     const oldEmp = await Employee.findById(req.params.id);
+//     if (!oldEmp) return res.status(404).json({ success: false, message: 'Employee not found' });
 
-    // Duplicate essl_id check (exclude self)
-    if (essl_id) {
-      const dup = await Employee.findOne({ essl_id, _id: { $ne: req.params.id } });
-      if (dup) {
-        return res.status(400).json({
-          success: false,
-          message: `eSSL ID "${essl_id}" already assigned to ${dup.name}`,
-        });
-      }
-    }
+//     if (essl_id) {
+//       const dup = await Employee.findOne({ essl_id, _id: { $ne: req.params.id } });
+//       if (dup) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `eSSL ID "${essl_id}" already assigned to ${dup.name}`,
+//         });
+//       }
+//     }
 
-    // 1. Update MongoDB
-    const emp = await Employee.findByIdAndUpdate(
-      req.params.id,
-      { name, employeeId, essl_id: essl_id || null, department, designation, mobile, email, status },
-      { new: true }
-    );
+//     // ✅ essl_id மாறினா essl_sync reset பண்ணு
+//     const esslIdChanged = oldEmp.essl_id !== essl_id;
 
-    // 2. Sync to eSSL machine
-    const oldEsslId = oldEmp.essl_id;
-    const newEsslId = essl_id;
-    let esslResult  = { ok: false, error: 'No eSSL ID — skipped' };
+//     const emp = await Employee.findByIdAndUpdate(
+//       req.params.id,
+//       {
+//         name, employeeId,
+//         essl_id:   essl_id || null,
+//         department, designation,
+//         mobile, email, status,
+//         // essl_id மாறினா pending-க்கு reset, இல்லன்னா existing value வெச்சு
+//         ...(esslIdChanged ? { essl_sync: false } : {}),
+//       },
+//       { new: true }
+//     );
 
-    if (newEsslId) {
-      esslResult = await callEsslBridge('employee/update', {
-        essl_id:     newEsslId,
-        name:        name || oldEmp.name,
-        old_essl_id: oldEsslId || null,
-      });
-      console.log(`🔗 eSSL Update: ${name} (${newEsslId}) → ${esslResult.ok ? '✅' : '❌'}`);
-    } else if (oldEsslId && !newEsslId) {
-      esslResult = await callEsslBridge('employee/delete', { essl_id: oldEsslId });
-      console.log(`🗑️  eSSL: removed ${oldEsslId} from machine`);
-    }
+//     const oldEsslId = oldEmp.essl_id;
+//     const newEsslId = essl_id;
+//     let esslResult  = { ok: false, error: 'No eSSL ID — skipped' };
 
-    res.json({
-      success: true,
-      message: 'Employee updated successfully',
-      data:    emp,
-      essl_sync: {
-        attempted: !!(oldEsslId || newEsslId),
-        success:   esslResult.ok,
-        message:   esslResult.message || esslResult.error || '',
-      },
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+//     if (newEsslId) {
+//       esslResult = await callEsslBridge('employee/update', {
+//         essl_id:     newEsslId,
+//         name:        name || oldEmp.name,
+//         old_essl_id: oldEsslId || null,
+//       });
+//       console.log(`🔗 eSSL Update: ${name} (${newEsslId}) → ${esslResult.ok ? '✅' : '❌'}`);
+
+//       // ✅ FIX: sync success → DB update
+//       if (esslResult.ok) {
+//         await Employee.findByIdAndUpdate(req.params.id, { essl_sync: true });
+//       }
+//     } else if (oldEsslId && !newEsslId) {
+//       // eSSL ID removed — delete from machine
+//       esslResult = await callEsslBridge('employee/delete', { essl_id: oldEsslId });
+//       // essl_sync: false already set above via esslIdChanged
+//       console.log(`🗑️  eSSL: removed ${oldEsslId} from machine`);
+//     }
+
+//     const finalEmp = await Employee.findById(req.params.id);
+
+//     res.json({
+//       success: true,
+//       message: 'Employee updated successfully',
+//       data:    finalEmp,
+//       essl_sync: {
+//         attempted: !!(oldEsslId || newEsslId),
+//         success:   esslResult.ok,
+//         message:   esslResult.message || esslResult.error || '',
+//       },
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
 
 // ── SINGLE EMPLOYEE MANUAL SYNC ───────────────────────────────
 // POST /api/essl/employees/:id/sync
-router.post('/essl/employees/:id/sync', async (req, res) => {
-  try {
-    const emp = await Employee.findById(req.params.id);
-    if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
-    if (!emp.essl_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Employee has no eSSL ID. Edit and add one first.',
-      });
-    }
+// router.post('/essl/employees/:id/sync', async (req, res) => {
+//   try {
+//     const emp = await Employee.findById(req.params.id);
+//     if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
+//     if (!emp.essl_id) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Employee has no eSSL ID. Edit and add one first.',
+//       });
+//     }
 
-    const result = await callEsslBridge('employee/add', {
-      essl_id: emp.essl_id,
-      name:    emp.name,
-    });
+//     const result = await callEsslBridge('employee/add', {
+//       essl_id: emp.essl_id,
+//       name:    emp.name,
+//     });
 
-    console.log(`🔗 Manual sync: ${emp.name} (${emp.essl_id}) → ${result.ok ? '✅' : '❌'}`);
+//     console.log(`🔗 Manual sync: ${emp.name} (${emp.essl_id}) → ${result.ok ? '✅' : '❌'}`);
 
-    res.json({
-      success: result.ok,
-      message: result.ok
-        ? `${emp.name} synced to machine ✅`
-        : `Sync failed: ${result.error}`,
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+//     // ✅ FIX: sync success → essl_sync: true DB-ல் save பண்ணு
+//     if (result.ok) {
+//       await Employee.findByIdAndUpdate(req.params.id, { essl_sync: true });
+//     }
+
+//     res.json({
+//       success: result.ok,
+//       message: result.ok
+//         ? `${emp.name} synced to machine ✅`
+//         : `Sync failed: ${result.error}`,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
 
 // ── BULK SYNC ALL EMPLOYEES ───────────────────────────────────
 // POST /api/essl/employees/sync-all
-router.post('/essl/employees/sync-all', async (req, res) => {
-  try {
-    const employees = await Employee.find({
-      essl_id: { $ne: null, $exists: true },
-      status:  { $ne: 'inactive' },
-    });
+// router.post('/essl/employees/sync-all', async (req, res) => {
+//   try {
+//     const employees = await Employee.find({
+//       essl_id: { $ne: null, $exists: true },
+//       status:  { $ne: 'inactive' },
+//     });
 
-    const results = [];
-    for (const emp of employees) {
-      const r = await callEsslBridge('employee/add', {
-        essl_id: emp.essl_id,
-        name:    emp.name,
-      });
-      results.push({ name: emp.name, essl_id: emp.essl_id, success: r.ok });
-    }
+//     const results = [];
+//     for (const emp of employees) {
+//       const r = await callEsslBridge('employee/add', {
+//         essl_id: emp.essl_id,
+//         name:    emp.name,
+//       });
 
-    const synced = results.filter(r => r.success).length;
-    console.log(`🔗 Bulk sync: ${synced}/${results.length} employees synced`);
+//       // ✅ FIX: each employee sync result → DB update
+//       if (r.ok) {
+//         await Employee.findByIdAndUpdate(emp._id, { essl_sync: true });
+//       }
 
-    res.json({
-      success: true,
-      total:   results.length,
-      synced,
-      failed:  results.length - synced,
-      results,
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+//       results.push({ name: emp.name, essl_id: emp.essl_id, success: r.ok });
+//     }
+
+//     const synced = results.filter(r => r.success).length;
+//     console.log(`🔗 Bulk sync: ${synced}/${results.length} employees synced`);
+
+//     res.json({
+//       success: true,
+//       total:   results.length,
+//       synced,
+//       failed:  results.length - synced,
+//       results,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
 
 // ── MACHINE EMPLOYEE LIST ─────────────────────────────────────
 // GET /api/essl/machine-list
-router.get('/essl/machine-list', async (req, res) => {
-  try {
-    const resp = await axios.get(
-      `${ESSL_SERVER}/essl-bridge/employees`,
-      { timeout: 7000 }
-    );
+// router.get('/essl/machine-list', async (req, res) => {
+//   try {
+//     const resp = await axios.get(
+//       `${ESSL_SERVER}/essl-bridge/employees`,
+//       { timeout: 7000 }
+//     );
 
-    const machineData   = resp.data;
-    const hrmsEmployees = await Employee.find({ essl_id: { $ne: null } });
-    const hrmsMap       = {};
-    hrmsEmployees.forEach(e => { hrmsMap[e.essl_id] = e; });
+//     const machineData   = resp.data;
+//     const hrmsEmployees = await Employee.find({ essl_id: { $ne: null } });
+//     const hrmsMap       = {};
+//     hrmsEmployees.forEach(e => { hrmsMap[e.essl_id] = e; });
 
-    const enriched = (machineData.employees || []).map(e => ({
-      ...e,
-      in_hrms: !!hrmsMap[e.essl_id],
-      hrms_record: hrmsMap[e.essl_id] ? {
-        _id:        hrmsMap[e.essl_id]._id,
-        name:       hrmsMap[e.essl_id].name,
-        employeeId: hrmsMap[e.essl_id].employeeId,
-        department: hrmsMap[e.essl_id].department,
-      } : null,
-    }));
+//     const enriched = (machineData.employees || []).map(e => ({
+//       ...e,
+//       in_hrms: !!hrmsMap[e.essl_id],
+//       hrms_record: hrmsMap[e.essl_id] ? {
+//         _id:        hrmsMap[e.essl_id]._id,
+//         name:       hrmsMap[e.essl_id].name,
+//         employeeId: hrmsMap[e.essl_id].employeeId,
+//         department: hrmsMap[e.essl_id].department,
+//       } : null,
+//     }));
 
-    res.json({
-      success:       true,
-      machine_count: machineData.count || 0,
-      hrms_linked:   enriched.filter(e => e.in_hrms).length,
-      not_in_hrms:   enriched.filter(e => !e.in_hrms).length,
-      employees:     enriched,
-    });
-  } catch (err) {
-    res.status(503).json({
-      success: false,
-      message: `Cannot reach eSSL server: ${err.message}`,
-    });
-  }
-});
+//     res.json({
+//       success:       true,
+//       machine_count: machineData.count || 0,
+//       hrms_linked:   enriched.filter(e => e.in_hrms).length,
+//       not_in_hrms:   enriched.filter(e => !e.in_hrms).length,
+//       employees:     enriched,
+//     });
+//   } catch (err) {
+//     res.status(503).json({
+//       success: false,
+//       message: `Cannot reach eSSL server: ${err.message}`,
+//     });
+//   }
+// });
 
 // ── MACHINE PING ──────────────────────────────────────────────
 // GET /api/essl/ping
-router.get('/essl/ping', async (req, res) => {
-  try {
-    const resp = await axios.get(
-      `${ESSL_SERVER}/essl-bridge/ping`,
-      { timeout: 4000 }
-    );
-    res.json(resp.data);
-  } catch {
-    res.json({ ok: false, status: 'essl-server-offline' });
-  }
-});
+// router.get('/essl/ping', async (req, res) => {
+//   try {
+//     const resp = await axios.get(
+//       `${ESSL_SERVER}/essl-bridge/ping`,
+//       { timeout: 4000 }
+//     );
+//     res.json(resp.data);
+//   } catch {
+//     res.json({ ok: false, status: 'essl-server-offline' });
+//   }
+// });
 
 // ================= FORGOT PASSWORD =================
 router.post('/forgot-password', async (req, res) => {

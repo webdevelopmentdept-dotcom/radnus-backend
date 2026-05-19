@@ -125,6 +125,9 @@ app.use("/api/partners", partnerRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/employee", employeeAuth);
 app.use("/api", employeeAuth);  
+app.use('/api', require('./routes/esslhrRoutes'));
+app.use("/api/shifts", require("./routes/shifts"));
+
 // Lead Correct Route (only one)
 app.use("/api/lead", leadRoutes);
 app.use("/api/notifications", require("./routes/NotificationRoutes"));
@@ -156,6 +159,7 @@ app.use("/api/hr", hrAuthRoutes);
 app.use("/api/hr", hrApplyRoutes);
 app.use("/api/hr", hrApplicationsRoutes);
 app.use("/api/hr", hrPendingRoutes);
+app.use("/api/hr", employeeAuth);
 app.use("/api/hr/activation", require("./routes/hrActivationRoutes"));
 app.use('/api/wellness', wellnessRoutes);
 app.use('/api/wellnesshr', require('./routes/wellnesshr'));

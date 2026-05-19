@@ -145,6 +145,15 @@ exports.checkIn = async (req, res) => {
     }
 
     const now = new Date();
+
+    // ✅ Duplicate punch prevention (60 sec window)
+    const recentDup = record.punches.find(p =>
+      p.type === "in" && Math.abs(new Date(p.time) - now) < 60000
+    );
+    if (recentDup) {
+      return res.json({ success: true, message: "Duplicate punch ignored", data: record });
+    }
+
     record.punches.push({ type: "in", time: now, method, location: location || {} });
 
     const computed = computeFromPunches(record.punches);
@@ -235,7 +244,16 @@ exports.checkOut = async (req, res) => {
       });
     }
 
-    const now = new Date();
+ const now = new Date();
+
+    // ✅ Duplicate punch prevention (60 sec window)
+    const recentOutDup = record.punches.find(p =>
+      p.type === "out" && Math.abs(new Date(p.time) - now) < 60000
+    );
+    if (recentOutDup) {
+      return res.json({ success: true, message: "Duplicate punch ignored", data: record });
+    }
+
     record.punches.push({
       type:     "out",
       time:     now,
@@ -419,11 +437,26 @@ exports.getDailyReport = async (req, res) => {
       if (rec) {
         const obj = rec.toObject();
 
-        if (obj.punches && obj.punches.length > 0) {
-          const computed = computeFromPunches(obj.punches);
-          Object.assign(obj, computed);
-        }
+//         if (obj.punches && obj.punches.length > 0) {
+//   const computed = computeFromPunches(obj.punches);
+//   Object.assign(obj, computed);
 
+//   // ✅ Last punch "in" ஆ இருந்தா அந்த time-யே last_out treat பண்ணு
+//   const sortedP = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+//   const unique  = sortedP.filter((p, idx, arr) =>
+//     idx === 0 || new Date(p.time).getTime() !== new Date(arr[idx-1].time).getTime()
+//   );
+//   const lastP = unique[unique.length - 1];
+//   if (lastP?.type === "in" && !computed.last_out) {
+//     obj.last_out = lastP.time;
+//     obj.checkOut = lastP.time;
+//   }
+// }
+if (obj.punches && obj.punches.length > 0) {
+  const computed = computeFromPunches(obj.punches);
+  Object.assign(obj, computed);
+  // ✅ Only real "out" punches = last_out
+}
         obj.employee      = emp;
         obj.missing_punch = obj.is_currently_in && (() => {
           if (date !== todayStr()) return true;
@@ -553,19 +586,24 @@ exports.hrMarkAttendance = async (req, res) => {
   try {
     const { employee_id, date, status, checkIn, checkOut, punches, shift, remark } = req.body;
 
+    // ✅ Fix: No-time statuses should NEVER have punches
+    const noTimeStatus = ["leave", "holiday", "weekend", "absent"].includes(status);
+
     let newPunches = [];
 
-    if (punches && Array.isArray(punches) && punches.length > 0) {
-      newPunches = punches.map(p => ({
-        type:   p.type,
-        time:   new Date(p.time),
-        method: "hr_manual",
-        remark: p.remark || "",
-      }));
-    } else if (checkIn) {
-      newPunches.push({ type: "in",  time: new Date(checkIn),  method: "hr_manual" });
-      if (checkOut) {
-        newPunches.push({ type: "out", time: new Date(checkOut), method: "hr_manual" });
+    if (!noTimeStatus) {  // ← Only build punches if status needs time
+      if (punches && Array.isArray(punches) && punches.length > 0) {
+        newPunches = punches.map(p => ({
+          type:   p.type,
+          time:   new Date(p.time),
+          method: "hr_manual",
+          remark: p.remark || "",
+        }));
+      } else if (checkIn) {
+        newPunches.push({ type: "in",  time: new Date(checkIn),  method: "hr_manual" });
+        if (checkOut) {
+          newPunches.push({ type: "out", time: new Date(checkOut), method: "hr_manual" });
+        }
       }
     }
 
@@ -573,9 +611,8 @@ exports.hrMarkAttendance = async (req, res) => {
       ? computeFromPunches(newPunches)
       : { work_hours: 0, late_minutes: 0, early_out_minutes: 0, overtime_minutes: 0 };
 
-    const finalStatus = status && ["leave", "holiday", "weekend", "absent"].includes(status)
-      ? status
-      : computed.status || status || "present";
+    // ✅ Fix: Status from request always wins for no-time statuses
+    const finalStatus = noTimeStatus ? status : (computed.status || status || "present");
 
     const record = await Attendance.findOneAndUpdate(
       { employee_id, date },
@@ -585,13 +622,13 @@ exports.hrMarkAttendance = async (req, res) => {
           date,
           punches:           newPunches,
           status:            finalStatus,
-          first_in:          computed.first_in  || null,
-          last_out:          computed.last_out   || null,
-          work_hours:        computed.work_hours,
-          break_minutes:     computed.break_minutes || 0,
-          late_minutes:      computed.late_minutes,
-          early_out_minutes: computed.early_out_minutes,
-          overtime_minutes:  computed.overtime_minutes,
+          first_in:          noTimeStatus ? null : (computed.first_in  || null),
+          last_out:          noTimeStatus ? null : (computed.last_out   || null),
+          work_hours:        computed.work_hours        || 0,
+          break_minutes:     computed.break_minutes     || 0,
+          late_minutes:      computed.late_minutes      || 0,
+          early_out_minutes: computed.early_out_minutes || 0,
+          overtime_minutes:  computed.overtime_minutes  || 0,
           shift:             shift  || "General (9:45 AM – 7:00 PM)",
           remark:            remark || "",
           method:            "hr_manual",

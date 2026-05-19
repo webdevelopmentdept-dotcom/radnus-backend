@@ -6,96 +6,93 @@ const employeeSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
   password: String,
- 
 
-mobile: {
-  type: String,
-  unique: true
-},
+  mobile: {
+    type: String,
+    unique: true
+  },
 
-// ✅ இந்த 3 fields add பண்ணு
-altMobile: { type: String, default: "" },
-dob:       { type: String, default: "" },
-address:   { type: String, default: "" },
+  altMobile: { type: String, default: "" },
+  dob:       { type: String, default: "" },
+  address:   { type: String, default: "" },
 
-  department: String,
+  department:  String,
   designation: String,
 
-    essl_id: {
+  essl_id: {
     type:    String,
     default: null,
   },
 
   documentsCompleted: {
-    type: Boolean,
+    type:    Boolean,
     default: false
   },
 
   status: {
-    type: String,
-    enum: ["pending", "approved", "rejected"],
+    type:    String,
+    enum:    ["pending", "approved", "rejected", "relieved", "fired", "active"],
     default: "pending"
   },
 
+  exitType:          { type: String, enum: ['relieved', 'fired', null], default: null },
+  accessDeactivated: { type: Boolean, default: false },
+
   remarks: {
-    type: String,
+    type:    String,
     default: ""
   },
 
   reuploaded: {
-  type: Boolean,
-  default: false
-},
-
-profileImage: { type: String, default: "" } ,
-
-
-resetPasswordToken:  { type: String, default: null },
-resetPasswordExpiry: { type: Number, default: null },
-
-
-leadershipTrack: {
-    stage: { type: Number, min: 1, max: 5, default: null },
-    stageLabel: { type: String, default: "" },
-    targetRole: { type: String, default: "" },
-    timeline: { type: String, default: "" },
-    focusAreas: [{ type: String }],
-    expectedOutput: { type: String, default: "" },
-    enrolledAt: { type: Date },
-    isHiPo: { type: Boolean, default: false },
+    type:    Boolean,
+    default: false
   },
+
+  profileImage: { type: String, default: "" },
+
+  resetPasswordToken:  { type: String, default: null },
+  resetPasswordExpiry: { type: Number, default: null },
+
+  leadershipTrack: {
+    stage:          { type: Number, min: 1, max: 5, default: null },
+    stageLabel:     { type: String, default: "" },
+    targetRole:     { type: String, default: "" },
+    timeline:       { type: String, default: "" },
+    focusAreas:     [{ type: String }],
+    expectedOutput: { type: String, default: "" },
+    enrolledAt:     { type: Date },
+    isHiPo:         { type: Boolean, default: false },
+  },
+
   mentor: {
-    name: { type: String, default: "" },
-    designation: { type: String, default: "" },
-    employeeId: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
+    name:            { type: String, default: "" },
+    designation:     { type: String, default: "" },
+    employeeId:      { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
     lastSessionDate: { type: Date },
     nextSessionDate: { type: Date },
   },
+
   kpis: [
     {
       metric:    { type: String },
       target:    { type: String },
       frequency: { type: String },
       current:   { type: String, default: "" },
-      status:    { type: String, enum: ["on_track","at_risk","achieved"], default: "on_track" },
+      status:    { type: String, enum: ["on_track", "at_risk", "achieved"], default: "on_track" },
     }
   ],
+
   leadershipProgress: [
     {
-      date:     { type: Date, default: Date.now },
-      note:     { type: String },
-      addedBy:  { type: String },
-      type:     { type: String, enum: ["mentorship","rotation","training","assessment","milestone"], default: "milestone" },
+      date:    { type: Date, default: Date.now },
+      note:    { type: String },
+      addedBy: { type: String },
+      type:    { type: String, enum: ["mentorship", "rotation", "training", "assessment", "milestone"], default: "milestone" },
     }
   ],
 
-}, 
-
-{
-  timestamps: true  
+}, {
+  timestamps: true
 });
-
-
-
 
 module.exports = mongoose.model("Employee", employeeSchema);
