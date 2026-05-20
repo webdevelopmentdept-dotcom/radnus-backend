@@ -340,9 +340,21 @@ router.put('/update-profile', async (req, res) => {
 // ================= GET ALL EMPLOYEES =================
 router.get('/employees', async (req, res) => {
   try {
-    const { status } = req.query;
-    const filter     = status ? { status } : {};
-    const employees  = await Employee.find(filter);
+    const { status, email } = req.query;
+    
+    // ✅ Email filter — HR Approved essl_id lookup
+    if (email) {
+      const emp = await Employee.findOne({ email });
+      return res.json({ 
+        data: emp ? [emp] : [],
+        total: emp ? 1 : 0 
+      });
+    }
+    
+    const filter    = status ? { status } : {};
+    const employees = await Employee.find(filter).select(
+      "name email department designation employeeId empId essl_id status mobile profileImage"
+    );
     res.json({ total: employees.length, data: employees });
   } catch (err) {
     res.status(500).json({ message: err.message });

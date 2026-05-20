@@ -145,6 +145,7 @@ router.get("/approved", async (req, res) => {
           mobile: emp.mobile,
           department: emp.department,
           designation: emp.designation,
+          essl_id: emp.essl_id || null,
           reuploaded: emp.reuploaded,   // 🔥 ADD THIS LINE
           documents: docs
         };
