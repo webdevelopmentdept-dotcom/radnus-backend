@@ -100,12 +100,12 @@ let status = "absent";
 if (firstIn) {
   const firstInMins   = toMins(firstIn);
   const shiftStart    = parseShiftStart(shiftStr);
-  const halfDayCutoff = shiftStart + 90; // shift start + 1.5 hrs grace
-  if (firstInMins <= halfDayCutoff) {
-    status = "present";
-  } else {
-    status = "half_day";
-  }
+  const halfDayCutoff = shiftStart + 90;
+  status = firstInMins <= halfDayCutoff ? "present" : "half_day";
+}
+const hasAnyIn = sorted.some(p => p.type === "in");
+if (!hasAnyIn && sorted.some(p => p.type === "out")) {
+  status = "absent";
 }
   return {
     first_in:          firstIn,
