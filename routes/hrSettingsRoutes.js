@@ -1,6 +1,7 @@
-const express = require("express");
-const router  = express.Router();
-const ctrl    = require("../controllers/hrSettingsController");
+const express   = require("express");
+const router    = express.Router();
+const ctrl      = require("../controllers/hrSettingsController");
+const leaveCtrl = require("../controllers/leaveController"); // ✅ already added
 
 // Shift
 router.get("/shift",  ctrl.getShift);
@@ -11,6 +12,7 @@ router.get("/leave-types",        ctrl.getLeaveTypes);
 router.post("/leave-types",       ctrl.addLeaveType);
 router.put("/leave-types",        ctrl.updateLeaveTypes);
 router.delete("/leave-types/:id", ctrl.deleteLeaveType);
+
 
 // Holidays
 router.get("/holidays",        ctrl.getHolidays);

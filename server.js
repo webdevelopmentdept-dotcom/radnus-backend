@@ -186,6 +186,13 @@ app.use('/api/self-assessment', selfAssessmentRoutes);
 app.use('/api/performance-reviews', performanceReviewRoutes);
 app.use('/api/daily-logs', dailyLogRoutes);
 app.use("/api/hr/settings", require("./routes/hrSettingsRoutes"));
+app.use("/api", require("./routes/hrSettingsRoutes"));
+app.use("/api/leave-types", require("./routes/hrSettingsRoutes"));
+app.use("/api/leave-requests", require("./routes/leaveRoutes")); // ✅ NEW
+app.use("/api/leave-requests", require("./routes/leaveRoutes")); // ✅
+
+
+
 
 app.use("/api", attendanceRoutes);
 app.use("/", require("./routes/esslRoutes"));
