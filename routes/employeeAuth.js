@@ -7,6 +7,7 @@ const jwt      = require('jsonwebtoken');
 const multer   = require('multer');
 const Counter  = require('../models/Counter');
 const axios    = require('axios');
+const auth = require('../middleware/auth');
 
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('../config/cloudinary');
@@ -161,7 +162,9 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ message: 'ACCOUNT_INACTIVE' });
     }
 
-    const token = jwt.sign({ id: user._id }, 'SECRETKEY', { expiresIn: '7d' });
+    // const token = jwt.sign({ id: user._id }, 'SECRETKEY', { expiresIn: '7d' });
+const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
 
     res.json({
       token,
@@ -175,6 +178,50 @@ router.post('/login', async (req, res) => {
 });
 
 // ================= UPLOAD DOCUMENT =================
+// router.post('/upload-doc', (req, res) => {
+//   upload.single('file')(req, res, async (err) => {
+//     if (err) return res.status(400).json({ message: err.message });
+
+//     try {
+//       const { employeeId, docType } = req.body;
+
+//       if (!employeeId) return res.status(400).json({ message: 'EMPLOYEE_ID_MISSING' });
+//       if (!req.file)   return res.status(400).json({ message: 'NO_FILE_UPLOADED' });
+
+//       const existingDoc = await Document.findOne({ employeeId, docType });
+//       if (existingDoc) return res.status(400).json({ message: 'DOCUMENT_ALREADY_UPLOADED' });
+
+//       const newDoc = new Document({
+//         employeeId,
+//         docType,
+//         fileUrl: req.file.path,
+//       });
+//       await newDoc.save();
+
+//       const requiredDocs = [
+//         'Aadhaar', 'PAN', 'Passport Photo',
+//         '10th Marksheet', '12th Marksheet',
+//         'Resume', 'Bank Passbook',
+//         'Ration Card Front', 'Ration Card Back',
+//       ];
+
+//       const uploadedDocs  = await Document.find({ employeeId });
+//       const uploadedTypes = uploadedDocs.map(d => d.docType);
+//       const allUploaded   = requiredDocs.every(doc => uploadedTypes.includes(doc));
+
+//       await Employee.findByIdAndUpdate(employeeId, {
+//         status: 'pending',
+//         documentsCompleted: allUploaded ? true : undefined,
+//       });
+
+//       res.json({ message: 'Uploaded successfully', fileUrl: req.file.path });
+//     } catch {
+//       res.status(500).json({ message: 'Upload failed' });
+//     }
+//   });
+// });
+
+// ================= UPLOAD DOCUMENT =================
 router.post('/upload-doc', (req, res) => {
   upload.single('file')(req, res, async (err) => {
     if (err) return res.status(400).json({ message: err.message });
@@ -185,15 +232,12 @@ router.post('/upload-doc', (req, res) => {
       if (!employeeId) return res.status(400).json({ message: 'EMPLOYEE_ID_MISSING' });
       if (!req.file)   return res.status(400).json({ message: 'NO_FILE_UPLOADED' });
 
-      const existingDoc = await Document.findOne({ employeeId, docType });
-      if (existingDoc) return res.status(400).json({ message: 'DOCUMENT_ALREADY_UPLOADED' });
-
-      const newDoc = new Document({
-        employeeId,
-        docType,
-        fileUrl: req.file.path,
-      });
-      await newDoc.save();
+      // ✅ FIX: insert இல்லை, upsert — already இருந்தா update பண்ணு
+      const savedDoc = await Document.findOneAndUpdate(
+        { employeeId, docType },
+        { fileUrl: req.file.path, updatedAt: new Date() },
+        { upsert: true, new: true }
+      );
 
       const requiredDocs = [
         'Aadhaar', 'PAN', 'Passport Photo',
@@ -206,12 +250,14 @@ router.post('/upload-doc', (req, res) => {
       const uploadedTypes = uploadedDocs.map(d => d.docType);
       const allUploaded   = requiredDocs.every(doc => uploadedTypes.includes(doc));
 
-      await Employee.findByIdAndUpdate(employeeId, {
-        status: 'pending',
-        documentsCompleted: allUploaded ? true : undefined,
-      });
+      const isHrUpload = req.body.isHrUpload === "true";
 
-      res.json({ message: 'Uploaded successfully', fileUrl: req.file.path });
+await Employee.findByIdAndUpdate(employeeId, {
+  ...(isHrUpload ? {} : { status: 'pending' }),
+  documentsCompleted: allUploaded ? true : undefined,
+})
+
+      res.json({ message: 'Uploaded successfully', fileUrl: req.file.path, document: savedDoc });
     } catch {
       res.status(500).json({ message: 'Upload failed' });
     }
@@ -864,6 +910,103 @@ router.post('/reset-password', async (req, res) => {
   } catch (err) {
     console.log('RESET PASSWORD ERROR:', err);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ================= SECURE DOCUMENT VIEW =================
+// router.get('/view-doc/:docId', auth, async (req, res) => {
+//   try {
+//         console.log('✅ Auth passed, user:', req.user); // இதை add பண்ணு
+
+//     const doc = await Document.findById(req.params.docId);
+//     if (!doc) return res.status(404).json({ message: 'Document not found' });
+
+//     const fileUrl = doc.fileUrl;
+
+//     // ✅ Check: private upload ah? illa public ah?
+//     if (fileUrl.includes('/private/') || fileUrl.includes('type=private')) {
+//       // New uploads — signed URL generate pannunga
+//       const urlObj   = new URL(fileUrl);
+//       const parts    = urlObj.pathname.split('/');
+//       const idx      = parts.findIndex(p => p === 'private' || p === 'upload');
+//       const relevant = parts.slice(idx + 2).join('/');
+//       const publicId = relevant.replace(/\.[^/.]+$/, '');
+//       const ext      = relevant.split('.').pop();
+
+//       const resourceType = fileUrl.includes('/image/') ? 'image'
+//                          : fileUrl.includes('/video/') ? 'video'
+//                          : 'raw';
+
+//       const signedUrl = cloudinary.url(publicId + '.' + ext, {
+//   resource_type: resourceType,
+//   type: 'private',
+//   sign_url: true,
+//   secure: true,
+//   expires_at: Math.floor(Date.now() / 1000) + 300,
+// });
+//       return res.json({ url: signedUrl });
+//     }
+
+//     // ✅ Old uploads — direct URL return pannunga (already public)
+//     return res.json({ url: fileUrl });
+
+//   } catch (err) {
+//     console.log('VIEW DOC ERROR:', err);
+//     res.status(500).json({ message: 'Failed to generate secure URL' });
+//   }
+// });
+
+// ================= SECURE DOCUMENT VIEW =================
+// ================= SECURE DOCUMENT VIEW =================
+router.get('/view-doc/:docId', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.docId);
+    if (!doc) return res.status(404).json({ message: 'Document not found' });
+
+    const fileUrl = doc.fileUrl;
+
+    // ✅ OLD public uploads — direct URL return
+    if (!fileUrl.includes('/private/')) {
+      return res.json({ url: fileUrl });
+    }
+
+    // ✅ NEW private uploads — signed URL generate
+    const urlObj = new URL(fileUrl);
+    const parts  = urlObj.pathname.split('/').filter(Boolean);
+    // parts = ['dp9jv4wyh', 'image', 'private', 'v1234567', 'documents', 'filename.jpg']
+
+    // ✅ FIX: 'private' பிறகு version skip பண்ணி public_id எடு
+    const privateIdx   = parts.findIndex(p => p === 'private');
+    const afterPrivate = parts.slice(privateIdx + 1); // ['v1234567', 'documents', 'filename.jpg']
+
+    // version number (v로 start ஆனது) skip பண்ணு
+    const withoutVersion = afterPrivate[0].startsWith('v') && /^v\d+$/.test(afterPrivate[0])
+      ? afterPrivate.slice(1)
+      : afterPrivate;
+    // ['documents', 'filename.jpg']
+
+    const fullPath = withoutVersion.join('/');           // 'documents/1779530783706-bench-press.jpg'
+    const ext      = fullPath.split('.').pop();           // 'jpg'
+    const publicId = fullPath.replace(/\.[^/.]+$/, '');  // 'documents/1779530783706-bench-press'
+
+    const resourceType = fileUrl.includes('/image/') ? 'image'
+                       : fileUrl.includes('/video/') ? 'video'
+                       : 'raw';
+
+    const signedUrl = cloudinary.utils.private_download_url(
+      publicId, ext,
+      {
+        resource_type: resourceType,
+        expires_at:    Math.floor(Date.now() / 1000) + 300,
+        attachment:    false,
+      }
+    );
+
+    return res.json({ url: signedUrl });
+
+  } catch (err) {
+    console.log('VIEW DOC ERROR:', err);
+    res.status(500).json({ message: 'Failed to generate secure URL' });
   }
 });
 

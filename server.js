@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+console.log("JWT_SECRET:", process.env.JWT_SECRET);
 const mongoose = require("mongoose");
 const cors = require("cors");
 const prerender = require("prerender-node");
