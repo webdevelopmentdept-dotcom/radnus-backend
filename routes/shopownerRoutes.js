@@ -1,154 +1,173 @@
 const express = require("express");
-const router = express.Router();
-const ShopOwner = require("../models/ShopOwner");
+const router  = express.Router();
+const ShopOwner     = require("../models/ShopOwner");
+const StatusHistory = require("../models/StatusHistory");
 
-/* ================= HELPERS ================= */
+/* ═══════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════ */
 
 const requiredFields = [
-  "shopName",
-  "ownerName",
-  "mobile",
-  "district",
-  "taluk",
-  "businessYears",
-  "needTech",
-  "jobType",
-  "experience",
-  "paymentType",
-  "toolsSetup",
-  "timeline",
-  "radnusHire",
+  "shopName", "ownerName", "mobile", "district", "taluk",
+  "businessYears", "needTech", "jobType", "experience",
+  "paymentType", "toolsSetup", "timeline", "radnusHire",
 ];
 
-const isInvalidValue = (value) => {
-  if (value === undefined || value === null) return true;
-  if (typeof value === "string") {
-    const v = value.trim();
-    return v === "" || v === "-" || v === "--";
+const isInvalid = (v) => {
+  if (v === undefined || v === null) return true;
+  if (typeof v === "string") {
+    const s = v.trim();
+    return s === "" || s === "-" || s === "--";
   }
   return false;
 };
 
-/* ================= CREATE ================= */
+/* ═══════════════════════════════════════════════
+   PUBLIC ROUTES  (no auth needed)
+═══════════════════════════════════════════════ */
 
+// POST /api/shop-owner  — submit new requirement
 router.post("/", async (req, res) => {
   try {
-    console.log("🔥 SHOP OWNER BODY:", req.body);
-
-    // Required fields
     for (const field of requiredFields) {
-      if (isInvalidValue(req.body[field])) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid or missing value for ${field}`,
-        });
+      if (isInvalid(req.body[field])) {
+        return res.status(400).json({ success: false, message: `Invalid or missing: ${field}` });
       }
     }
+    if (!Array.isArray(req.body.technicianTypes) || req.body.technicianTypes.length === 0)
+      return res.status(400).json({ success: false, message: "At least one technician type required" });
+    if (!Array.isArray(req.body.machines) || req.body.machines.length === 0)
+      return res.status(400).json({ success: false, message: "At least one machine required" });
 
-    // Arrays validation
-    if (
-      !Array.isArray(req.body.technicianTypes) ||
-      req.body.technicianTypes.length === 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "At least one technician type is required",
-      });
-    }
+    const existing = await ShopOwner.findOne({ mobile: req.body.mobile });
+    if (existing)
+      return res.status(409).json({ success: false, message: "Mobile number already submitted" });
 
-    if (!Array.isArray(req.body.machines) || req.body.machines.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "At least one machine is required",
-      });
-    }
-
-    // Duplicate mobile
-    const existing = await ShopOwner.findOne({
-      mobile: req.body.mobile,
-    });
-
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: "This mobile number is already submitted",
-      });
-    }
-
-    // Save
-    const newRequirement = new ShopOwner(req.body);
-    await newRequirement.save();
-
-    return res.status(201).json({
-      success: true,
-      message: "Shop owner requirement submitted successfully",
-    });
+    const newOwner = new ShopOwner(req.body);
+    await newOwner.save();
+    res.status(201).json({ success: true, message: "Requirement submitted successfully" });
   } catch (err) {
-    console.error("❌ SHOP OWNER ERROR:", err);
-
-    if (err.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "Mobile number already exists",
-      });
-    }
-
-    if (err.name === "ValidationError") {
-      return res.status(400).json({
-        success: false,
-        message: err.message,
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    if (err.code === 11000)
+      return res.status(409).json({ success: false, message: "Mobile number already exists" });
+    if (err.name === "ValidationError")
+      return res.status(400).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
-/* ================= READ ================= */
+/* ═══════════════════════════════════════════════
+   ADMIN ROUTES
+═══════════════════════════════════════════════ */
 
+// GET /api/shop-owner  — all records (admin)
 router.get("/", async (req, res) => {
   try {
-    const list = await ShopOwner.find().sort({ createdAt: -1 });
-    res.json(list);
+    const {
+      status, district, search,
+      page = 1, limit = 50,
+    } = req.query;
+
+    const filter = {};
+    if (status)   filter.jobStatus = status;
+    if (district) filter.district  = new RegExp(district, "i");
+    if (search) {
+      filter.$or = [
+        { shopName:  new RegExp(search, "i") },
+        { ownerName: new RegExp(search, "i") },
+        { mobile:    new RegExp(search, "i") },
+        { district:  new RegExp(search, "i") },
+      ];
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+    const [list, total] = await Promise.all([
+      ShopOwner.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+      ShopOwner.countDocuments(filter),
+    ]);
+
+    res.json({ data: list, total, pages: Math.ceil(total / Number(limit)) });
   } catch {
     res.status(500).json({ success: false });
   }
 });
 
+// GET /api/shop-owner/:id  — single record
 router.get("/:id", async (req, res) => {
   try {
     const item = await ShopOwner.findById(req.params.id);
-    if (!item) {
-      return res.status(404).json({ success: false, message: "Not found" });
-    }
+    if (!item) return res.status(404).json({ success: false, message: "Not found" });
     res.json(item);
   } catch {
     res.status(400).json({ success: false });
   }
 });
 
-/* ================= UPDATE ================= */
-
+// PUT /api/shop-owner/status/:id  — update jobStatus + log history
 router.put("/status/:id", async (req, res) => {
   try {
+    const { status, changedBy = "admin", note = "" } = req.body;
+    const prev = await ShopOwner.findById(req.params.id);
+    if (!prev) return res.status(404).json({ success: false, message: "Not found" });
+
     await ShopOwner.findByIdAndUpdate(req.params.id, {
-      status: req.body.status,
+      jobStatus: status,
+      status,                // keep legacy field in sync
     });
+
+    await StatusHistory.create({
+      entityType: "shopowner",
+      entityId:   req.params.id,
+      fromStatus: prev.jobStatus || prev.status,
+      toStatus:   status,
+      changedBy,
+      note,
+    });
+
     res.json({ success: true });
   } catch {
     res.status(500).json({ success: false });
   }
 });
 
-/* ================= DELETE ================= */
+// PUT /api/shop-owner/:id  — full update
+router.put("/:id", async (req, res) => {
+  try {
+    const updated = await ShopOwner.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.json({ success: true, data: updated });
+  } catch {
+    res.status(500).json({ success: false });
+  }
+});
 
+// PATCH /api/shop-owner/featured/:id  — toggle featured
+router.patch("/featured/:id", async (req, res) => {
+  try {
+    const item = await ShopOwner.findById(req.params.id);
+    await ShopOwner.findByIdAndUpdate(req.params.id, { featured: !item.featured });
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ success: false });
+  }
+});
+
+// DELETE /api/shop-owner/:id  — permanent delete (admin only)
 router.delete("/:id", async (req, res) => {
   try {
     await ShopOwner.findByIdAndDelete(req.params.id);
     res.json({ success: true });
+  } catch {
+    res.status(500).json({ success: false });
+  }
+});
+
+// GET /api/shop-owner/history/:id  — status audit trail
+router.get("/history/:id", async (req, res) => {
+  try {
+    const history = await StatusHistory.find({
+      entityType: "shopowner",
+      entityId:   req.params.id,
+    }).sort({ changedAt: -1 });
+    res.json(history);
   } catch {
     res.status(500).json({ success: false });
   }

@@ -6,7 +6,8 @@ const cors = require("cors");
 const prerender = require("prerender-node");
 const path = require("path");
 const employeeAuth = require("./routes/employeeAuth");
-
+const jobsPublicRoutes = require("./routes/jobsPublic");
+const posterRoutes     = require("./routes/posterRoutes");
 const dns = require("dns");
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
@@ -128,7 +129,11 @@ app.use("/api/employee", employeeAuth);
 app.use("/api", employeeAuth);  
 app.use('/api', require('./routes/esslhrRoutes'));
 app.use("/api/shifts", require("./routes/shifts"));
-
+// Public job board API (no auth required)
+app.use("/api/connect", jobsPublicRoutes);
+ 
+// Poster management (admin)
+app.use("/api/posters", posterRoutes);
 // Lead Correct Route (only one)
 app.use("/api/lead", leadRoutes);
 app.use("/api/notifications", require("./routes/NotificationRoutes"));

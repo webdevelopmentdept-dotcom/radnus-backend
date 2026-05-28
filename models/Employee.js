@@ -35,6 +35,8 @@ const employeeSchema = new mongoose.Schema({
     default: "pending"
   },
 
+  shift: { type: String, default: "General" },
+
   exitType:          { type: String, enum: ['relieved', 'fired', null], default: null },
   accessDeactivated: { type: Boolean, default: false },
 

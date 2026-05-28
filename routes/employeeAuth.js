@@ -1010,4 +1010,41 @@ router.get('/view-doc/:docId', async (req, res) => {
   }
 });
 
+
+
+// ================= MIGRATE SHIFTS (run once) =================
+router.post('/employees/migrate-shifts', async (req, res) => {
+  try {
+    const result = await Employee.updateMany(
+      { shift: { $exists: false } },
+      { $set: { shift: "General" } }
+    );
+    res.json({ success: true, updated: result.modifiedCount });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
+// ================= ASSIGN SHIFT TO EMPLOYEE =================
+router.put('/employees/:id/shift', async (req, res) => {
+  try {
+    const { shift } = req.body;
+    if (!shift) return res.status(400).json({ message: 'Shift name required' });
+
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    const updated = await Employee.findByIdAndUpdate(
+  req.params.id,
+  { shift },
+  { new: true }
+);
+
+    res.json({ success: true, message: `Shift updated to ${shift}`, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
