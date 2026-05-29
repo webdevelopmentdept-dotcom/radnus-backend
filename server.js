@@ -5,9 +5,6 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const prerender = require("prerender-node");
 const path = require("path");
-const employeeAuth = require("./routes/employeeAuth");
-const jobsPublicRoutes = require("./routes/jobsPublic");
-const posterRoutes     = require("./routes/posterRoutes");
 const dns = require("dns");
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
@@ -119,6 +116,9 @@ const policyQuizRoutes = require("./routes/policyQuizRoutes");
 const programRoutes = require("./routes/programRoutes");
 const dgsRoutes = require("./routes/departmentGradeSalary");
 const announcementsRouter = require('./routes/announcements');
+const employeeAuth = require("./routes/employeeAuth");
+const jobsPublicRoutes = require("./routes/Jobspublic");
+const posterRoutes     = require("./routes/posterRoutes");
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
