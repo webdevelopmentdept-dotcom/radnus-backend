@@ -118,7 +118,7 @@ const dgsRoutes = require("./routes/departmentGradeSalary");
 const announcementsRouter = require('./routes/announcements');
 const employeeAuth = require("./routes/employeeAuth");
 const jobsPublicRoutes = require("./routes/Jobspublic");
-const posterRoutes     = require("./routes/posterRoutes");
+const posterRoutes = require("./routes/Posterroutes");
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
