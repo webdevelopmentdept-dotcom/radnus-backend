@@ -5,7 +5,6 @@ const multer  = require("multer");
 const path    = require("path");
 const fs      = require("fs");
 
-// ── Upload storage ─────────────────────────────
 const uploadDir = path.join(__dirname, "../uploads/posters");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -19,24 +18,26 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith("image/")) cb(null, true);
     else cb(new Error("Only images allowed"));
   },
 });
 
-// ── GET all posters (admin) ───────────────────
+// GET all (admin)
 router.get("/", async (req, res) => {
   try {
-    const posters = await Poster.find().sort({ displayOrder: 1, createdAt: -1 });
+    const filter = {};
+    if (req.query.type) filter.type = req.query.type;
+    const posters = await Poster.find(filter).sort({ displayOrder: 1, createdAt: -1 });
     res.json(posters);
   } catch {
     res.status(500).json({ success: false });
   }
 });
 
-// ── POST upload new poster ─────────────────────
+// POST upload
 router.post("/", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: "Image required" });
@@ -45,6 +46,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       edition:      req.body.edition || "",
       imageUrl:     `/uploads/posters/${req.file.filename}`,
       displayOrder: Number(req.body.displayOrder) || 0,
+      type:         req.body.type || "jobs",
     });
     await poster.save();
     res.status(201).json({ success: true, poster });
@@ -53,7 +55,7 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
-// ── PUT update poster meta ─────────────────────
+// PUT update
 router.put("/:id", async (req, res) => {
   try {
     const updated = await Poster.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -63,16 +65,13 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// ── DELETE poster ──────────────────────────────
+// DELETE
 router.delete("/:id", async (req, res) => {
   try {
     const poster = await Poster.findById(req.params.id);
     if (!poster) return res.status(404).json({ success: false });
-
-    // Delete file from disk
     const filePath = path.join(__dirname, "../", poster.imageUrl);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-
     await Poster.findByIdAndDelete(req.params.id);
     res.json({ success: true });
   } catch {

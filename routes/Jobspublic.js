@@ -110,7 +110,9 @@ router.get("/technicians", async (req, res) => {
 ───────────────────────────────────────────── */
 router.get("/posters", async (req, res) => {
   try {
-    const posters = await Poster.find({ isActive: true }).sort({
+    const filter = { isActive: true };
+    if (req.query.type) filter.type = req.query.type;
+    const posters = await Poster.find(filter).sort({
       displayOrder: 1,
       createdAt: -1,
     });
@@ -119,7 +121,6 @@ router.get("/posters", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 /* ─────────────────────────────────────────────
    GET /api/connect/stats
    Live counts for homepage display

@@ -13,11 +13,12 @@ dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 const app = express();
 // ✅ MB20 HTTP requests allow பண்ணு
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  next();
-});
-
+// app.use((req, res, next) => {
+//   res.setHeader('Access-Control-Allow-Origin', '*');
+//   next();
+// });
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // ✅ Trust Render proxy
 app.set('trust proxy', true);
 
@@ -52,7 +53,6 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
 
 // const helmet = require("helmet");
 // const mongoSanitize = require("express-mongo-sanitize");
