@@ -2,18 +2,17 @@ const express = require("express");
 const router  = express.Router();
 const Poster  = require("../models/Poster");
 const multer  = require("multer");
-const path    = require("path");
-const fs      = require("fs");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("../config/cloudinary");
 
-const uploadDir = path.join(__dirname, "../uploads/posters");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename:    (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `poster_${Date.now()}${ext}`);
-  },
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => ({
+    folder: "radnus-connect/posters",
+    resource_type: "image",
+    public_id: `poster_${Date.now()}`,
+    transformation: [{ width: 1200, crop: "limit", quality: "auto" }],
+  }),
 });
 
 const upload = multer({
@@ -25,7 +24,6 @@ const upload = multer({
   },
 });
 
-// GET all (admin)
 router.get("/", async (req, res) => {
   try {
     const filter = {};
@@ -37,17 +35,20 @@ router.get("/", async (req, res) => {
   }
 });
 
-// POST upload
 router.post("/", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: "Image required" });
+
+
     const poster = new Poster({
-      title:        req.body.title || "Hiring Poster",
-      edition:      req.body.edition || "",
-      imageUrl:     `/uploads/posters/${req.file.filename}`,
-      displayOrder: Number(req.body.displayOrder) || 0,
-      type:         req.body.type || "jobs",
+      title:         req.body.title || "Hiring Poster",
+      edition:       req.body.edition || "",
+      imageUrl:      req.file.path,       // https://res.cloudinary.com/...
+      cloudinary_id: req.file.filename,   // radnus-connect/posters/poster_xxx
+      displayOrder:  Number(req.body.displayOrder) || 0,
+      type:          req.body.type || "jobs",
     });
+
     await poster.save();
     res.status(201).json({ success: true, poster });
   } catch (err) {
@@ -55,7 +56,6 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
-// PUT update
 router.put("/:id", async (req, res) => {
   try {
     const updated = await Poster.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -65,17 +65,21 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// DELETE
 router.delete("/:id", async (req, res) => {
   try {
     const poster = await Poster.findById(req.params.id);
     if (!poster) return res.status(404).json({ success: false });
-    const filePath = path.join(__dirname, "../", poster.imageUrl);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+    if (poster.cloudinary_id) {
+      await cloudinary.uploader.destroy(poster.cloudinary_id, {
+        resource_type: "image",
+      });
+    }
+
     await Poster.findByIdAndDelete(req.params.id);
     res.json({ success: true });
-  } catch {
-    res.status(500).json({ success: false });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

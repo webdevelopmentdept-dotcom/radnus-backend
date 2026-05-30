@@ -30,10 +30,10 @@ const ShopOwnerSchema = new mongoose.Schema(
     mobile: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       validate: invalidValueValidator,
     },
+    state: { type: String, trim: true }, // ✅ new field
     district: {
       type: String,
       required: true,
@@ -77,10 +77,10 @@ const ShopOwnerSchema = new mongoose.Schema(
       required: true,
       validate: invalidValueValidator,
     },
-    salaryRange: String,
-    salaryMin: { type: Number },
-    salaryMax: { type: Number },
-    workingHours: String,
+    salaryRange:       String,
+    salaryMin:         { type: Number },
+    salaryMax:         { type: Number },
+    workingHours:      String,
     foodAccommodation: String,
     toolsSetup: {
       type: String,
@@ -97,7 +97,7 @@ const ShopOwnerSchema = new mongoose.Schema(
       required: true,
       validate: invalidValueValidator,
     },
-    skills: String,
+    skills:     String,
     radnusHire: {
       type: String,
       required: true,
@@ -109,7 +109,7 @@ const ShopOwnerSchema = new mongoose.Schema(
     // "Pending"    = just registered, not yet published
     // "Open"       = visible on public job board
     // "In Process" = interview / shortlisting happening
-    // "Completed"  = hired successfully
+    // "Completed"  = hired successfully, re-apply allowed
     // "Archived"   = soft-deleted, hidden everywhere
     jobStatus: {
       type: String,
@@ -121,14 +121,11 @@ const ShopOwnerSchema = new mongoose.Schema(
     status: { type: String, default: "Pending" },
 
     // ── Listing Extras ─────────────────────────────────
-    jobTitle: {
-      type: String,
-      default: "Mobile Service Technician",
-    },
-    postedAt: { type: Date },
-    expiresAt: { type: Date },   // auto-expire after 30 days
-    viewCount: { type: Number, default: 0 },
-    featured: { type: Boolean, default: false },
+    jobTitle:      { type: String, default: "Mobile Service Technician" },
+    postedAt:      { type: Date },
+    expiresAt:     { type: Date },
+    viewCount:     { type: Number, default: 0 },
+    featured:      { type: Boolean, default: false },
     featuredUntil: { type: Date },
   },
   { timestamps: true }
@@ -139,8 +136,8 @@ ShopOwnerSchema.pre("findOneAndUpdate", function (next) {
   const update = this.getUpdate();
   if (update && update.jobStatus === "Open") {
     const now = new Date();
-    update.postedAt = now;
-    update.expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    update.postedAt  = now;
+    update.expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   }
   next();
 });

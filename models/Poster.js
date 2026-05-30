@@ -4,6 +4,7 @@ const PosterSchema = new mongoose.Schema(
   {
     title:        { type: String, required: true, trim: true },
     imageUrl:     { type: String, required: true },
+    cloudinary_id: { type: String, default: "" },   // ✅ NEW
     edition:      { type: String, trim: true },
     isActive:     { type: Boolean, default: true },
     displayOrder: { type: Number, default: 0 },
