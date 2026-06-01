@@ -35,13 +35,7 @@ const parseShiftEnd = (shiftStr) => {
   if (matches.length >= 2) return parseInt(matches[1][1]) * 60 + parseInt(matches[1][2]);
   return SHIFT_END_TOTAL;
 };
-const toMins = (date) => {
-  const d = new Date(date);
-  // IST = UTC + 5:30
-  const istMs = d.getTime() + (5.5 * 60 * 60 * 1000);
-  const istDate = new Date(istMs);
-  return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
-};  
+const toMins = (date) => new Date(date).getHours() * 60 + new Date(date).getMinutes();
 
 // ══════════════════════════════════════════
 //  CORE HELPERS
@@ -524,7 +518,7 @@ exports.getMonthlyReport = async (req, res) => {
     let workingDays = 0;
     for (let d = 1; d <= daysInMonth; d++) {
   const day = new Date(y, m - 1, d).getDay();
-  if (day !== 0 && day !== 6) workingDays++;
+if (day !== 0) workingDays++; // Saturday working day
 }
 
     const todayS = todayStr();
@@ -542,10 +536,10 @@ exports.getMonthlyReport = async (req, res) => {
 });
 
       const present = enriched.filter(r => r.status === "present").length;
-      const late = enriched.filter(r => r.status === "late").length;
+      const late = enriched.filter(r => r.status === "late" || (r.late_minutes || 0) > 0).length;
       const half_day = enriched.filter(r => r.status === "half_day").length;
       const on_leave = enriched.filter(r => r.status === "leave").length;
-      const absent = Math.max(workingDays - present - late - half_day - on_leave, 0);
+      const absent = Math.max(workingDays - present - half_day - on_leave, 0);
 
       const totalHrs = enriched.reduce((s, r) => s + (r.work_hours || 0), 0);
       const avgHoursNum = enriched.length ? parseFloat((totalHrs / enriched.length).toFixed(1)) : 0;
@@ -557,7 +551,7 @@ exports.getMonthlyReport = async (req, res) => {
       const missingPunch = enriched.filter(r => r.is_currently_in && r.date !== todayS).length;
 
       const pct = workingDays
-        ? Math.round(((present + late + half_day * 0.5) / workingDays) * 100)
+        ? Math.round(((present + half_day * 0.5) / workingDays) * 100)
         : 0;
 
       return {
@@ -751,15 +745,11 @@ exports.exportExcel = async (req, res) => {
     };
 
     // ── 4. Helper: format Date → "09:45 am" ──────────────────
-   // இப்படி மாத்து:
-const fmtTime = (d) => {
-  if (!d) return "—";
-  return new Date(d).toLocaleTimeString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Kolkata",
-  });
-};
+    const fmtTime = (d) => {
+      if (!d) return "—";
+      return new Date(d).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+    };
+
     // ── 5. Helper: resolve first_in / last_out from punches ──
 const resolveInOut = (rec) => {
   let firstIn = null;
@@ -803,11 +793,9 @@ const resolveInOut = (rec) => {
     const BREAK_END_MINS = 14 * 60 + 30; // 870
 
     const toMinsFromDate = (d) => {
-  const dt = new Date(d);
-  const istMs = dt.getTime() + (5.5 * 60 * 60 * 1000);
-  const istDate = new Date(istMs);
-  return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();  // ✅ IST hours
-};
+      const dt = new Date(d);
+      return dt.getHours() * 60 + dt.getMinutes();
+    };
 
     /**
      * resolveBreak(rec)
@@ -929,7 +917,7 @@ const resolveInOut = (rec) => {
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${year}-${monthStr}-${String(d).padStart(2, "0")}`;
         const dayOfWeek = new Date(year, month - 1, d).getDay();
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isWeekend = dayOfWeek === 0; // Sunday மட்டும்
 
         if (isWeekend) {
           dayRows.push({
@@ -974,24 +962,24 @@ if (rec.punches && rec.punches.length > 0) {
         // ✅ Resolve break punches for this day
         const { breakOut, breakIn, breakLateMins } = resolveBreak(rec);
 
-        const statusLabel = {
+          const statusLabel = {
           present: "Present",
-          late: "Late",
+          late: "Present",     // ← late → Present (flags-ல் Late mins காட்டும்)
           absent: "Absent",
           half_day: "Half Day",
           leave: "On Leave",
           holiday: "Holiday",
         }[rec.status] || rec.status;
 
-        if (rec.status === "present") presentCount++;
-        else if (rec.status === "late") lateCount++;
-        else if (rec.status === "half_day") halfCount++;
-        else if (rec.status === "leave") leaveCount++;
-        else absentCount++;
+        if (rec.status === "present" || rec.status === "late") presentCount++;
+        if (rec.status === "late" || lateMin > 0) lateCount++;
+        if (rec.status === "half_day") halfCount++;
+        if (rec.status === "leave") leaveCount++;
+        if (rec.status === "absent") absentCount++;
         if (otMin > 0) otCount++;
 
         totalBreakLate += breakLateMins || 0;
-        totalLateIn += lateMin;
+        totalLateIn += rec.late_minutes || 0;
         totalEarlyOut += rec.early_out_minutes || 0;
 
         dayRows.push({
@@ -1012,7 +1000,7 @@ if (rec.punches && rec.punches.length > 0) {
         });
       }
 
-      const totalPresent = presentCount + lateCount + halfCount;
+      const totalPresent = presentCount + halfCount;
       const attendancePct = workDays > 0
         ? ((totalPresent / workDays) * 100).toFixed(1) + "%"
         : "—";
