@@ -535,6 +535,8 @@ if (day !== 0) workingDays++; // Saturday working day
   return obj;
 });
 
+
+
       const present = enriched.filter(r => r.status === "present").length;
       const late = enriched.filter(r => r.status === "late" || (r.late_minutes || 0) > 0).length;
       const half_day = enriched.filter(r => r.status === "half_day").length;
