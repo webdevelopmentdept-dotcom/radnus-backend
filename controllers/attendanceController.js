@@ -750,19 +750,25 @@ exports.exportExcel = async (req, res) => {
     };
 
     // ── 5. Helper: resolve first_in / last_out from punches ──
-    const resolveInOut = (rec) => {
-      let firstIn = rec.first_in || rec.checkIn || null;
-      let lastOut = rec.last_out || rec.checkOut || null;
-      if (!firstIn && rec.punches?.length) {
-        const ins = rec.punches.filter(p => p.type === "in").sort((a, b) => new Date(a.time) - new Date(b.time));
-        firstIn = ins[0]?.time || null;
-      }
-      if (!lastOut && rec.punches?.length) {
-        const outs = rec.punches.filter(p => p.type === "out").sort((a, b) => new Date(b.time) - new Date(a.time));
-        lastOut = outs[0]?.time || null;
-      }
-      return { firstIn, lastOut };
-    };
+const resolveInOut = (rec) => {
+  let firstIn = null;
+  let lastOut = null;
+
+  // ✅ Punches இருந்தா அதிலிருந்தே எடு — DB field நம்பாதே
+  if (rec.punches?.length) {
+    const sorted = [...rec.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+    const inPunches  = sorted.filter(p => p.type === "in");
+    const outPunches = sorted.filter(p => p.type === "out");
+    firstIn = inPunches[0]?.time  || null;
+    lastOut = outPunches[outPunches.length - 1]?.time || null;
+  }
+
+  // ✅ Punches இல்லாட்டா மட்டும் DB field use பண்ணு
+  if (!firstIn) firstIn = rec.first_in || rec.checkIn || null;
+  if (!lastOut) lastOut = rec.last_out || rec.checkOut || null;
+
+  return { firstIn, lastOut };
+};
 
     // ── 6. Helper: compute work hours string ─────────────────
     const fmtWorkHrs = (rec, firstIn, lastOut) => {
@@ -940,8 +946,17 @@ exports.exportExcel = async (req, res) => {
         }
 
         const { firstIn, lastOut } = resolveInOut(rec);
-        const lateMin = rec.late_minutes || 0;
-        const otMin = rec.overtime_minutes || 0;
+
+let lateMin = 0;
+let otMin = 0;
+if (rec.punches && rec.punches.length > 0) {
+  const computed = computeFromPunches(rec.punches, rec.shift || "");
+  lateMin = computed.late_minutes || 0;
+  otMin   = computed.overtime_minutes || 0;
+} else {
+  lateMin = rec.late_minutes || 0;
+  otMin   = rec.overtime_minutes || 0;
+}
 
         // ✅ Resolve break punches for this day
         const { breakOut, breakIn, breakLateMins } = resolveBreak(rec);
