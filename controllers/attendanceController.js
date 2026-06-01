@@ -35,7 +35,13 @@ const parseShiftEnd = (shiftStr) => {
   if (matches.length >= 2) return parseInt(matches[1][1]) * 60 + parseInt(matches[1][2]);
   return SHIFT_END_TOTAL;
 };
-const toMins = (date) => new Date(date).getHours() * 60 + new Date(date).getMinutes();
+const toMins = (date) => {
+  const d = new Date(date);
+  // IST = UTC + 5:30
+  const istMs = d.getTime() + (5.5 * 60 * 60 * 1000);
+  const istDate = new Date(istMs);
+  return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
+};  
 
 // ══════════════════════════════════════════
 //  CORE HELPERS
@@ -517,8 +523,9 @@ exports.getMonthlyReport = async (req, res) => {
     const daysInMonth = new Date(y, m, 0).getDate();
     let workingDays = 0;
     for (let d = 1; d <= daysInMonth; d++) {
-      if (new Date(y, m - 1, d).getDay() !== 0) workingDays++;
-    }
+  const day = new Date(y, m - 1, d).getDay();
+  if (day !== 0 && day !== 6) workingDays++;
+}
 
     const todayS = todayStr();
 
@@ -744,11 +751,15 @@ exports.exportExcel = async (req, res) => {
     };
 
     // ── 4. Helper: format Date → "09:45 am" ──────────────────
-    const fmtTime = (d) => {
-      if (!d) return "—";
-      return new Date(d).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-    };
-
+   // இப்படி மாத்து:
+const fmtTime = (d) => {
+  if (!d) return "—";
+  return new Date(d).toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata",
+  });
+};
     // ── 5. Helper: resolve first_in / last_out from punches ──
 const resolveInOut = (rec) => {
   let firstIn = null;
@@ -792,9 +803,11 @@ const resolveInOut = (rec) => {
     const BREAK_END_MINS = 14 * 60 + 30; // 870
 
     const toMinsFromDate = (d) => {
-      const dt = new Date(d);
-      return dt.getHours() * 60 + dt.getMinutes();
-    };
+  const dt = new Date(d);
+  const istMs = dt.getTime() + (5.5 * 60 * 60 * 1000);
+  const istDate = new Date(istMs);
+  return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();  // ✅ IST hours
+};
 
     /**
      * resolveBreak(rec)
@@ -916,7 +929,7 @@ const resolveInOut = (rec) => {
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${year}-${monthStr}-${String(d).padStart(2, "0")}`;
         const dayOfWeek = new Date(year, month - 1, d).getDay();
-        const isWeekend = dayOfWeek === 0;
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
         if (isWeekend) {
           dayRows.push({
@@ -978,7 +991,7 @@ if (rec.punches && rec.punches.length > 0) {
         if (otMin > 0) otCount++;
 
         totalBreakLate += breakLateMins || 0;
-        totalLateIn += rec.late_minutes || 0;
+        totalLateIn += lateMin;
         totalEarlyOut += rec.early_out_minutes || 0;
 
         dayRows.push({
