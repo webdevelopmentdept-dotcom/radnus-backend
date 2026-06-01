@@ -35,7 +35,10 @@ const parseShiftEnd = (shiftStr) => {
   if (matches.length >= 2) return parseInt(matches[1][1]) * 60 + parseInt(matches[1][2]);
   return SHIFT_END_TOTAL;
 };
-const toMins = (date) => new Date(date).getHours() * 60 + new Date(date).getMinutes();
+const toMins = (date) => {
+  const d = new Date(new Date(date).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  return d.getHours() * 60 + d.getMinutes();
+};
 
 // ══════════════════════════════════════════
 //  CORE HELPERS
@@ -754,9 +757,13 @@ exports.exportExcel = async (req, res) => {
 
     // ── 4. Helper: format Date → "09:45 am" ──────────────────
     const fmtTime = (d) => {
-      if (!d) return "—";
-      return new Date(d).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-    };
+  if (!d) return "—";
+  return new Date(d).toLocaleTimeString("en-IN", { 
+    hour: "2-digit", 
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata"
+  });
+};
 
     // ── 5. Helper: resolve first_in / last_out from punches ──
 const resolveInOut = (rec) => {
