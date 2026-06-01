@@ -372,11 +372,16 @@ exports.getSummary = async (req, res) => {
   try {
     const { employeeId } = req.params;
     const y = new Date().getFullYear();
-    const m = String(new Date().getMonth() + 1).padStart(2, "0");
+    const mNum = new Date().getMonth() + 1;
+    const m = String(mNum).padStart(2, "0");
+    const daysInMonth = new Date(y, mNum, 0).getDate(); // ✅ FIX
 
     const records = await Attendance.find({
       employee_id: employeeId,
-      date: { $gte: `${y}-${m}-01`, $lte: `${y}-${m}-31` },
+      date: {
+        $gte: `${y}-${m}-01`,
+        $lte: `${y}-${m}-${String(daysInMonth).padStart(2, "0")}`, // ✅ FIX
+      },
     });
 
     res.json({
@@ -404,12 +409,13 @@ exports.getMonthlyRecords = async (req, res) => {
     const { year, month } = req.query;
     const y = year || new Date().getFullYear();
     const m = month || new Date().getMonth() + 1;
+    const daysInMonth = new Date(y, m, 0).getDate(); // ✅ FIX
 
     const records = await Attendance.find({
       employee_id: employeeId,
       date: {
         $gte: `${y}-${String(m).padStart(2, "0")}-01`,
-        $lte: `${y}-${String(m).padStart(2, "0")}-31`,
+        $lte: `${y}-${String(m).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`, // ✅ FIX
       },
     }).sort({ date: 1 });
 
@@ -503,18 +509,18 @@ exports.getMonthlyReport = async (req, res) => {
     const { year, month } = req.query;
     const y = year || new Date().getFullYear();
     const m = month || new Date().getMonth() + 1;
+    const daysInMonth = new Date(y, m, 0).getDate(); // ✅ FIX
 
     const [employees, records] = await Promise.all([
       Employee.find({ status: { $in: ["active", "approved"] } }, "name employeeId employee_code department"),
       Attendance.find({
         date: {
           $gte: `${y}-${String(m).padStart(2, "0")}-01`,
-          $lte: `${y}-${String(m).padStart(2, "0")}-31`,
+          $lte: `${y}-${String(m).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`, // ✅ FIX
         },
       }),
     ]);
 
-    const daysInMonth = new Date(y, m, 0).getDate();
     let workingDays = 0;
     for (let d = 1; d <= daysInMonth; d++) {
   const day = new Date(y, m - 1, d).getDay();
