@@ -56,12 +56,28 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-    const updated = await Poster.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const poster = await Poster.findById(req.params.id);
+    if (!poster) return res.status(404).json({ success: false });
+
+    const updateData = { ...req.body };
+
+    // புதுசா image வந்தா, பழைய Cloudinary image delete பண்ணி புதுசா save பண்ணு
+    if (req.file) {
+      if (poster.cloudinary_id) {
+        await cloudinary.uploader.destroy(poster.cloudinary_id, {
+          resource_type: "image",
+        });
+      }
+      updateData.imageUrl      = req.file.path;
+      updateData.cloudinary_id = req.file.filename;
+    }
+
+    const updated = await Poster.findByIdAndUpdate(req.params.id, updateData, { new: true });
     res.json({ success: true, poster: updated });
-  } catch {
-    res.status(500).json({ success: false });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

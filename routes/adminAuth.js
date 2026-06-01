@@ -1,26 +1,31 @@
 const express = require("express");
+const bcrypt = require("bcryptjs");
 const router = express.Router();
 
 router.post("/login", (req, res) => {
   const { email, password } = req.body;
 
   const adminEmail = process.env.ADMIN_EMAIL;
-  const adminPassword = "sundar";
+  const adminHash = (process.env.ADMIN_HASH_PASSWORD || "").trim();
 
-  if (!adminEmail || !adminPassword) {
-    return res.status(500).json({
-      success: false,
-      msg: "Admin credentials not set in server",
-    });
+  const employeeEmail = process.env.EMPLOYEE_EMAIL;
+  const employeeHash = (process.env.EMPLOYEE_PASSWORD || "").trim();
+
+  if (!adminEmail || !adminHash || !employeeEmail || !employeeHash) {
+    return res.status(500).json({ success: false, msg: "Server credentials not configured" });
   }
 
-  if (email === adminEmail && password === adminPassword) {
-    return res.json({ success: true, msg: "Admin login successful!" });
-  } else {
-    return res
-      .status(401)
-      .json({ success: false, msg: "Invalid credentials" });
+  // ✅ Admin check
+  if (email === adminEmail && bcrypt.compareSync(password, adminHash)) {
+    return res.json({ success: true, role: "admin", msg: "Admin login successful!" });
   }
+
+  // ✅ Employee check
+  if (email === employeeEmail && bcrypt.compareSync(password, employeeHash)) {
+    return res.json({ success: true, role: "employee", msg: "Employee login successful!" });
+  }
+
+  return res.status(401).json({ success: false, msg: "Invalid credentials" });
 });
 
 module.exports = router;
