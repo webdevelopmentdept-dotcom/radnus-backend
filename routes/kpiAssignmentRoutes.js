@@ -173,17 +173,44 @@ router.patch('/:id/cancel', async (req, res) => {
   }
 });
 
-// GET /api/kpi-assignments/:employeeId — Single employee assignment
+
+
+// GET /api/kpi-assignments/:employeeId
 router.get('/:employeeId', async (req, res) => {
   try {
-    const assignment = await KpiAssignment.findOne({
+    const SelfAssessment = require('../models/SelfAssessment');
+
+    const assignments = await KpiAssignment.find({
       employee_id: req.params.employeeId,
       status: { $in: ['active', 'completed'] }
     })
       .populate('template_id')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: 1 }); // பழையது முதல்ல
 
-    res.json({ success: true, data: assignment || null });
+    // console.log("Assignments found:", assignments.length);
+
+    if (!assignments.length) {
+      return res.json({ success: true, data: null });
+    }
+
+    // Submit ஆகாத பழைய assignment தேடு
+    for (const assignment of assignments) {
+      const existing = await SelfAssessment.findOne({
+        employee_id: req.params.employeeId,
+        assignment_id: assignment._id
+      });
+
+      if (!existing || existing.status === 'draft') {
+        console.log("Returning pending:", assignment.period);
+        return res.json({ success: true, data: assignment });
+      }
+    }
+
+    // எல்லாம் submitted → latest return
+    const latest = assignments[assignments.length - 1];
+    console.log("All submitted, returning latest:", latest.period);
+    return res.json({ success: true, data: latest });
+
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

@@ -119,10 +119,11 @@ const announcementsRouter = require('./routes/announcements');
 const employeeAuth = require("./routes/employeeAuth");
 const jobsPublicRoutes = require("./routes/Jobspublic");
 const posterRoutes = require("./routes/Posterroutes");
+const excelExportDailyLog = require("./routes/excelExportDailylog");
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
-
+app.use("/api/export-excel", excelExportDailyLog);
 app.use("/api/partners", partnerRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/employee", employeeAuth);
@@ -179,6 +180,7 @@ app.use("/api/policies", policyRoutes);
 app.use("/api/sops", sopRoutes);
 app.use("/api/policy-quiz", policyQuizRoutes);
 app.use('/api/announcements', announcementsRouter);
+
 
 // Applicants & Admin
 app.use("/api/applicants", applicantRoutes);

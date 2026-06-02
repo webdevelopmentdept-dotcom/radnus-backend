@@ -267,4 +267,35 @@ router.put('/review/:id', async (req, res) => {
   }
 });
 
+// GET /api/kpi-assignments/pending/:employeeId
+// Latest submitted-இல்லாத (pending) assignment தரும்
+router.get('/pending/:employeeId', async (req, res) => {
+  try {
+    // முதல்ல submitted-ஆகாத assignments பாரு
+    const allAssignments = await KpiAssignment.find({
+      employee_id: req.params.employeeId,
+      status: { $in: ['active', 'completed'] }
+    }).populate('template_id').sort({ createdAt: -1 });
+
+    // May assessment submit ஆகலன்னு check பண்ண
+    const SelfAssessment = require('../models/SelfAssessment');
+    
+    for (const assignment of allAssignments) {
+      const existing = await SelfAssessment.findOne({
+        employee_id: req.params.employeeId,
+        assignment_id: assignment._id
+      });
+      // Submit ஆகாதது first-ஆ return பண்ணு
+      if (!existing || existing.status === 'draft') {
+        return res.json({ success: true, data: assignment });
+      }
+    }
+
+    // எல்லாம் submitted — latest return பண்ணு
+    return res.json({ success: true, data: allAssignments[0] || null });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
