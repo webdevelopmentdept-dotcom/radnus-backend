@@ -5,6 +5,7 @@ const router         = express.Router();
 const SelfAssessment = require('../models/SelfAssessment');
 const KpiAssignment  = require('../models/KpiAssignment');
 const OkrObjective   = require('../models/OkrObjective');
+const PerformanceReview = require('../models/PerformanceReview');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER — score calculate
@@ -111,42 +112,34 @@ router.get('/all', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/performance-reviews/all', async (req, res) => {
   try {
-    const assessments = await SelfAssessment.find({ status: 'reviewed' })
+    const reviews = await PerformanceReview.find({ status: 'finalized' })
       .populate('employee_id', 'name email department designation')
       .populate('assignment_id')
-      .populate('reviewed_by', 'name')
-      .sort({ reviewed_at: -1 });
+      .sort({ createdAt: -1 });
 
-    const data = assessments.map(a => {
-      const selfScore  = calcSelfScore(a.items);
-      const finalScore = a.hr_final_score || selfScore;
-
-      return {
-        _id:          a._id,
-        employee_id:  a.employee_id,
-        period:       a.period,
-        status:       a.status,
-        createdAt:    a.reviewed_at || a.createdAt,
-        reviewed_at:  a.reviewed_at,
-        reviewed_by:  a.reviewed_by,
-        final_score:  finalScore,
-        self_score:   selfScore,
-        rating:       a.hr_rating || getRatingLabel(finalScore),
-        hr_comment:   a.hr_overall_comment || '',
-        kpi_breakdown: (a.items || []).map(item => ({
-          kpi_name:     item.kpi_name,
-          target:       item.target,
-          unit:         item.unit,
-          weight:       item.weight || 0,
-          self_value:   item.self_value,
-          actual_value: item.hr_value ?? item.self_value,
-          hr_comment:   item.hr_comment || ''
-        }))
-      };
-    });
+    const data = reviews.map(r => ({
+      _id:           r._id,
+      employee_id:   r.employee_id,
+      period:        r.period,
+      final_score:   r.final_score,
+      rating:        r.rating,
+      hr_comment:    r.hr_comment,
+      createdAt:     r.createdAt,
+      self_score:    null, // Calculate from SelfAssessment if needed
+      kpi_breakdown: (r.kpi_breakdown || []).map(item => ({
+        kpi_name:     item.kpi_name,
+        target:       item.target,
+        unit:         item.unit,
+        weight:       item.weight,
+        self_value:   item.self_value,
+        actual_value: item.actual_value,
+        self_comment: item.self_comment
+      }))
+    }));
 
     res.json({ success: true, data });
   } catch (err) {
+    console.error('Performance reviews fetch error:', err.message); // ← Log for debugging
     res.status(500).json({ success: false, message: err.message });
   }
 });

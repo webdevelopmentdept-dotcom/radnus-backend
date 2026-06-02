@@ -11,17 +11,32 @@ const mongoose = require('mongoose');
 const SelfAssessment = mongoose.models.SelfAssessment ||
   require('../models/SelfAssessment'); 
 
+
+
 const calcScore = (items) => {
   if (!items || items.length === 0) return 0;
-  const totalWeight = items.reduce((s, item) => s + (item.weight || 0), 0);
+  
+  const totalWeight = items.reduce((s, item) => s + (Number(item.weight) || 0), 0);
   let total = 0;
-  items.forEach(item => {
-    const pct     = item.target ? Math.min((item.actual_value / item.target) * 100, 100) : 0;
-    const weight  = totalWeight === 0 ? (100 / items.length) : (item.weight || 0);
+  
+  items.forEach((item, idx) => {
+    // ✅ Force explicit number conversion — no string fallback
+    const actualVal = Number(item.actual_value);
+    const targetVal = Number(item.target) || 1;
+    
+    // ✅ Debug log to verify values in server console
+    console.log(`[calcScore] KPI ${idx}: actual_value raw="${item.actual_value}" parsed=${actualVal}, target=${targetVal}`);
+    
+    const pct = targetVal ? Math.min((actualVal / targetVal) * 100, 100) : 0;
+    const weight = totalWeight === 0 ? (100 / items.length) : (Number(item.weight) || 0);
     const divisor = totalWeight === 0 ? 100 : totalWeight;
+    
     total += pct * (weight / divisor);
   });
-  return Math.round(total);
+  
+  const finalScore = Math.round(total);
+  console.log(`[calcScore] Final Score: ${finalScore}%`);
+  return finalScore;
 };
 
 const getRating = (score) => {
