@@ -120,10 +120,12 @@ const employeeAuth = require("./routes/employeeAuth");
 const jobsPublicRoutes = require("./routes/Jobspublic");
 const posterRoutes = require("./routes/Posterroutes");
 const excelExportDailyLog = require("./routes/excelExportDailylog");
+const kpiMonthlyVersionsRouter = require('./routes/kpiMonthlyVersions');
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
 app.use("/api/export-excel", excelExportDailyLog);
+app.use('/api/kpi-monthly-versions', kpiMonthlyVersionsRouter);
 app.use("/api/partners", partnerRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/employee", employeeAuth);

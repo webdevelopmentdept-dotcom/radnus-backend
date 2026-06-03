@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 
 const kpiItemSchema = new mongoose.Schema({
@@ -22,13 +23,13 @@ const kpiItemSchema = new mongoose.Schema({
 const kpiTemplateSchema = new mongoose.Schema({
   template_name: { type: String, required: true },   // "Developer KPI Template"
   role:          { type: String, required: true },   // "Developer"
-  department:    { type: String, required: true },   
-  description:   { type: String, required: true },  
-    is_admission:  { type: Boolean, default: false }, 
-  program:       { type: String,  default: "" },   
+  department:    { type: String, required: true },
+  description:   { type: String, required: true },
+    is_admission:  { type: Boolean, default: false },
+  program:       { type: String,  default: "" },
   kpi_items:     [kpiItemSchema],
   created_by:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  is_active:     { type: Boolean, default: true }
+  is_active:     { type: Boolean, default: true },
 }, { timestamps: true });
 
 module.exports = mongoose.model('KpiTemplate', kpiTemplateSchema);

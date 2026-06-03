@@ -1,35 +1,47 @@
+
 const mongoose = require('mongoose');
 
 const kpiAssignmentSchema = new mongoose.Schema({
-  employee_id: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'Employee', 
-    required: true 
+  employee_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee',
+    required: true
   },
-  template_id: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'KpiTemplate', 
-    required: true 
+  template_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'KpiTemplate',
+    required: true
   },
-  period: { 
-    type: String, 
-    required: true   // e.g. "March 2026", "Q1 2026"
+  // period: {
+  //   type: String,
+  //   required: true   // e.g. "March 2026", "Q1 2026"
+  // },
+
+   month_version_id: {          // ⭐ NEW
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'KpiMonthlyVersion',
+    required: true
   },
-  period_type: { 
-    type: String, 
-    enum: ['monthly', 'quarterly', 'annual'], 
-    default: 'monthly' 
+    period:         { type: String, required: true }, 
+ 
+  period_type: {
+    type: String,
+    enum: ['monthly', 'quarterly', 'annual'],
+    default: 'monthly'
   },
-  status: { 
-    type: String, 
-    enum: ['active', 'completed', 'cancelled'], 
-    default: 'active' 
+  status: {
+    type: String,
+    enum: ['active', 'completed', 'cancelled'],
+    default: 'active'
   },
-  assigned_by: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'HR' 
+  assigned_by: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'HR'
   },
   notes: { type: String }
+
+ 
 }, { timestamps: true });
 
 module.exports = mongoose.model('KpiAssignment', kpiAssignmentSchema);
+
