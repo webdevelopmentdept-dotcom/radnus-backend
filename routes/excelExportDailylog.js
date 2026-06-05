@@ -29,6 +29,10 @@ const thinBorder = (color = "D1D5DB") => ({
 // GET /api/export-excel/all-employees
 router.get("/all-employees", async (req, res) => {
   try {
+    const today    = new Date().toISOString().split("T")[0];
+    const fromDate = req.query.from || today;
+    const toDate   = req.query.to   || today;
+
     const assignments = await KpiAssignment.find({ status: "active" })
       .populate("employee_id")
       .populate("template_id");
@@ -39,214 +43,146 @@ router.get("/all-employees", async (req, res) => {
     const wb = new ExcelJS.Workbook();
     wb.creator = "Radnus HRMS";
 
+    const ws = wb.addWorksheet("All Employees Daily Logs", {
+      views: [{ showGridLines: false }],
+    });
+
+    // ── CHANGE 1: Columns — 5 extra fields added ──
+    ws.columns = [
+      { key: "sno",          width: 6  },
+      { key: "emp",          width: 26 },
+      { key: "dept",         width: 22 },
+      { key: "period",       width: 14 },
+      { key: "date",         width: 14 },
+      { key: "kpi",          width: 28 },
+      { key: "invoice_no",   width: 14 },  // ← NEW
+      { key: "customer",     width: 20 },  // ← NEW
+      { key: "mobile",       width: 14 },  // ← NEW
+      { key: "price_type",   width: 14 },  // ← NEW
+      { key: "price",        width: 12 },  // ← NEW
+      { key: "target",       width: 12 },
+      { key: "value",        width: 14 },
+      { key: "unit",         width: 10 },
+      { key: "note",         width: 28 },
+      { key: "pct",          width: 14 },
+    ];
+
+    // ── Title ──
+    ws.mergeCells("A1:P1");  // ← CHANGED K→P (16 columns)
+    const titleCell = ws.getCell("A1");
+    const dateLabel = fromDate === toDate ? `Date: ${fromDate}` : `From: ${fromDate}  →  ${toDate}`;
+    titleCell.value     = `ALL EMPLOYEES — DAILY LOGS  |  ${dateLabel}`;
+    titleCell.font      = { name: "Calibri", bold: true, size: 14, color: { argb: "FFFFFFFF" } };
+    titleCell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
+    titleCell.alignment = { vertical: "middle", horizontal: "left", indent: 2 };
+    ws.getRow(1).height = 40;
+
+    // ── CHANGE 2: Headers — 5 extra fields added ──
+    ws.getRow(2).height = 32;
+    ["#", "Employee", "Department", "Period", "Date", "KPI Name", "Invoice No.", "Customer Name", "Mobile", "Price Type", "Price", "Target", "Achieve (Value)", "Unit", "Note", "Achievement %"].forEach((h, i) => {
+      const cell = ws.getRow(2).getCell(i + 1);
+      cell.value     = h;
+      cell.font      = { name: "Calibri", bold: true, size: 10, color: { argb: "FF374151" } };
+      cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
+      cell.alignment = { vertical: "middle", horizontal: i <= 1 ? "left" : "center" };
+      cell.border    = {
+        bottom: { style: "medium", color: { argb: "FFCBD5E1" } },
+        top:    { style: "thin",   color: { argb: "FFE2E8F0" } },
+        left:   { style: "thin",   color: { argb: "FFE2E8F0" } },
+        right:  { style: "thin",   color: { argb: "FFE2E8F0" } },
+      };
+    });
+
+    let rowNum = 3, sno = 1, empIdx = 0, totalEntries = 0;
+
     for (const assignment of assignments) {
-      const empName = assignment.employee_id?.name || "Employee";
-      const period  = assignment.period || "";
+      const empName = assignment.employee_id?.name       || "Employee";
+      const dept    = assignment.employee_id?.department || "—";
+      const period  = assignment.period                  || "";
       const empId   = assignment.employee_id?._id;
 
-      // Fetch logs + totals
+      const kpiTargetMap = {};
+      (assignment.template_id?.kpi_items || []).forEach(item => {
+        kpiTargetMap[item.kpi_name] = item.target || 0;
+      });
+
       const logs = await DailyLog.find({
         employee_id:   empId,
         assignment_id: assignment._id,
-      }).sort({ log_date: -1, createdAt: -1 });
+        log_date:      { $gte: fromDate, $lte: toDate },
+      }).sort({ log_date: 1, createdAt: 1 });
 
-      const totals = {};
-      logs.forEach(log => {
-        const key = log.kpi_item_id?.toString();
-        if (key) totals[key] = (totals[key] || 0) + (log.value || 0);
-      });
+      if (!logs.length) { empIdx++; continue; }
 
-      // ── Sheet name (max 31 chars, no special chars)
-      const sheetName = empName.replace(/[:\\\/\?\*\[\]]/g, "").substring(0, 28) + `...`.substring(0, 31 - empName.substring(0, 28).length);
-
-      // ════════════════════════
-      // RUNNING TOTALS SHEET
-      // ════════════════════════
-      const ws = wb.addWorksheet(empName.substring(0, 31), {
-        views: [{ showGridLines: false }],
-      });
-
-      ws.columns = [
-        { key: "kpi",    width: 30 },
-        { key: "actual", width: 14 },
-        { key: "target", width: 14 },
-        { key: "unit",   width: 10 },
-        { key: "bar",    width: 24 },
-        { key: "gap",    width:  4 },
-        { key: "pct",    width: 16 },
-        { key: "status", width: 20 },
-      ];
-
-      // Title
-      ws.mergeCells("A1:H1");
-      const titleCell = ws.getCell("A1");
-      titleCell.value     = `📊  ${empName.toUpperCase()}  —  ${period.toUpperCase()}`;
-      titleCell.font      = { name: "Calibri", bold: true, size: 16, color: { argb: "FFFFFFFF" } };
-      titleCell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A1A2E" } };
-      titleCell.alignment = { vertical: "middle", horizontal: "left", indent: 2 };
-      ws.getRow(1).height = 48;
-
-      // Blue stripe
-      ws.mergeCells("A2:H2");
-      ws.getCell("A2").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
-      ws.getRow(2).height = 6;
-
-      // Column headers
-      ws.getRow(3).height = 36;
-      ["  KPI Name", "Actual", "Target", "Unit", "Progress Bar", "", "Achievement %", "Status"].forEach((h, i) => {
-        const cell = ws.getRow(3).getCell(i + 1);
-        cell.value     = h;
-        cell.font      = { name: "Calibri", bold: true, size: 11, color: { argb: "FFFFFFFF" } };
-        cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
-        cell.alignment = { vertical: "middle", horizontal: i === 0 ? "left" : "center" };
-        cell.border    = { bottom: { style: "medium", color: { argb: "FF2563EB" } } };
-      });
-
-      // KPI rows
-      const kpiItems = assignment.template_id?.kpi_items || [];
-      kpiItems.forEach((item, idx) => {
-        const actual  = totals[item._id?.toString()] || 0;
-        const pct     = item.target ? Math.round((actual / item.target) * 100) : 0;
-        const theme   = pctTheme(pct);
-        const label   = statusLabel(pct);
-        const filled  = Math.min(Math.round(pct / 5), 20);
-        const bar     = "█".repeat(filled) + "░".repeat(20 - filled);
-        const rowNum  = idx + 4;
-        const rowBg   = idx % 2 === 0 ? "FFFFFFFF" : "FFF8FAFC";
-        const row     = ws.getRow(rowNum);
-        row.height    = 38;
-
-        const a = row.getCell(1);
-        a.value     = `  ${item.kpi_name}`;
-        a.font      = { name: "Calibri", bold: true, size: 12, color: { argb: "FF1A1A2E" } };
-        a.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: rowBg } };
-        a.alignment = { vertical: "middle", horizontal: "left" };
-        a.border    = { left: { style: "medium", color: { argb: "FF" + theme.mid } }, bottom: { style: "thin", color: { argb: "FFE5E7EB" } } };
-
-        const b = row.getCell(2);
-        b.value     = actual;
-        b.font      = { name: "Calibri", bold: true, size: 13, color: { argb: "FF" + theme.mid } };
-        b.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + theme.light } };
-        b.alignment = { vertical: "middle", horizontal: "center" };
-        b.border    = thinBorder();
-
-        const c = row.getCell(3);
-        c.value     = item.target;
-        c.font      = { name: "Calibri", size: 11, color: { argb: "FF6B7280" } };
-        c.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: rowBg } };
-        c.alignment = { vertical: "middle", horizontal: "center" };
-        c.border    = thinBorder();
-
-        const d = row.getCell(4);
-        d.value     = item.unit;
-        d.font      = { name: "Calibri", size: 11, color: { argb: "FF6B7280" } };
-        d.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: rowBg } };
-        d.alignment = { vertical: "middle", horizontal: "center" };
-        d.border    = thinBorder();
-
-        ws.mergeCells(`E${rowNum}:F${rowNum}`);
-        const e = row.getCell(5);
-        e.value     = bar;
-        e.font      = { name: "Consolas", size: 10, color: { argb: "FF" + theme.mid } };
-        e.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + theme.bg } };
-        e.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
-        e.border    = thinBorder();
-
-        const g = row.getCell(7);
-        g.value     = `${pct}%`;
-        g.font      = { name: "Calibri", bold: true, size: 13, color: { argb: "FF" + theme.dark } };
-        g.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + theme.light } };
-        g.alignment = { vertical: "middle", horizontal: "center" };
-        g.border    = thinBorder();
-
-        const hh = row.getCell(8);
-        hh.value     = label;
-        hh.font      = { name: "Calibri", bold: true, size: 10, color: { argb: "FF" + theme.dark } };
-        hh.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + theme.light } };
-        hh.alignment = { vertical: "middle", horizontal: "center" };
-        hh.border    = { left: { style: "medium", color: { argb: "FF" + theme.mid } }, right: { style: "medium", color: { argb: "FF" + theme.mid } }, top: { style: "thin", color: { argb: "FFE5E7EB" } }, bottom: { style: "thin", color: { argb: "FFE5E7EB" } } };
-      });
-
-      // Daily logs section - same sheet, below running totals
-      const logsStartRow = kpiItems.length + 6;
-
-      // Logs title
-      ws.mergeCells(`A${logsStartRow}:H${logsStartRow}`);
-      const logsTitle = ws.getCell(`A${logsStartRow}`);
-      logsTitle.value     = `📅  DAILY LOGS  —  ${logs.length} Entries`;
-      logsTitle.font      = { name: "Calibri", bold: true, size: 13, color: { argb: "FFFFFFFF" } };
-      logsTitle.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
-      logsTitle.alignment = { vertical: "middle", horizontal: "left", indent: 2 };
-      ws.getRow(logsStartRow).height = 36;
-
-      // Logs header
-      const logsHeaderRow = logsStartRow + 1;
-      ws.getRow(logsHeaderRow).height = 30;
-      ["  Date", "  Day", "  KPI Name", "Value", "Unit", "  Note", "Time", ""].forEach((h, i) => {
-        const cell = ws.getRow(logsHeaderRow).getCell(i + 1);
-        cell.value     = h;
-        cell.font      = { name: "Calibri", bold: true, size: 11, color: { argb: "FFFFFFFF" } };
-        cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF374151" } };
-        cell.alignment = { vertical: "middle", horizontal: i <= 2 ? "left" : "center" };
-        cell.border    = { bottom: { style: "medium", color: { argb: "FF16A34A" } } };
-      });
-
-      // Date palettes
-      const datePalettes = {};
-      const palettes = [
-        { bg: "EFF6FF", mid: "2563EB", light: "DBEAFE" },
-        { bg: "F0FDF4", mid: "16A34A", light: "DCFCE7" },
-        { bg: "FFFBEB", mid: "D97706", light: "FEF3C7" },
-        { bg: "F5F3FF", mid: "7C3AED", light: "EDE9FE" },
-        { bg: "FFF1F2", mid: "E11D48", light: "FFE4E6" },
-      ];
-      let palIdx = 0;
-      const getDatePalette = (date) => {
-        if (!datePalettes[date]) { datePalettes[date] = palettes[palIdx % palettes.length]; palIdx++; }
-        return datePalettes[date];
-      };
+      totalEntries += logs.length;
 
       logs.forEach((log, idx) => {
-        const pal    = getDatePalette(log.log_date);
-        const rowNum = logsStartRow + 2 + idx;
+        const isEven = idx % 2 === 0;
+        const rowBg  = isEven ? "FFFFFFFF" : "FFF8FAFC";
         const row    = ws.getRow(rowNum);
-        row.height   = 30;
-        const thinB  = thinBorder("E5E7EB");
+        row.height   = 26;
 
-        const a = row.getCell(1);
-        a.value = `  ${log.log_date}`; a.font = { name: "Calibri", bold: true, size: 11, color: { argb: "FF" + pal.mid } };
-        a.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + pal.bg } }; a.alignment = { vertical: "middle" }; a.border = thinB;
+        const target   = kpiTargetMap[log.kpi_name] || 0;
+        const pct      = target > 0 ? Math.round((log.value / target) * 100) : 0;
+        const pctColor = pct >= 100 ? "16A34A" : pct >= 75 ? "2563EB" : pct >= 50 ? "D97706" : "DC2626";
+        const pctVal   = target > 0 ? `${pct}%` : "—";
 
-        const dayName = new Date(log.log_date).toLocaleDateString("en-IN", { weekday: "long" });
-        const b = row.getCell(2);
-        b.value = `  ${dayName}`; b.font = { name: "Calibri", size: 11, color: { argb: "FF6B7280" }, italic: true };
-        b.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + pal.bg } }; b.alignment = { vertical: "middle" }; b.border = thinB;
+        const border = thinBorder("E2E8F0");
 
-        const c = row.getCell(3);
-        c.value = `  ${log.kpi_name}`; c.font = { name: "Calibri", bold: true, size: 11, color: { argb: "FF1A1A2E" } };
-        c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + pal.light } }; c.alignment = { vertical: "middle" }; c.border = thinB;
+        // ── CHANGE 3: Data row — 5 extra cells added after KPI Name ──
+        [
+          // # (1)
+          { val: sno,       font: { name: "Calibri", size: 10, color: { argb: "FF9CA3AF" } },           fill: rowBg, align: "center" },
+          // Employee (2)
+          { val: empName,   font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF1E293B" } }, fill: rowBg, align: "left"   },
+          // Department (3)
+          { val: dept,      font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },           fill: rowBg, align: "center" },
+          // Period (4)
+          { val: period,    font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },           fill: rowBg, align: "center" },
+          // Date (5)
+          { val: log.log_date, font: { name: "Calibri", size: 10, color: { argb: "FF1E293B" } },        fill: rowBg, align: "center" },
+          // KPI Name (6)
+          { val: log.kpi_name, font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF1E293B" } }, fill: rowBg, align: "left" },
+          // Invoice No. (7) ← NEW
+          { val: log.extra_fields?.invoice_no || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "center" },
+          // Customer Name (8) ← NEW
+          { val: log.extra_fields?.customer_name || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "left" },
+          // Mobile (9) ← NEW
+          { val: log.extra_fields?.mobile_number || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "center" },
+          // Price Type (10) ← NEW
+          { val: log.extra_fields?.price_type || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "center" },
+          // Price (11) ← NEW
+          { val: log.extra_fields?.price || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "center" },
+          // Target (12)
+          { val: target || "—", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },       fill: rowBg, align: "center" },
+          // Achieve (Value) (13)
+          { val: log.value, font: { name: "Calibri", bold: true, size: 11, color: { argb: "FF1E293B" } }, fill: rowBg, align: "center" },
+          // Unit (14)
+          { val: log.unit,  font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },           fill: rowBg, align: "center" },
+          // Note (15)
+          { val: log.note || "", font: { name: "Calibri", size: 10, color: { argb: "FF64748B" }, italic: true }, fill: rowBg, align: "left" },
+          // Achievement % (16)
+          { val: pctVal,    font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF" + pctColor } }, fill: rowBg, align: "center" },
+        ].forEach((c, i) => {
+          const cell     = row.getCell(i + 1);
+          cell.value     = c.val;
+          cell.font      = c.font;
+          cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: c.fill } };
+          cell.alignment = { vertical: "middle", horizontal: c.align };
+          cell.border    = border;
+        });
 
-        const d = row.getCell(4);
-        d.value = log.value; d.font = { name: "Calibri", bold: true, size: 13, color: { argb: "FF" + pal.mid } };
-        d.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } }; d.alignment = { vertical: "middle", horizontal: "center" }; d.border = thinB;
-
-        const e = row.getCell(5);
-        e.value = log.unit; e.font = { name: "Calibri", size: 11, color: { argb: "FF6B7280" } };
-        e.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } }; e.alignment = { vertical: "middle", horizontal: "center" }; e.border = thinB;
-
-        const f = row.getCell(6);
-        f.value = log.note || ""; f.font = { name: "Calibri", size: 11, color: { argb: "FF6B7280" }, italic: true };
-        f.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } }; f.alignment = { vertical: "middle" }; f.border = thinB;
-
-        const g = row.getCell(7);
-        g.value = new Date(log.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-        g.font = { name: "Calibri", size: 11, color: { argb: "FF9CA3AF" } };
-        g.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } }; g.alignment = { vertical: "middle", horizontal: "center" }; g.border = thinB;
+        sno++;
+        rowNum++;
       });
+
+      empIdx++;
     }
 
-    // Send
-    const filename = `All_Employees_Performance_${new Date().toISOString().split("T")[0]}.xlsx`;
+    if (totalEntries === 0)
+      return res.status(404).json({ message: `No logs found for: ${fromDate} to ${toDate}` });
+
+    const filename = `All_Employees_DailyLogs_${fromDate}_to_${toDate}.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     await wb.xlsx.write(res);
@@ -254,10 +190,9 @@ router.get("/all-employees", async (req, res) => {
 
   } catch (err) {
     console.error("All employees Excel export error:", err);
-    res.status(500).json({ message: "Export failed", error: err.message });
+    res.status(500).json({ message: "Excel export failed", error: err.message });
   }
 });
-
 
 // GET /api/export-excel/:assignmentId
 router.get("/:assignmentId", async (req, res) => {

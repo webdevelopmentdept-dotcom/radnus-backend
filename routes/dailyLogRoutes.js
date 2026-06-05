@@ -8,13 +8,14 @@ router.post('/', async (req, res) => {
     const { 
       employee_id, assignment_id, kpi_item_id, 
       kpi_name, unit, value, note, log_date, period,
-      program_values  
+      program_values , extra_fields
     } = req.body;
 
     const log = new DailyLog({
       employee_id, assignment_id, kpi_item_id,
       kpi_name, unit, value, note, log_date, period,
-      program_values: program_values || {}  // ✅ ADD THIS
+      program_values: program_values || {},
+      extra_fields: extra_fields || {}  // ✅ ADD THIS
     });
     await log.save();
 

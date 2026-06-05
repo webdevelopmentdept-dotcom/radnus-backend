@@ -17,9 +17,8 @@ const kpiItemSchema = new mongoose.Schema({
       program_name: { type: String },
       target:       { type: Number, default: 0 }
     }
-  ]
+  ],
 });
-
 const kpiTemplateSchema = new mongoose.Schema({
   template_name: { type: String, required: true },   // "Developer KPI Template"
   role:          { type: String, required: true },   // "Developer"

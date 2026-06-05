@@ -18,6 +18,7 @@ const dailyLogSchema = new mongoose.Schema({
   note: { type: String },                     // optional note
   log_date: { type: String, required: true }, // "2026-03-11"
   period: { type: String, required: true } ,   // "March 2026"
+  extra_fields: { type: mongoose.Schema.Types.Mixed, default: {} },
   program_values: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 

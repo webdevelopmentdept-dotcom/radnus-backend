@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Attendance = require("../models/Attendance");
 const Employee = require("../models/Employee");
 const LeaveRequest = require("../models/LeaveRequest");
@@ -58,6 +59,47 @@ const getOvertimeMinutes = (lastOut) => {
   if (!lastOut) return 0;
   return Math.max(toMins(lastOut) - SHIFT_END_TOTAL, 0);
 };
+
+// ══════════════════════════════════════════
+//  BREAK PUNCH RESOLVER (GLOBAL)
+// ══════════════════════════════════════════
+const BREAK_START_MINS = 13 * 60 + 30; // 810 = 1:30 PM
+const BREAK_END_MINS = 14 * 60 + 30;   // 870 = 2:30 PM
+
+const toMinsFromDate = (d) => {
+  const dt = new Date(new Date(d).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  return dt.getHours() * 60 + dt.getMinutes();
+};
+
+const resolveBreak = (punches) => {
+  if (!punches || punches.length === 0) {
+    return { breakOut: null, breakIn: null, breakLateMins: 0 };
+  }
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const breakOutIdx = sorted.findIndex(
+    (p) => p.type === "out" && toMinsFromDate(p.time) >= BREAK_START_MINS && toMinsFromDate(p.time) <= BREAK_END_MINS
+  );
+  if (breakOutIdx === -1) return { breakOut: null, breakIn: null, breakLateMins: 0 };
+  
+  const breakOutPunch = sorted[breakOutIdx];
+  const breakOutTime = new Date(breakOutPunch.time);
+  const breakInPunch = sorted.slice(breakOutIdx + 1).find(
+    (p) => p.type === "in" && new Date(p.time) > breakOutTime
+  );
+  
+  let breakLateMins = 0;
+  if (breakInPunch) {
+    const breakInMins = toMinsFromDate(breakInPunch.time);
+    if (breakInMins > BREAK_END_MINS) breakLateMins = breakInMins - BREAK_END_MINS;
+  }
+  
+  return {
+    breakOut: breakOutPunch.time,
+    breakIn: breakInPunch ? breakInPunch.time : null,
+    breakLateMins,
+  };
+};
+
 
 // ══════════════════════════════════════════
 //  PUNCH CALCULATION ENGINE
@@ -155,20 +197,20 @@ exports.checkIn = async (req, res) => {
     let record = await Attendance.findOne({ employee_id, date: today });
     if (!record) {
       const empData = await Employee.findById(employee_id).select("shift").lean();
-const empShiftName = empData?.shift || "General";
+      const empShiftName = empData?.shift || "General";
 
-const Shift = require("../models/Shift");
-const shiftDoc = await Shift.findOne({ name: empShiftName }).lean();
-const shiftStr = shiftDoc
-  ? `${shiftDoc.name} (${shiftDoc.startTime} – ${shiftDoc.endTime})`
-  : "General (10:00 – 19:00)";
+      const Shift = require("../models/Shift");
+      const shiftDoc = await Shift.findOne({ name: empShiftName }).lean();
+      const shiftStr = shiftDoc
+        ? `${shiftDoc.name} (${shiftDoc.startTime} – ${shiftDoc.endTime})`
+        : "General (10:00 – 19:00)";
 
-record = new Attendance({
-  employee_id,
-  date: today,
-  shift: shiftStr,
-  punches: [],
-});
+      record = new Attendance({
+        employee_id,
+        date: today,
+        shift: shiftStr,
+        punches: [],
+      });
     }
 
     // ✅ HYBRID FIX: if auto-marked with no punches, allow check-in normally
@@ -344,8 +386,28 @@ exports.getTodayRecord = async (req, res) => {
       const firstIn = sorted.find(p => p.type === "in");
       const lastOut = [...sorted].reverse().find(p => p.type === "out");
 
-      obj.checkIn = firstIn ? firstIn.time : obj.checkIn || null;
-      obj.checkOut = lastOut ? lastOut.time : obj.checkOut || null;
+      obj.checkIn = obj.first_in || obj.checkIn || null;
+
+      const { breakOut, breakIn, breakLateMins } = resolveBreak(obj.punches || []);
+      let actualCheckOut = null;
+      if (obj.last_out && breakOut) {
+        const lastOutTime = new Date(obj.last_out).getTime();
+        const breakOutTime = new Date(breakOut).getTime();
+        if (lastOutTime === breakOutTime) {
+          const sortedPunches = [...(obj.punches || [])].sort((a, b) => new Date(a.time) - new Date(b.time));
+          const breakInTime = breakIn ? new Date(breakIn).getTime() : 0;
+          const afterBreakOut = sortedPunches.find(p => p.type === "out" && new Date(p.time).getTime() > breakInTime);
+          actualCheckOut = afterBreakOut ? afterBreakOut.time : null;
+        } else {
+          actualCheckOut = obj.last_out;
+        }
+      } else if (obj.last_out) {
+        actualCheckOut = obj.last_out;
+      }
+      obj.checkOut = actualCheckOut;
+      obj.breakOut = breakOut;
+      obj.breakIn = breakIn;
+      obj.breakLate = breakLateMins;
 
       const outPunches = sorted.filter(p => p.type === "out");
       const inPunches = sorted.filter(p => p.type === "in");
@@ -377,13 +439,13 @@ exports.getSummary = async (req, res) => {
     const y = new Date().getFullYear();
     const mNum = new Date().getMonth() + 1;
     const m = String(mNum).padStart(2, "0");
-    const daysInMonth = new Date(y, mNum, 0).getDate(); // ✅ FIX
+    const daysInMonth = new Date(y, mNum, 0).getDate();
 
     const records = await Attendance.find({
       employee_id: employeeId,
       date: {
         $gte: `${y}-${m}-01`,
-        $lte: `${y}-${m}-${String(daysInMonth).padStart(2, "0")}`, // ✅ FIX
+        $lte: `${y}-${m}-${String(daysInMonth).padStart(2, "0")}`,
       },
     });
 
@@ -410,17 +472,32 @@ exports.getMonthlyRecords = async (req, res) => {
   try {
     const { employeeId } = req.params;
     const { year, month } = req.query;
+    
+    if (!employeeId) {
+      return res.status(400).json({ success: false, message: "employeeId required" });
+    }
+
     const y = year || new Date().getFullYear();
     const m = month || new Date().getMonth() + 1;
-    const daysInMonth = new Date(y, m, 0).getDate(); // ✅ FIX
+    const daysInMonth = new Date(y, m, 0).getDate();
 
-    const records = await Attendance.find({
-      employee_id: employeeId,
+    const query = {
       date: {
         $gte: `${y}-${String(m).padStart(2, "0")}-01`,
-        $lte: `${y}-${String(m).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`, // ✅ FIX
-      },
-    }).sort({ date: 1 });
+        $lte: `${y}-${String(m).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`,
+      }
+    };
+
+    if (mongoose.Types.ObjectId.isValid(employeeId)) {
+      query.$or = [
+        { employee_id: employeeId },
+        { employee_id: new mongoose.Types.ObjectId(employeeId) }
+      ];
+    } else {
+      query.employee_id = employeeId;
+    }
+
+    const records = await Attendance.find(query).sort({ date: 1 });
 
     const enriched = records.map(r => {
       const obj = r.toObject();
@@ -428,12 +505,31 @@ exports.getMonthlyRecords = async (req, res) => {
         const sorted = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
         const firstIn = sorted.find(p => p.type === "in");
         const lastOut = [...sorted].reverse().find(p => p.type === "out");
+        
+        const { breakOut, breakIn, breakLateMins } = resolveBreak(sorted);
+        
+        let actualCheckOut = null;
+        if (lastOut) {
+          const lastOutTime = new Date(lastOut.time).getTime();
+          const breakOutTime = breakOut ? new Date(breakOut).getTime() : 0;
+          actualCheckOut = (lastOutTime === breakOutTime) ? null : lastOut.time;
+        }
+        
         obj.checkIn = firstIn ? firstIn.time : obj.checkIn || null;
-        obj.checkOut = lastOut ? lastOut.time : obj.checkOut || null;
+        obj.checkOut = actualCheckOut || obj.checkOut || null;
+        obj.breakOut = breakOut;
+        obj.breakIn = breakIn;
+        obj.breakLate = breakLateMins;
+        
+        const computed = computeFromPunches(sorted, obj.shift || "");
+        obj.work_hours = computed.work_hours;
+        obj.late_minutes = computed.late_minutes;
+        obj.early_out_minutes = computed.early_out_minutes;
+        obj.overtime_minutes = computed.overtime_minutes;
       }
       return obj;
     });
-
+    
     res.json({ success: true, data: enriched });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -458,6 +554,28 @@ exports.getDailyReport = async (req, res) => {
       recordMap[key] = r;
     });
 
+    const BREAK_START_MINS = 13 * 60 + 30;
+    const BREAK_END_MINS = 14 * 60 + 30;
+    const toMinsLocal = (d) => {
+      const dt = new Date(new Date(d).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+      return dt.getHours() * 60 + dt.getMinutes();
+    };
+    const resolveBreakLocal = (punches) => {
+      if (!punches || punches.length === 0) return { breakOut: null, breakIn: null, breakLateMins: 0 };
+      const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+      const breakOutIdx = sorted.findIndex((p) => p.type === "out" && toMinsLocal(p.time) >= BREAK_START_MINS && toMinsLocal(p.time) <= BREAK_END_MINS);
+      if (breakOutIdx === -1) return { breakOut: null, breakIn: null, breakLateMins: 0 };
+      const breakOutPunch = sorted[breakOutIdx];
+      const breakOutTime = new Date(breakOutPunch.time);
+      const breakInPunch = sorted.slice(breakOutIdx + 1).find((p) => p.type === "in" && new Date(p.time) > breakOutTime);
+      let breakLateMins = 0;
+      if (breakInPunch) {
+        const breakInMins = toMinsLocal(breakInPunch.time);
+        if (breakInMins > BREAK_END_MINS) breakLateMins = breakInMins - BREAK_END_MINS;
+      }
+      return { breakOut: breakOutPunch.time, breakIn: breakInPunch ? breakInPunch.time : null, breakLateMins };
+    };
+
     const result = employees.map(emp => {
       const rec = recordMap[emp._id.toString()];
       if (rec) {
@@ -475,7 +593,26 @@ exports.getDailyReport = async (req, res) => {
         })();
 
         obj.checkIn = obj.first_in || obj.checkIn || null;
-        obj.checkOut = obj.last_out || obj.checkOut || null;
+        const { breakOut, breakIn, breakLateMins } = resolveBreakLocal(obj.punches || []);
+        let actualCheckOut = null;
+        if (obj.last_out && breakOut) {
+          const lastOutTime = new Date(obj.last_out).getTime();
+          const breakOutTime = new Date(breakOut).getTime();
+          if (lastOutTime === breakOutTime) {
+            const sorted = [...(obj.punches || [])].sort((a, b) => new Date(a.time) - new Date(b.time));
+            const breakInTime = breakIn ? new Date(breakIn).getTime() : 0;
+            const afterBreakOut = sorted.find(p => p.type === "out" && new Date(p.time).getTime() > breakInTime);
+            actualCheckOut = afterBreakOut ? afterBreakOut.time : null;
+          } else {
+            actualCheckOut = obj.last_out;
+          }
+        } else if (obj.last_out) {
+          actualCheckOut = obj.last_out;
+        }
+        obj.checkOut = actualCheckOut;
+        obj.breakOut = breakOut;
+        obj.breakIn = breakIn;
+        obj.breakLate = breakLateMins;
 
         return obj;
       }
@@ -512,23 +649,23 @@ exports.getMonthlyReport = async (req, res) => {
     const { year, month } = req.query;
     const y = year || new Date().getFullYear();
     const m = month || new Date().getMonth() + 1;
-    const daysInMonth = new Date(y, m, 0).getDate(); // ✅ FIX
+    const daysInMonth = new Date(y, m, 0).getDate();
 
     const [employees, records] = await Promise.all([
       Employee.find({ status: { $in: ["active", "approved"] } }, "name employeeId employee_code department"),
       Attendance.find({
         date: {
           $gte: `${y}-${String(m).padStart(2, "0")}-01`,
-          $lte: `${y}-${String(m).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`, // ✅ FIX
+          $lte: `${y}-${String(m).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`,
         },
       }),
     ]);
 
     let workingDays = 0;
     for (let d = 1; d <= daysInMonth; d++) {
-  const day = new Date(y, m - 1, d).getDay();
-if (day !== 0) workingDays++; // Saturday working day
-}
+      const day = new Date(y, m - 1, d).getDay();
+      if (day !== 0) workingDays++;
+    }
 
     const todayS = todayStr();
 
@@ -536,15 +673,31 @@ if (day !== 0) workingDays++; // Saturday working day
       const empRecs = records.filter(r => r.employee_id.toString() === emp._id.toString());
 
       const enriched = empRecs.map(r => {
-  const obj = r.toObject ? r.toObject() : { ...r };
-  if (obj.punches && obj.punches.length > 0) {
-    const c = computeFromPunches(obj.punches, obj.shift || "");
-    return { ...obj, ...c };
-  }
-  return obj;
-});
-
-
+        const obj = r.toObject ? r.toObject() : { ...r };
+        if (obj.punches && obj.punches.length > 0) {
+          const sorted = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+          const c = computeFromPunches(sorted, obj.shift || "");
+          
+          const { breakOut, breakIn, breakLateMins } = resolveBreak(sorted);
+          
+          let actualCheckOut = null;
+          if (c.last_out) {
+            const lastOutTime = new Date(c.last_out).getTime();
+            const breakOutTime = breakOut ? new Date(breakOut).getTime() : 0;
+            actualCheckOut = (lastOutTime === breakOutTime) ? null : c.last_out;
+          }
+          
+          return { 
+            ...obj, 
+            ...c,
+            checkOut: actualCheckOut,
+            breakOut: breakOut,
+            breakIn: breakIn,
+            breakLate: breakLateMins
+          };
+        }
+        return obj;
+      });
 
       const present = enriched.filter(r => r.status === "present").length;
       const late = enriched.filter(r => r.status === "late" || (r.late_minutes || 0) > 0).length;
@@ -641,8 +794,7 @@ exports.hrMarkAttendance = async (req, res) => {
           late_minutes: computed.late_minutes || 0,
           early_out_minutes: computed.early_out_minutes || 0,
           overtime_minutes: computed.overtime_minutes || 0,
-                    shift: shift || "General (9:45 AM – 7:00 PM)",
-
+          shift: shift || "General (9:45 AM – 7:00 PM)",
           remark: remark || "",
           method: "hr_manual",
         },
@@ -680,7 +832,7 @@ exports.hrAddPunch = async (req, res) => {
     });
 
     const computed = computeFromPunches(record.punches, record.shift || "");
-Object.assign(record, computed);
+    Object.assign(record, computed);
 
     await record.save();
     res.json({ success: true, message: `Punch ${type} added`, data: record });
@@ -702,7 +854,7 @@ exports.hrDeletePunch = async (req, res) => {
     record.punches = record.punches.filter(p => p._id.toString() !== punch_id);
 
     const computed = computeFromPunches(record.punches, record.shift || "");
-Object.assign(record, computed);
+    Object.assign(record, computed);
 
     await record.save();
     res.json({ success: true, message: "Punch deleted", data: record });
@@ -713,7 +865,6 @@ Object.assign(record, computed);
 
 // ══════════════════════════════════════════
 //  EXPORT EXCEL  (HR)
-//  ✅ UPDATED: Break Out, Break In, Break Late columns added
 // ══════════════════════════════════════════
 exports.exportExcel = async (req, res) => {
   try {
@@ -726,13 +877,11 @@ exports.exportExcel = async (req, res) => {
     const daysInMonth = new Date(year, month, 0).getDate();
     const monthName = new Date(year, month - 1).toLocaleString("en-US", { month: "long" });
 
-    // ── 1. Fetch employees ────────────────────────────────────
     const empFilter = req.query.employee_id
       ? { _id: req.query.employee_id }
       : { status: { $in: ["active", "approved"] } };
     const employees = await Employee.find(empFilter).lean();
 
-    // ── 2. Fetch all attendance records for this month ────────
     const startDate = `${year}-${monthStr}-01`;
     const endDate = `${year}-${monthStr}-${String(daysInMonth).padStart(2, "0")}`;
 
@@ -747,7 +896,6 @@ exports.exportExcel = async (req, res) => {
       recMap[key] = r;
     }
 
-    // ── 3. Helper: format minutes → "1h 05m" or "45m" ────────
     const fmtMins = (mins) => {
       if (!mins || mins <= 0) return "—";
       const h = Math.floor(mins / 60);
@@ -755,38 +903,33 @@ exports.exportExcel = async (req, res) => {
       return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
     };
 
-    // ── 4. Helper: format Date → "09:45 am" ──────────────────
     const fmtTime = (d) => {
-  if (!d) return "—";
-  return new Date(d).toLocaleTimeString("en-IN", { 
-    hour: "2-digit", 
-    minute: "2-digit",
-    timeZone: "Asia/Kolkata"
-  });
-};
+      if (!d) return "—";
+      return new Date(d).toLocaleTimeString("en-IN", { 
+        hour: "2-digit", 
+        minute: "2-digit",
+        timeZone: "Asia/Kolkata"
+      });
+    };
 
-    // ── 5. Helper: resolve first_in / last_out from punches ──
-const resolveInOut = (rec) => {
-  let firstIn = null;
-  let lastOut = null;
+    const resolveInOut = (rec) => {
+      let firstIn = null;
+      let lastOut = null;
 
-  // ✅ Punches இருந்தா அதிலிருந்தே எடு — DB field நம்பாதே
-  if (rec.punches?.length) {
-    const sorted = [...rec.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
-    const inPunches  = sorted.filter(p => p.type === "in");
-    const outPunches = sorted.filter(p => p.type === "out");
-    firstIn = inPunches[0]?.time  || null;
-    lastOut = outPunches[outPunches.length - 1]?.time || null;
-  }
+      if (rec.punches?.length) {
+        const sorted = [...rec.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+        const inPunches  = sorted.filter(p => p.type === "in");
+        const outPunches = sorted.filter(p => p.type === "out");
+        firstIn = inPunches[0]?.time  || null;
+        lastOut = outPunches[outPunches.length - 1]?.time || null;
+      }
 
-  // ✅ Punches இல்லாட்டா மட்டும் DB field use பண்ணு
-  if (!firstIn) firstIn = rec.first_in || rec.checkIn || null;
-  if (!lastOut) lastOut = rec.last_out || rec.checkOut || null;
+      if (!firstIn) firstIn = rec.first_in || rec.checkIn || null;
+      if (!lastOut) lastOut = rec.last_out || rec.checkOut || null;
 
-  return { firstIn, lastOut };
-};
+      return { firstIn, lastOut };
+    };
 
-    // ── 6. Helper: compute work hours string ─────────────────
     const fmtWorkHrs = (rec, firstIn, lastOut) => {
       if (rec.work_hours && rec.work_hours > 0) {
         const h = Math.floor(rec.work_hours);
@@ -802,25 +945,14 @@ const resolveInOut = (rec) => {
       return "—";
     };
 
-    // ── 7. ✅ NEW: Break punch resolver ────────────────────────
-    // Break window: 1:30 PM (810 mins) to 2:30 PM (870 mins)
-    const BREAK_START_MINS = 13 * 60 + 30; // 810
-    const BREAK_END_MINS = 14 * 60 + 30; // 870
+    const BREAK_START_MINS = 13 * 60 + 30;
+    const BREAK_END_MINS = 14 * 60 + 30;
 
     const toMinsFromDate = (d) => {
       const dt = new Date(d);
       return dt.getHours() * 60 + dt.getMinutes();
     };
 
-    /**
-     * resolveBreak(rec)
-     * Returns { breakOut, breakIn, breakLateMins }
-     *
-     * Logic:
-     *  - breakOut = first "out" punch whose time falls in 1:30–2:30 PM window
-     *  - breakIn  = the next "in" punch after that breakOut (any time)
-     *  - breakLateMins = if breakIn is after 2:30 PM → minutes past 2:30 PM
-     */
     const resolveBreak = (rec) => {
       if (!rec.punches || rec.punches.length === 0) {
         return { breakOut: null, breakIn: null, breakLateMins: 0 };
@@ -828,7 +960,6 @@ const resolveInOut = (rec) => {
 
       const sorted = [...rec.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
 
-      // Find the first "out" punch inside the lunch window
       const breakOutPunch = sorted.find(
         (p) => p.type === "out" && toMinsFromDate(p.time) >= BREAK_START_MINS && toMinsFromDate(p.time) <= BREAK_END_MINS
       );
@@ -837,7 +968,6 @@ const resolveInOut = (rec) => {
         return { breakOut: null, breakIn: null, breakLateMins: 0 };
       }
 
-      // Find the next "in" punch after the breakOut punch time
       const breakOutTime = new Date(breakOutPunch.time);
       const breakInPunch = sorted.find(
         (p) => p.type === "in" && new Date(p.time) > breakOutTime
@@ -858,16 +988,12 @@ const resolveInOut = (rec) => {
       };
     };
 
-    // ── 8. Build workbook ─────────────────────────────────────
     const wb = new ExcelJS.Workbook();
     wb.creator = "HR Attendance System";
     wb.created = new Date();
 
     const isSingleEmployee = !!req.query.employee_id;
 
-    // ─────────────────────────────────────────────────────────
-    //  SUMMARY SHEET  (skipped for single-employee export)
-    // ─────────────────────────────────────────────────────────
     let summarySheet;
     if (!isSingleEmployee) {
       summarySheet = wb.addWorksheet("Summary", {
@@ -912,9 +1038,6 @@ const resolveInOut = (rec) => {
       });
     }
 
-    // ─────────────────────────────────────────────────────────
-    //  PER-EMPLOYEE SHEETS
-    // ─────────────────────────────────────────────────────────
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
     employees.forEach((emp, empIdx) => {
@@ -932,14 +1055,13 @@ const resolveInOut = (rec) => {
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${year}-${monthStr}-${String(d).padStart(2, "0")}`;
         const dayOfWeek = new Date(year, month - 1, d).getDay();
-        const isWeekend = dayOfWeek === 0; // Sunday மட்டும்
+        const isWeekend = dayOfWeek === 0;
 
         if (isWeekend) {
           dayRows.push({
             dateStr, dayName: dayNames[dayOfWeek],
             status: "Weekend", checkIn: "—", checkOut: "—",
             workHrs: "—", late: "—", ot: "—",
-            // ✅ Break columns — empty for weekends
             breakOut: "—", breakIn: "—", breakLate: "—",
             isWeekend: true,
           });
@@ -963,23 +1085,22 @@ const resolveInOut = (rec) => {
 
         const { firstIn, lastOut } = resolveInOut(rec);
 
-let lateMin = 0;
-let otMin = 0;
-if (rec.punches && rec.punches.length > 0) {
-  const computed = computeFromPunches(rec.punches, rec.shift || "");
-  lateMin = computed.late_minutes || 0;
-  otMin   = computed.overtime_minutes || 0;
-} else {
-  lateMin = rec.late_minutes || 0;
-  otMin   = rec.overtime_minutes || 0;
-}
+        let lateMin = 0;
+        let otMin = 0;
+        if (rec.punches && rec.punches.length > 0) {
+          const computed = computeFromPunches(rec.punches, rec.shift || "");
+          lateMin = computed.late_minutes || 0;
+          otMin   = computed.overtime_minutes || 0;
+        } else {
+          lateMin = rec.late_minutes || 0;
+          otMin   = rec.overtime_minutes || 0;
+        }
 
-        // ✅ Resolve break punches for this day
         const { breakOut, breakIn, breakLateMins } = resolveBreak(rec);
 
-          const statusLabel = {
+        const statusLabel = {
           present: "Present",
-          late: "Present",     // ← late → Present (flags-ல் Late mins காட்டும்)
+          late: "Present",
           absent: "Absent",
           half_day: "Half Day",
           leave: "On Leave",
@@ -1006,7 +1127,6 @@ if (rec.punches && rec.punches.length > 0) {
           workHrs: fmtWorkHrs(rec, firstIn, lastOut),
           late: fmtMins(lateMin),
           ot: fmtMins(rec.early_out_minutes || 0),
-          // ✅ Break columns
           breakOut: breakOut ? fmtTime(breakOut) : "—",
           breakIn: breakIn ? fmtTime(breakIn) : "—",
           breakLate: breakLateMins > 0 ? fmtMins(breakLateMins) : "—",
@@ -1020,7 +1140,6 @@ if (rec.punches && rec.punches.length > 0) {
         ? ((totalPresent / workDays) * 100).toFixed(1) + "%"
         : "—";
 
-      // ── Summary row (full company export only) ─────────────
       if (!isSingleEmployee && summarySheet) {
         const sRow = summarySheet.addRow([
           empIdx + 1,
@@ -1059,13 +1178,11 @@ if (rec.punches && rec.punches.length > 0) {
         }
       }
 
-      // ── Per-employee sheet ─────────────────────────────────
       const sheetName = (emp.name || `Emp${empIdx + 1}`).substring(0, 28).replace(/[:\\/?*[\]]/g, "_");
       const ws = wb.addWorksheet(sheetName, {
         views: [{ state: "frozen", ySplit: 5 }],
       });
 
-      // Row 1 — Employee Name (dark header)
       ws.mergeCells("A1:K1");
       ws.getCell("A1").value = emp.name || "—";
       ws.getCell("A1").font = { bold: true, size: 15, color: { argb: "FFFFFFFF" } };
@@ -1073,7 +1190,6 @@ if (rec.punches && rec.punches.length > 0) {
       ws.getCell("A1").alignment = { horizontal: "left", vertical: "middle", indent: 1 };
       ws.getRow(1).height = 34;
 
-      // Row 2 — Employee meta info
       ws.mergeCells("A2:K2");
       ws.getCell("A2").value = `${emp.employeeId || emp.employee_code || "—"}  |  ${emp.department || "—"}  |  ${monthName} ${year}`;
       ws.getCell("A2").font = { size: 10, color: { argb: "FF6B7280" } };
@@ -1081,7 +1197,6 @@ if (rec.punches && rec.punches.length > 0) {
       ws.getCell("A2").alignment = { horizontal: "left", vertical: "middle", indent: 1 };
       ws.getRow(2).height = 20;
 
-      // Row 3 — Summary counts
       ws.mergeCells("A3:K3");
       ws.getCell("A3").value =
         `Present: ${presentCount}   Late: ${lateCount}   Absent: ${absentCount}   Half Day: ${halfCount}   On Leave: ${leaveCount}   OT Days: ${otCount}   Attendance: ${attendancePct}`;
@@ -1090,11 +1205,8 @@ if (rec.punches && rec.punches.length > 0) {
       ws.getCell("A3").alignment = { horizontal: "left", vertical: "middle", indent: 1 };
       ws.getRow(3).height = 22;
 
-      // Row 4 — spacer
       ws.getRow(4).height = 8;
 
-      // Row 5 — Column headers
-      // ✅ UPDATED: 11 columns now (added Break Out, Break In, Break Late)
       const colHeaders = [
         "Date", "Day", "Status",
         "Check In", "Check Out", "Work Hrs",
@@ -1107,7 +1219,6 @@ if (rec.punches && rec.punches.length > 0) {
         cell.value = h;
         cell.font = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
 
-        // ✅ Break columns get a distinct teal background to stand out
         const isBreakCol = i >= 6 && i <= 8;
         cell.fill = {
           type: "pattern", pattern: "solid",
@@ -1118,13 +1229,10 @@ if (rec.punches && rec.punches.length > 0) {
       });
       headerRow.height = 24;
 
-      // ✅ Column widths for 11 columns
-      // Date, Day, Status, CheckIn, CheckOut, WorkHrs, BreakOut, BreakIn, BreakLate, Late, OT
       [12, 8, 12, 11, 11, 10, 11, 11, 11, 10, 10].forEach((w, i) => {
         ws.getColumn(i + 1).width = w;
       });
 
-      // Status colour map
       const statusColors = {
         "Present": { bg: "FFD1FAE5", fg: "FF065F46" },
         "Late": { bg: "FFFEF9C3", fg: "FF92400E" },
@@ -1135,7 +1243,6 @@ if (rec.punches && rec.punches.length > 0) {
         "Weekend": { bg: "FFF1F5F9", fg: "FF94A3B8" },
       };
 
-      // Data rows
       dayRows.forEach((dr) => {
         const row = ws.addRow([
           dr.dateStr,
@@ -1144,11 +1251,11 @@ if (rec.punches && rec.punches.length > 0) {
           dr.checkIn,
           dr.checkOut,
           dr.workHrs,
-          dr.breakOut,    // ✅ col 7
-          dr.breakIn,     // ✅ col 8
-          dr.breakLate,   // ✅ col 9
-          dr.late,        // col 10
-          dr.ot,          // col 11
+          dr.breakOut,
+          dr.breakIn,
+          dr.breakLate,
+          dr.late,
+          dr.ot,
         ]);
         row.height = 20;
 
@@ -1159,54 +1266,46 @@ if (rec.punches && rec.punches.length > 0) {
           cell.alignment = { horizontal: "center", vertical: "middle" };
           cell.border = { bottom: { style: "thin", color: { argb: "FFF1F5F9" } } };
 
-          // Weekend rows — grey + faded
           if (dr.isWeekend) {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
             cell.font = { size: 10, color: { argb: "FFCBD5E1" } };
             return;
           }
 
-          // Status cell (col 3) — coloured badge style
           if (colNum === 3) {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: sc.bg } };
             cell.font = { size: 10, bold: true, color: { argb: sc.fg } };
           }
 
-          // ✅ Break Out (col 7) — light blue tint
           if (colNum === 7 && dr.breakOut !== "—") {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0F2FE" } };
             cell.font = { size: 10, bold: true, color: { argb: "FF0369A1" } };
           }
 
-          // ✅ Break In (col 8) — light blue tint
           if (colNum === 8 && dr.breakIn !== "—") {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0F2FE" } };
             cell.font = { size: 10, bold: true, color: { argb: "FF0369A1" } };
           }
 
-          // ✅ Break Late (col 9) — orange/amber highlight when late
           if (colNum === 9 && dr.breakLate !== "—") {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" } };
             cell.font = { size: 10, bold: true, color: { argb: "FFB45309" } };
           }
 
-          // Late arrival (col 10)
           if (colNum === 10 && dr.late !== "—") {
             cell.font = { size: 10, bold: true, color: { argb: "FFB45309" } };
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" } };
           }
 
-          // Early Out (col 11)
-if (colNum === 11 && dr.ot !== "—") {
-  cell.font = { size: 10, bold: true, color: { argb: "FF991B1B" } };
-  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
-}
+          if (colNum === 11 && dr.ot !== "—") {
+            cell.font = { size: 10, bold: true, color: { argb: "FF991B1B" } };
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
+          }
         });
 
         row.getCell(1).alignment = { horizontal: "left", vertical: "middle" };
       });
 
-      // Totals footer row
       const totalsRow = ws.addRow(["", "", "TOTALS", "", "", "", "", "", "", "", ""]);
       totalsRow.height = 24;
       totalsRow.getCell(3).value = `P:${presentCount} L:${lateCount} A:${absentCount}`;
@@ -1218,7 +1317,6 @@ if (colNum === 11 && dr.ot !== "—") {
       totalsRow.getCell(3).alignment = { horizontal: "center" };
     });
 
-    // ── Send file ─────────────────────────────────────────────
     const filename = isSingleEmployee && employees[0]
       ? `${employees[0].name}_Attendance_${monthName}_${year}.xlsx`.replace(/\s+/g, "_")
       : `Attendance_${monthName}_${year}.xlsx`;
