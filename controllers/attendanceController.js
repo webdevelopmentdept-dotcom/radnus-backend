@@ -912,23 +912,43 @@ exports.exportExcel = async (req, res) => {
       });
     };
 
-    const resolveInOut = (rec) => {
-      let firstIn = null;
-      let lastOut = null;
+    // ── 5. Helper: resolve first_in / last_out from punches ──
+const resolveInOut = (rec) => {
+  let firstIn = null;
+  let lastOut = null;
 
-      if (rec.punches?.length) {
-        const sorted = [...rec.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
-        const inPunches  = sorted.filter(p => p.type === "in");
-        const outPunches = sorted.filter(p => p.type === "out");
-        firstIn = inPunches[0]?.time  || null;
-        lastOut = outPunches[outPunches.length - 1]?.time || null;
-      }
-
-      if (!firstIn) firstIn = rec.first_in || rec.checkIn || null;
-      if (!lastOut) lastOut = rec.last_out || rec.checkOut || null;
-
-      return { firstIn, lastOut };
+  if (rec.punches?.length) {
+    const sorted = [...rec.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+    
+    // Filter out break punches (1:30-2:30 PM)
+    const BREAK_START_MINS = 13 * 60 + 30; // 810
+    const BREAK_END_MINS = 14 * 60 + 30;   // 870
+    
+    const toMinsLocal = (d) => {
+      const dt = new Date(new Date(d).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+      return dt.getHours() * 60 + dt.getMinutes();
     };
+    
+    const isBreakPunch = (p) => {
+      if (p.type !== "out" && p.type !== "in") return false;
+      const mins = toMinsLocal(p.time);
+      return mins >= BREAK_START_MINS && mins <= BREAK_END_MINS;
+    };
+    
+    const workPunches = sorted.filter(p => !isBreakPunch(p));
+    const inPunches = workPunches.filter(p => p.type === "in");
+    const outPunches = workPunches.filter(p => p.type === "out");
+    
+    firstIn = inPunches[0]?.time || null;
+    lastOut = outPunches[outPunches.length - 1]?.time || null;
+  }
+
+  // ✅ Punches இல்லாட்டா மட்டும் DB field use பண்ணு
+  if (!firstIn) firstIn = rec.first_in || rec.checkIn || null;
+  if (!lastOut) lastOut = rec.last_out || rec.checkOut || null;
+
+  return { firstIn, lastOut };
+};
 
     const fmtWorkHrs = (rec, firstIn, lastOut) => {
       if (rec.work_hours && rec.work_hours > 0) {
@@ -949,9 +969,10 @@ exports.exportExcel = async (req, res) => {
     const BREAK_END_MINS = 14 * 60 + 30;
 
     const toMinsFromDate = (d) => {
-      const dt = new Date(d);
-      return dt.getHours() * 60 + dt.getMinutes();
-    };
+  // Convert to Asia/Kolkata timezone first
+  const dt = new Date(new Date(d).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  return dt.getHours() * 60 + dt.getMinutes();
+};
 
     const resolveBreak = (rec) => {
       if (!rec.punches || rec.punches.length === 0) {

@@ -1,8 +1,8 @@
 const express  = require("express");
 const router   = express.Router();
 const ExcelJS  = require("exceljs");
-const DailyLog = require("../models/DailyLog");       // உங்க model path
-const KpiAssignment = require("../models/KpiAssignment"); // உங்க model path
+const DailyLog = require("../models/DailyLog");
+const KpiAssignment = require("../models/KpiAssignment");
 
 // Color helpers
 const pctTheme = (pct) => {
@@ -20,10 +20,10 @@ const statusLabel = (pct) => {
 };
 
 const thinBorder = (color = "D1D5DB") => ({
-  top:    { style: "thin",   color: { argb: "FF" + color } },
-  bottom: { style: "thin",   color: { argb: "FF" + color } },
-  left:   { style: "thin",   color: { argb: "FF" + color } },
-  right:  { style: "thin",   color: { argb: "FF" + color } },
+  top:    { style: "thin", color: { argb: "FF" + color } },
+  bottom: { style: "thin", color: { argb: "FF" + color } },
+  left:   { style: "thin", color: { argb: "FF" + color } },
+  right:  { style: "thin", color: { argb: "FF" + color } },
 });
 
 // GET /api/export-excel/all-employees
@@ -47,28 +47,35 @@ router.get("/all-employees", async (req, res) => {
       views: [{ showGridLines: false }],
     });
 
-    // ── CHANGE 1: Columns — 5 extra fields added ──
+    // ── Columns (23 total) ──
     ws.columns = [
-      { key: "sno",          width: 6  },
-      { key: "emp",          width: 26 },
-      { key: "dept",         width: 22 },
-      { key: "period",       width: 14 },
-      { key: "date",         width: 14 },
-      { key: "kpi",          width: 28 },
-      { key: "invoice_no",   width: 14 },  // ← NEW
-      { key: "customer",     width: 20 },  // ← NEW
-      { key: "mobile",       width: 14 },  // ← NEW
-      { key: "price_type",   width: 14 },  // ← NEW
-      { key: "price",        width: 12 },  // ← NEW
-      { key: "target",       width: 12 },
-      { key: "value",        width: 14 },
-      { key: "unit",         width: 10 },
-      { key: "note",         width: 28 },
-      { key: "pct",          width: 14 },
+      { key: "sno",           width: 6  },
+      { key: "emp",           width: 26 },
+      { key: "dept",          width: 22 },
+      { key: "period",        width: 14 },
+      { key: "date",          width: 14 },
+      { key: "kpi",           width: 28 },
+      { key: "invoice_no",    width: 14 },
+      { key: "customer",      width: 20 },
+      { key: "mobile",        width: 14 },
+      { key: "price_type",    width: 14 },
+      { key: "price",         width: 12 },
+      { key: "booking_no",    width: 14 },
+      { key: "booking_count", width: 14 },
+      { key: "model",         width: 16 },
+      { key: "fault",         width: 20 },
+      { key: "svc_charge",    width: 14 },
+      { key: "spare",         width: 12 },
+      { key: "status",        width: 14 },
+      { key: "target",        width: 12 },
+      { key: "value",         width: 14 },
+      { key: "unit",          width: 10 },
+      { key: "note",          width: 28 },
+      { key: "pct",           width: 14 },
     ];
 
-    // ── Title ──
-    ws.mergeCells("A1:P1");  // ← CHANGED K→P (16 columns)
+    // ── Title (A1:W1 — 23 columns) ──
+    ws.mergeCells("A1:W1");
     const titleCell = ws.getCell("A1");
     const dateLabel = fromDate === toDate ? `Date: ${fromDate}` : `From: ${fromDate}  →  ${toDate}`;
     titleCell.value     = `ALL EMPLOYEES — DAILY LOGS  |  ${dateLabel}`;
@@ -77,9 +84,15 @@ router.get("/all-employees", async (req, res) => {
     titleCell.alignment = { vertical: "middle", horizontal: "left", indent: 2 };
     ws.getRow(1).height = 40;
 
-    // ── CHANGE 2: Headers — 5 extra fields added ──
+    // ── Headers (23 columns) ──
     ws.getRow(2).height = 32;
-    ["#", "Employee", "Department", "Period", "Date", "KPI Name", "Invoice No.", "Customer Name", "Mobile", "Price Type", "Price", "Target", "Achieve (Value)", "Unit", "Note", "Achievement %"].forEach((h, i) => {
+    [
+      "#", "Employee", "Department", "Period", "Date", "KPI Name",
+      "Invoice No.", "Customer Name", "Mobile", "Price Type", "Price",
+      "Booking No.", "Booking Count", "Model", "Fault",
+      "Service Charge", "Spare", "Status",
+      "Target", "Achieve (Value)", "Unit", "Note", "Achievement %",
+    ].forEach((h, i) => {
       const cell = ws.getRow(2).getCell(i + 1);
       cell.value     = h;
       cell.font      = { name: "Calibri", bold: true, size: 10, color: { argb: "FF374151" } };
@@ -129,40 +142,53 @@ router.get("/all-employees", async (req, res) => {
 
         const border = thinBorder("E2E8F0");
 
-        // ── CHANGE 3: Data row — 5 extra cells added after KPI Name ──
         [
-          // # (1)
-          { val: sno,       font: { name: "Calibri", size: 10, color: { argb: "FF9CA3AF" } },           fill: rowBg, align: "center" },
-          // Employee (2)
-          { val: empName,   font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF1E293B" } }, fill: rowBg, align: "left"   },
-          // Department (3)
-          { val: dept,      font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },           fill: rowBg, align: "center" },
-          // Period (4)
-          { val: period,    font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },           fill: rowBg, align: "center" },
-          // Date (5)
-          { val: log.log_date, font: { name: "Calibri", size: 10, color: { argb: "FF1E293B" } },        fill: rowBg, align: "center" },
-          // KPI Name (6)
-          { val: log.kpi_name, font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF1E293B" } }, fill: rowBg, align: "left" },
-          // Invoice No. (7) ← NEW
-          { val: log.extra_fields?.invoice_no || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "center" },
-          // Customer Name (8) ← NEW
-          { val: log.extra_fields?.customer_name || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "left" },
-          // Mobile (9) ← NEW
-          { val: log.extra_fields?.mobile_number || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "center" },
-          // Price Type (10) ← NEW
-          { val: log.extra_fields?.price_type || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "center" },
-          // Price (11) ← NEW
-          { val: log.extra_fields?.price || "", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } }, fill: rowBg, align: "center" },
-          // Target (12)
-          { val: target || "—", font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },       fill: rowBg, align: "center" },
-          // Achieve (Value) (13)
-          { val: log.value, font: { name: "Calibri", bold: true, size: 11, color: { argb: "FF1E293B" } }, fill: rowBg, align: "center" },
-          // Unit (14)
-          { val: log.unit,  font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },           fill: rowBg, align: "center" },
-          // Note (15)
-          { val: log.note || "", font: { name: "Calibri", size: 10, color: { argb: "FF64748B" }, italic: true }, fill: rowBg, align: "left" },
-          // Achievement % (16)
-          { val: pctVal,    font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF" + pctColor } }, fill: rowBg, align: "center" },
+          // 1 — #
+          { val: sno,                                        font: { name: "Calibri", size: 10, color: { argb: "FF9CA3AF" } },                           fill: rowBg, align: "center" },
+          // 2 — Employee
+          { val: empName,                                    font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF1E293B" } },                fill: rowBg, align: "left"   },
+          // 3 — Department
+          { val: dept,                                       font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 4 — Period
+          { val: period,                                     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 5 — Date
+          { val: log.log_date,                               font: { name: "Calibri", size: 10, color: { argb: "FF1E293B" } },                           fill: rowBg, align: "center" },
+          // 6 — KPI Name
+          { val: log.kpi_name,                               font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF1E293B" } },                fill: rowBg, align: "left"   },
+          // 7 — Invoice No.
+          { val: log.extra_fields?.invoice_no     || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 8 — Customer Name
+          { val: log.extra_fields?.customer_name  || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "left"   },
+          // 9 — Mobile
+          { val: log.extra_fields?.mobile_number  || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 10 — Price Type
+          { val: log.extra_fields?.price_type     || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 11 — Price
+          { val: log.extra_fields?.price          || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 12 — Booking No.
+          { val: log.extra_fields?.booking_no     || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 13 — Booking Count
+          { val: log.extra_fields?.booking_count  || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 14 — Model
+          { val: log.extra_fields?.model          || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "left"   },
+          // 15 — Fault
+          { val: log.extra_fields?.fault          || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "left"   },
+          // 16 — Service Charge
+          { val: log.extra_fields?.service_charge || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 17 — Spare
+          { val: log.extra_fields?.spare          || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 18 — Status
+          { val: log.extra_fields?.status         || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 19 — Target
+          { val: target || "—",                              font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 20 — Achieve (Value)
+          { val: log.value,                                  font: { name: "Calibri", bold: true, size: 11, color: { argb: "FF1E293B" } },                fill: rowBg, align: "center" },
+          // 21 — Unit
+          { val: log.unit,                                   font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
+          // 22 — Note
+          { val: log.note || "",                             font: { name: "Calibri", size: 10, color: { argb: "FF64748B" }, italic: true },              fill: rowBg, align: "left"   },
+          // 23 — Achievement %
+          { val: pctVal,                                     font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF" + pctColor } },           fill: rowBg, align: "center" },
         ].forEach((c, i) => {
           const cell     = row.getCell(i + 1);
           cell.value     = c.val;
@@ -199,7 +225,6 @@ router.get("/:assignmentId", async (req, res) => {
   try {
     const { assignmentId } = req.params;
 
-    // Fetch assignment with employee + template KPI items
     const assignment = await KpiAssignment.findById(assignmentId)
       .populate("employee_id")
       .populate("template_id");
@@ -210,20 +235,17 @@ router.get("/:assignmentId", async (req, res) => {
     const period   = assignment.period             || "";
     const empId    = assignment.employee_id?._id;
 
-    // Fetch all logs + totals
     const logs = await DailyLog.find({
       employee_id:   empId,
       assignment_id: assignmentId,
     }).sort({ log_date: -1, createdAt: -1 });
 
-    // Compute running totals per kpi_item_id
     const totals = {};
     logs.forEach(log => {
       const key = log.kpi_item_id?.toString();
       if (key) totals[key] = (totals[key] || 0) + (log.value || 0);
     });
 
-    // ── Build workbook ──────────────────────────────────────
     const wb = new ExcelJS.Workbook();
     wb.creator = "Radnus HRMS";
 
@@ -245,7 +267,6 @@ router.get("/:assignmentId", async (req, res) => {
       { key: "status", width: 20 },
     ];
 
-    // Title row
     ws1.mergeCells("A1:H1");
     const titleCell = ws1.getCell("A1");
     titleCell.value     = `📊  ${empName.toUpperCase()}  —  PERFORMANCE RUNNING TOTALS  |  ${period.toUpperCase()}`;
@@ -254,12 +275,10 @@ router.get("/:assignmentId", async (req, res) => {
     titleCell.alignment = { vertical: "middle", horizontal: "left", indent: 2 };
     ws1.getRow(1).height = 48;
 
-    // Blue accent stripe
     ws1.mergeCells("A2:H2");
     ws1.getCell("A2").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
     ws1.getRow(2).height = 6;
 
-    // Column header row
     ws1.getRow(3).height = 36;
     const colHeaders = ["  KPI Name", "Actual", "Target", "Unit", "Progress Bar", "", "Achievement %", "Status"];
     colHeaders.forEach((h, i) => {
@@ -271,7 +290,6 @@ router.get("/:assignmentId", async (req, res) => {
       cell.border    = { bottom: { style: "medium", color: { argb: "FF2563EB" } } };
     });
 
-    // KPI data rows
     const kpiItems = assignment.template_id?.kpi_items || [];
     kpiItems.forEach((item, idx) => {
       const actual  = totals[item._id?.toString()] || 0;
@@ -286,7 +304,6 @@ router.get("/:assignmentId", async (req, res) => {
       const row     = ws1.getRow(rowNum);
       row.height    = 38;
 
-      // A — KPI Name
       const a = row.getCell(1);
       a.value     = `  ${item.kpi_name}`;
       a.font      = { name: "Calibri", bold: true, size: 12, color: { argb: "FF1A1A2E" } };
@@ -297,7 +314,6 @@ router.get("/:assignmentId", async (req, res) => {
         bottom: { style: "thin",   color: { argb: "FFE5E7EB" } },
       };
 
-      // B — Actual
       const b = row.getCell(2);
       b.value     = actual;
       b.font      = { name: "Calibri", bold: true, size: 13, color: { argb: "FF" + theme.mid } };
@@ -305,7 +321,6 @@ router.get("/:assignmentId", async (req, res) => {
       b.alignment = { vertical: "middle", horizontal: "center" };
       b.border    = thinBorder();
 
-      // C — Target
       const c = row.getCell(3);
       c.value     = item.target;
       c.font      = { name: "Calibri", size: 11, color: { argb: "FF6B7280" } };
@@ -313,7 +328,6 @@ router.get("/:assignmentId", async (req, res) => {
       c.alignment = { vertical: "middle", horizontal: "center" };
       c.border    = thinBorder();
 
-      // D — Unit
       const d = row.getCell(4);
       d.value     = item.unit;
       d.font      = { name: "Calibri", size: 11, color: { argb: "FF6B7280" } };
@@ -321,7 +335,6 @@ router.get("/:assignmentId", async (req, res) => {
       d.alignment = { vertical: "middle", horizontal: "center" };
       d.border    = thinBorder();
 
-      // E+F — Progress bar (merge)
       ws1.mergeCells(`E${rowNum}:F${rowNum}`);
       const e = row.getCell(5);
       e.value     = bar;
@@ -330,7 +343,6 @@ router.get("/:assignmentId", async (req, res) => {
       e.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
       e.border    = thinBorder();
 
-      // G — Achievement %
       const g = row.getCell(7);
       g.value     = `${pct}%`;
       g.font      = { name: "Calibri", bold: true, size: 13, color: { argb: "FF" + theme.dark } };
@@ -338,7 +350,6 @@ router.get("/:assignmentId", async (req, res) => {
       g.alignment = { vertical: "middle", horizontal: "center" };
       g.border    = thinBorder();
 
-      // H — Status
       const h = row.getCell(8);
       h.value     = label;
       h.font      = { name: "Calibri", bold: true, size: 10, color: { argb: "FF" + theme.dark } };
@@ -352,13 +363,11 @@ router.get("/:assignmentId", async (req, res) => {
       };
     });
 
-    // Blue bottom stripe
     const stripeRow = kpiItems.length + 4;
     ws1.mergeCells(`A${stripeRow}:H${stripeRow}`);
     ws1.getCell(`A${stripeRow}`).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
     ws1.getRow(stripeRow).height = 6;
 
-    // Legend row
     const legendRow = stripeRow + 2;
     ws1.mergeCells(`A${legendRow}:H${legendRow}`);
     const leg = ws1.getCell(`A${legendRow}`);
@@ -377,16 +386,15 @@ router.get("/:assignmentId", async (req, res) => {
     });
 
     ws2.columns = [
-      { key: "date",    width: 16 },
-      { key: "day",     width: 14 },
-      { key: "kpi",     width: 32 },
-      { key: "value",   width: 12 },
-      { key: "unit",    width: 10 },
-      { key: "note",    width: 30 },
-      { key: "time",    width: 12 },
+      { key: "date",  width: 16 },
+      { key: "day",   width: 14 },
+      { key: "kpi",   width: 32 },
+      { key: "value", width: 12 },
+      { key: "unit",  width: 10 },
+      { key: "note",  width: 30 },
+      { key: "time",  width: 12 },
     ];
 
-    // Title
     ws2.mergeCells("A1:G1");
     const t2 = ws2.getCell("A1");
     t2.value     = `📅  ${empName.toUpperCase()}  —  DAILY ACTIVITY LOGS  |  ${period.toUpperCase()}  |  ${logs.length} Entries`;
@@ -399,7 +407,6 @@ router.get("/:assignmentId", async (req, res) => {
     ws2.getCell("A2").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF16A34A" } };
     ws2.getRow(2).height = 6;
 
-    // Headers
     const logHeaders = ["  Date", "  Day", "  KPI Name", "Value", "Unit", "Note", "Time"];
     ws2.getRow(3).height = 34;
     logHeaders.forEach((h, i) => {
@@ -411,7 +418,6 @@ router.get("/:assignmentId", async (req, res) => {
       cell.border    = { bottom: { style: "medium", color: { argb: "FF16A34A" } } };
     });
 
-    // Date color palette
     const datePalettes = {};
     const palettes = [
       { bg: "EFF6FF", mid: "2563EB", light: "DBEAFE" },
@@ -437,7 +443,6 @@ router.get("/:assignmentId", async (req, res) => {
 
       const thinB = thinBorder("E5E7EB");
 
-      // Date
       const a = row.getCell(1);
       a.value     = `  ${log.log_date}`;
       a.font      = { name: "Calibri", bold: true, size: 11, color: { argb: "FF" + pal.mid } };
@@ -445,7 +450,6 @@ router.get("/:assignmentId", async (req, res) => {
       a.alignment = { vertical: "middle" };
       a.border    = thinB;
 
-      // Day
       const dayName = new Date(log.log_date).toLocaleDateString("en-IN", { weekday: "long" });
       const b = row.getCell(2);
       b.value     = `  ${dayName}`;
@@ -454,7 +458,6 @@ router.get("/:assignmentId", async (req, res) => {
       b.alignment = { vertical: "middle" };
       b.border    = thinB;
 
-      // KPI Name
       const c = row.getCell(3);
       c.value     = `  ${log.kpi_name}`;
       c.font      = { name: "Calibri", bold: true, size: 11, color: { argb: "FF1A1A2E" } };
@@ -462,7 +465,6 @@ router.get("/:assignmentId", async (req, res) => {
       c.alignment = { vertical: "middle" };
       c.border    = thinB;
 
-      // Value
       const d = row.getCell(4);
       d.value     = log.value;
       d.font      = { name: "Calibri", bold: true, size: 13, color: { argb: "FF" + pal.mid } };
@@ -470,7 +472,6 @@ router.get("/:assignmentId", async (req, res) => {
       d.alignment = { vertical: "middle", horizontal: "center" };
       d.border    = thinB;
 
-      // Unit
       const e = row.getCell(5);
       e.value     = log.unit;
       e.font      = { name: "Calibri", size: 11, color: { argb: "FF6B7280" } };
@@ -478,7 +479,6 @@ router.get("/:assignmentId", async (req, res) => {
       e.alignment = { vertical: "middle", horizontal: "center" };
       e.border    = thinB;
 
-      // Note
       const f = row.getCell(6);
       f.value     = log.note || "";
       f.font      = { name: "Calibri", size: 11, color: { argb: "FF6B7280" }, italic: true };
@@ -486,7 +486,6 @@ router.get("/:assignmentId", async (req, res) => {
       f.alignment = { vertical: "middle" };
       f.border    = thinB;
 
-      // Time
       const g = row.getCell(7);
       g.value     = new Date(log.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
       g.font      = { name: "Calibri", size: 11, color: { argb: "FF9CA3AF" } };
@@ -495,7 +494,6 @@ router.get("/:assignmentId", async (req, res) => {
       g.border    = thinB;
     });
 
-    // ── Send response ────────────────────────────────────────
     const filename = `${empName.replace(/\s+/g, "_")}_${period}_Performance.xlsx`;
     res.setHeader("Content-Type",        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -507,6 +505,5 @@ router.get("/:assignmentId", async (req, res) => {
     res.status(500).json({ message: "Excel export failed", error: err.message });
   }
 });
-
 
 module.exports = router;
