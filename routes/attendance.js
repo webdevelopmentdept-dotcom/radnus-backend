@@ -16,6 +16,7 @@ const {
   getAllLeaves, approveLeave, rejectLeave,
 } = require("../controllers/leaveController");
 
+
 // ── HR Dashboard today stats ──────────────────────────────────
 router.get("/attendance/today", async (req, res) => {
   try {

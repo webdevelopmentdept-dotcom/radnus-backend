@@ -17,7 +17,7 @@ const AttendanceSchema = new mongoose.Schema({
     required: true,
   },
   date:   { type: String, required: true }, // "YYYY-MM-DD"
-  shift: { type: String, default: "General" },
+  // shift: { type: String, default: "General" },
   remark: { type: String, default: "" },
 
   // ── NEW: All punches for the day ──────────────────────────

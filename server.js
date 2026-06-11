@@ -131,7 +131,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/employee", employeeAuth);
 app.use("/api", employeeAuth);  
 app.use('/api', require('./routes/esslhrRoutes'));
-app.use("/api/shifts", require("./routes/shifts"));
+// app.use("/api/shifts", require("./routes/shifts"));
 // Public job board API (no auth required)
 app.use("/api/connect", jobsPublicRoutes);
  
