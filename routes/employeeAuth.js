@@ -1029,19 +1029,20 @@ router.post('/employees/migrate-shifts', async (req, res) => {
 // ================= ASSIGN SHIFT TO EMPLOYEE =================
 router.put('/employees/:id/shift', async (req, res) => {
   try {
-    const { shift } = req.body;
-    if (!shift) return res.status(400).json({ message: 'Shift name required' });
+    const { start, end } = req.body;
+    if (!start || !end) return res.status(400).json({ message: 'start and end required' });
 
     const emp = await Employee.findById(req.params.id);
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
 
-    const updated = await Employee.findByIdAndUpdate(
-  req.params.id,
-  { shift },
-  { new: true }
-);
+    // ✅ KEY FIX: shift string-a irundha, direct MongoDB update with $set whole object
+    await Employee.collection.updateOne(
+      { _id: emp._id },
+      { $set: { shift: { start, end } } }  // ← whole object replace, not dot notation
+    );
 
-    res.json({ success: true, message: `Shift updated to ${shift}`, data: updated });
+    const updated = await Employee.findById(req.params.id).select("name employeeId shift");
+    res.json({ success: true, message: 'Shift updated', data: updated });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
