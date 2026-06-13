@@ -15,7 +15,7 @@ router.get("/", async (req, res) => {
 
     const assignments = await IncentiveAssignment.find(filter)
       .populate("employee_id", "name email department designation salary")
-      .populate("plan_id",     "name department cycle period_type slabs plan_type")
+      .populate("plan_id", "name department cycle period_type plan_type standalone_slabs standalone_payout_type standalone_payout_value standalone_metric standalone_metric_label standalone_target_type kpi_configs completion_reward_type completion_reward_value completion_reward_label")
       .sort({ createdAt: -1 });
 
     res.json({ success: true, data: assignments, total: assignments.length });

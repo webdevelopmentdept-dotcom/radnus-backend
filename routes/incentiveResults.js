@@ -187,11 +187,26 @@ router.get("/", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/incentive-results/employee/:employeeId
 // ─────────────────────────────────────────────────────────────────────────────
-router.get("/employee/:employeeId", async (req, res) => {
+// router.get("/employee/:employeeId", async (req, res) => {
+//   try {
+//     const results = await IncentiveResult.find({ employee_id: req.params.employeeId })
+//       .populate("plan_id", PLAN_FIELDS)
+//       .populate("employee_id", EMP_FIELDS)
+//       .sort({ createdAt: -1 });
+
+//     res.json({ success: true, data: results });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+router.get("/employee/:empId", async (req, res) => {
   try {
-    const results = await IncentiveResult.find({ employee_id: req.params.employeeId })
-      .populate("plan_id", PLAN_FIELDS)
-      .populate("employee_id", EMP_FIELDS)
+    const results = await IncentiveResult.find({ employee_id: req.params.empId })
+      .populate({
+        path: "plan_id",
+        select: "name plan_type period_type standalone_slabs standalone_payout_type standalone_payout_value standalone_metric standalone_metric_label standalone_target_type kpi_configs completion_reward_type completion_reward_value completion_reward_label"
+      })
       .sort({ createdAt: -1 });
 
     res.json({ success: true, data: results });
@@ -308,6 +323,26 @@ router.post("/generate", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// ── GET /api/incentive-results/pending-reviews ───────────────────────────────
+router.get("/pending-reviews", async (req, res) => {
+  try {
+    const results = await IncentiveResult.find({
+      hr_review_requested: true,
+      status: "pending"
+    })
+      .populate("employee_id", "name department designation salary")
+      .populate({
+        path: "plan_id",
+        select: "name plan_type standalone_slabs standalone_target_type standalone_payout_type standalone_payout_value"
+      })
+      .sort({ hr_review_requested_at: -1 });
+
+    res.json({ success: true, data: results });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/incentive-results/:id
@@ -428,6 +463,67 @@ router.put("/:id", async (req, res) => {
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /api/incentive-results/:id/request-review ──────────────────────────
+router.post("/:id/request-review", async (req, res) => {
+  try {
+    const { achieved_value, note } = req.body;
+    const result = await IncentiveResult.findById(req.params.id);
+    if (!result)
+      return res.status(404).json({ success: false, message: "Result not found" });
+    if (result.hr_review_requested)
+      return res.status(409).json({ success: false, message: "Review already requested" });
+
+    result.hr_review_requested     = true;
+    result.hr_review_requested_at  = new Date();
+    result.hr_review_note          = note || "";
+    result.employee_submitted_value = Number(achieved_value) || 0;
+    await result.save();
+
+    res.json({ success: true, message: "Review request sent to HR", data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+// ── POST /api/incentive-results/:id/hr-approve ───────────────────────────────
+router.post("/:id/hr-approve", async (req, res) => {
+  try {
+    const { calculated_amount, remark } = req.body;
+    const result = await IncentiveResult.findById(req.params.id);
+    if (!result)
+      return res.status(404).json({ success: false, message: "Result not found" });
+
+    result.calculated_amount = Number(calculated_amount) || 0;
+    result.status            = "approved";
+    result.hr_review_remark  = remark || "";
+    await result.save();
+
+    res.json({ success: true, message: "Approved ✅", data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /api/incentive-results/:id/hr-reject ────────────────────────────────
+router.post("/:id/hr-reject", async (req, res) => {
+  try {
+    const { remark } = req.body;
+    const result = await IncentiveResult.findById(req.params.id);
+    if (!result)
+      return res.status(404).json({ success: false, message: "Result not found" });
+
+    result.hr_review_requested = false;
+    result.hr_review_remark    = remark || "";
+    result.status              = "pending";
+    await result.save();
+
+    res.json({ success: true, message: "Rejected", data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

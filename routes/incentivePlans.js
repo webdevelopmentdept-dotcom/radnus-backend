@@ -17,21 +17,30 @@ function buildPeriodFields(body) {
 }
 
 function sanitizeKpiConfigs(kpi_configs = []) {
-  return kpi_configs.map(cfg => {
-    const base = {
-      kpi_name:         cfg.kpi_name,
-      weight:           cfg.weight           || 0,
-      target:           cfg.target           || "",
-      value_type:       cfg.value_type       || "count",
-      operator:         cfg.operator         || ">=",
-      rule_label:       cfg.rule_label       || "",
-      is_admission_kpi: cfg.is_admission_kpi || false,
-      slabs:            cfg.slabs            || [],
-      program_targets:  cfg.program_targets  || [],
-      program_slabs:    cfg.program_slabs    || [],   // ✅ KEY FIX — always carry through
-    };
-    return base;
-  });
+  return kpi_configs.map(cfg => ({
+    kpi_name:         cfg.kpi_name,
+    weight:           cfg.weight           || 0,
+    target:           cfg.target           || "",
+    value_type:       cfg.value_type       || "count",
+    operator:         cfg.operator         || ">=",
+    rule_label:       cfg.rule_label       || "",
+    is_admission_kpi: cfg.is_admission_kpi || false,
+    slabs:            cfg.slabs            || [],
+    program_targets:  cfg.program_targets  || [],
+    program_slabs:    cfg.program_slabs    || [],
+  }));
+}
+
+// ── NEW: sanitize standalone slabs ───────────────────────────────────────────
+function sanitizeStandaloneSlabs(slabs = []) {
+  return slabs
+     .filter(s => Number(s.payout_value) > 0) // skip empty/zero slabs
+    .map(s => ({
+      min_target:   Number(s.min_target)   || 0,
+      max_target:   Number(s.max_target)   || 0,   // 0 = no limit
+      payout_type:  s.payout_type          || "fixed",
+      payout_value: Number(s.payout_value) || 0,
+    }));
 }
 
 function buildKpiFields(body) {
@@ -46,11 +55,14 @@ function buildKpiFields(body) {
 
 function buildStandaloneFields(body) {
   return {
-    standalone_metric:       body.standalone_metric       || "manual",
-    standalone_metric_label: body.standalone_metric_label || "",
-    standalone_payout_type:  body.standalone_payout_type  || "fixed",
-    standalone_payout_value: body.standalone_payout_value || 0,
-    slabs:                   body.slabs                   || [],
+    standalone_metric:        body.standalone_metric        || "manual",
+    standalone_metric_label:  body.standalone_metric_label  || "",
+    standalone_payout_type:   body.standalone_payout_type   || "fixed",
+    standalone_payout_value:  body.standalone_payout_value  || 0,
+    standalone_target_type:   body.standalone_target_type   || "revenue",
+    standalone_slabs:         sanitizeStandaloneSlabs(body.standalone_slabs),
+    // slabs:                    body.slabs                    || [],
+    standalone_slabs:         sanitizeStandaloneSlabs(body.standalone_slabs),
   };
 }
 
@@ -63,6 +75,20 @@ router.get("/", async (req, res) => {
     if (req.query.period_year) filter.period_year = Number(req.query.period_year);
 
     const plans = await IncentivePlan.find(filter)
+      .populate("kpi_template_id", "template_name role kpi_items")
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, data: plans, total: plans.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── GET /api/incentive-plans/department/:dept ─────────────────────────────────
+// Used by employee portal to auto-fetch their dept's active plans
+router.get("/department/:dept", async (req, res) => {
+  try {
+    const plans = await IncentivePlan.find({ department: req.params.dept })
       .populate("kpi_template_id", "template_name role kpi_items")
       .sort({ createdAt: -1 });
 
@@ -133,17 +159,19 @@ router.put("/:id", async (req, res) => {
         completion_reward_label: "",
       }),
       ...(!isKpi ? buildStandaloneFields(req.body) : {
-        standalone_metric:       "manual",
-        standalone_metric_label: "",
-        standalone_payout_type:  "fixed",
-        standalone_payout_value: 0,
-        slabs:                   [],
+        standalone_metric:        "manual",
+        standalone_metric_label:  "",
+        standalone_payout_type:   "fixed",
+        standalone_payout_value:  0,
+        standalone_target_type:   "revenue",
+        standalone_slabs:         [],
+        slabs:                    [],
       }),
     };
 
     const plan = await IncentivePlan.findByIdAndUpdate(
       req.params.id,
-      { $set: updateData },          // ✅ $set ensures nested arrays are fully replaced
+      { $set: updateData },
       { new: true, runValidators: true }
     ).populate("kpi_template_id", "template_name role kpi_items");
 

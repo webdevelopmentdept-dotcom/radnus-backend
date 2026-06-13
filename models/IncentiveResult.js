@@ -18,6 +18,12 @@ const IncentiveResultSchema = new mongoose.Schema({
   cycle:        { type: String, default: "Monthly" },
   cycle_period: { type: String },
   status:       { type: String, enum: ["pending", "approved", "paid"], default: "pending" },
+  // ADD THESE 4 LINES after status field:
+hr_review_requested:     { type: Boolean, default: false },
+hr_review_requested_at:  { type: Date },
+hr_review_note:          { type: String, default: "" },
+hr_review_remark:        { type: String, default: "" },
+employee_submitted_value:{ type: Number, default: 0 },
 }, { timestamps: true });
 
 module.exports = mongoose.model("IncentiveResult", IncentiveResultSchema);
