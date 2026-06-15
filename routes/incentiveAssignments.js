@@ -54,6 +54,16 @@ router.post("/", async (req, res) => {
     if (!emp)
       return res.status(404).json({ success: false, message: "Employee not found" });
 
+    if (plan.period_type === "Monthly") {
+      const planPeriod = `${plan.period_year}-${String(plan.period_month).padStart(2, "0")}`;
+      if (period !== planPeriod) {
+        return res.status(400).json({
+          success: false,
+          message: `This plan is for ${planPeriod} only. Create a new plan for ${period}.`,
+        });
+      }
+    }
+
     // ── Resolve cycle from plan ────────────────────────────────────────────
     const finalCycle = cycle || plan.period_type || plan.cycle || "Monthly";
 
@@ -63,6 +73,19 @@ router.post("/", async (req, res) => {
       plan_id,
       cycle: finalCycle,
       period,
+
+       plan_snapshot: {
+    plan_type:               plan.plan_type,
+    standalone_slabs:        plan.standalone_slabs        || [],
+    standalone_target_type:  plan.standalone_target_type  || "revenue",
+    standalone_payout_type:  plan.standalone_payout_type  || "fixed",
+    kpi_configs:             plan.kpi_configs             || [],
+    completion_reward_type:  plan.completion_reward_type  || "none",
+    completion_reward_value: plan.completion_reward_value || 0,
+    completion_reward_label: plan.completion_reward_label || "",
+    snapped_at: new Date(),
+  },
+
     }).save();
 
     // ── Auto-create a pending IncentiveResult ──────────────────────────────

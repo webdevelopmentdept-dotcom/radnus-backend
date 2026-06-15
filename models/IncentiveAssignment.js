@@ -6,6 +6,20 @@ const IncentiveAssignmentSchema = new mongoose.Schema({
   plan_id:     { type: mongoose.Schema.Types.ObjectId, ref: "IncentivePlan", required: true },
   cycle:       { type: String, enum: ["Monthly","Quarterly","Half-Yearly","Yearly"], default: "Monthly" },
   period:      { type: String, required: true }, // e.g. "2026-04" or "2026-Q2"
+
+   plan_snapshot: {
+    plan_type:              { type: String },
+    standalone_slabs:       { type: Array, default: [] },
+    standalone_target_type: { type: String },
+    standalone_payout_type: { type: String },
+    kpi_configs:            { type: Array, default: [] },
+    completion_reward_type:  { type: String },
+    completion_reward_value: { type: Number },
+    completion_reward_label: { type: String },
+    // Snapshot எப்போ எடுத்தோம்
+    snapped_at: { type: Date, default: Date.now },
+  },
+
 }, { timestamps: true });
 
 IncentiveAssignmentSchema.index({ employee_id: 1, period: 1 }, { unique: true });

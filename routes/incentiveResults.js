@@ -241,7 +241,9 @@ router.post("/generate", async (req, res) => {
       if (existing) { skipped++; continue; }
 
       const salary = asgn.employee_id?.salary || 0;
-      const plan   = asgn.plan_id;
+      const plan = asgn.plan_snapshot?.plan_type
+        ? { ...asgn.plan_id.toObject(), ...asgn.plan_snapshot }
+        : asgn.plan_id;
 
       let performance_score      = 0;
       let calculated_amount      = 0;
@@ -388,10 +390,15 @@ router.post("/", async (req, res) => {
     } else if (assignment_id) {
       const asgn = await IncentiveAssignment.findById(assignment_id).populate("plan_id");
       if (asgn?.plan_id) {
-        resolvedPlanId         = asgn.plan_id._id;
-        calculated_amount      = calcAmount(asgn.plan_id, performance_score, salary || 0, qualifies !== false, actuals);
-        completion_bonus       = calcCompletionReward(asgn.plan_id, salary || 0, actuals);
-        completion_bonus_label = asgn.plan_id?.completion_reward_label || "";
+        resolvedPlanId = asgn.plan_id._id;
+        // 🆕 இந்த 3 lines add பண்ணு
+        const planData = asgn.plan_snapshot?.plan_type
+          ? { ...asgn.plan_id.toObject(), ...asgn.plan_snapshot }
+          : asgn.plan_id;
+        // 🆕 asgn.plan_id → planData மாத்தணும் கீழே
+        calculated_amount      = calcAmount(planData, performance_score, salary || 0, qualifies !== false, actuals);
+        completion_bonus       = calcCompletionReward(planData, salary || 0, actuals);
+        completion_bonus_label = planData?.completion_reward_label || "";
       }
     }
 
@@ -431,11 +438,19 @@ router.put("/:id", async (req, res) => {
 
     // If recalculating with new kpi_breakdown, recompute amount on server too
     if (req.body.kpi_breakdown && req.body.performance_score != null) {
-      const existing = await IncentiveResult.findById(req.params.id).populate("plan_id");
-      if (existing?.plan_id?.plan_type === "kpi_linked") {
+      const existing = await IncentiveResult.findById(req.params.id)
+        .populate("plan_id")
+        .populate("assignment_id"); // 🆕 இந்த line add பண்ணு
+      // 🆕 இந்த 3 lines add பண்ணு
+      const asnp = existing.assignment_id;
+      const planData = asnp?.plan_snapshot?.plan_type
+        ? { ...existing.plan_id.toObject(), ...asnp.plan_snapshot }
+        : existing.plan_id;
+      // 🆕 existing.plan_id → planData மாத்தணும் கீழே
+      if (planData?.plan_type === "kpi_linked") {
         const actuals = req.body.kpi_breakdown || [];
-        const base    = calcKpiLinkedAmount(existing.plan_id, req.body.performance_score, existing.salary, actuals);
-        const bonus   = calcCompletionReward(existing.plan_id, existing.salary, actuals);
+        const base    = calcKpiLinkedAmount(planData, req.body.performance_score, existing.salary, actuals);
+        const bonus   = calcCompletionReward(planData, existing.salary, actuals);
         // Only override if client didn't already send a calculated_amount
         if (req.body.calculated_amount == null) {
           req.body.calculated_amount = base + bonus;

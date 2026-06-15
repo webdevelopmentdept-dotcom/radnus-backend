@@ -110,6 +110,16 @@ const IncentivePlanSchema = new mongoose.Schema({
   // Legacy KPI slabs (kept for backward compat)
   slabs: { type: [KpiSlabSchema], default: [] },
 
+   version_history: [{
+    version:          { type: Number },
+    saved_at:         { type: Date, default: Date.now },
+    period_month:     { type: Number },
+    period_year:      { type: Number },
+    standalone_slabs: { type: Array, default: [] },
+    kpi_configs:      { type: Array, default: [] },
+    change_note:      { type: String, default: "" },
+  }],
+
 }, { timestamps: true });
 
 // ── Virtual: human-readable period label ─────────────────────────────────────

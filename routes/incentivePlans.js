@@ -141,6 +141,7 @@ router.post("/", async (req, res) => {
 });
 
 // ── PUT /api/incentive-plans/:id ──────────────────────────────────────────────
+// ── PUT /api/incentive-plans/:id ──────────────────────────────────────────────
 router.put("/:id", async (req, res) => {
   try {
     const { name, department, plan_type } = req.body;
@@ -169,14 +170,28 @@ router.put("/:id", async (req, res) => {
       }),
     };
 
-    const plan = await IncentivePlan.findByIdAndUpdate(
-      req.params.id,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    ).populate("kpi_template_id", "template_name role kpi_items");
+    // 🆕 findByIdAndUpdate பண்ணாம — find பண்ணி history push பண்ணு
+    const existing = await IncentivePlan.findById(req.params.id);
+    if (!existing)
+      return res.status(404).json({ success: false, message: "Plan not found" });
 
-    if (!plan) return res.status(404).json({ success: false, message: "Plan not found" });
-    res.json({ success: true, data: plan });
+    // 🆕 பழைய version history-ல save பண்ணு
+    existing.version_history.push({
+      version:          (existing.version_history.length || 0) + 1,
+      saved_at:         new Date(),
+      period_month:     existing.period_month,
+      period_year:      existing.period_year,
+      standalone_slabs: existing.standalone_slabs || [],
+      kpi_configs:      existing.kpi_configs      || [],
+    });
+
+    // 🆕 புதுசு data assign பண்ணு
+    Object.assign(existing, updateData);
+    await existing.save();
+
+    await existing.populate("kpi_template_id", "template_name role kpi_items");
+    res.json({ success: true, data: existing });
+
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
