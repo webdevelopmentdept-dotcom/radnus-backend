@@ -1,21 +1,61 @@
 const express = require('express');
 const router = express.Router();
 const DailyLog = require('../models/DailyLog');
+const mongoose = require('mongoose');  // ✅ ADD THIS
+
 
 // POST /api/daily-logs — Add a daily log entry
+// router.post('/', async (req, res) => {
+//   try {
+//     const { 
+//       employee_id, assignment_id, kpi_item_id, 
+//       kpi_name, unit, value, note, log_date, period,
+//       program_values , extra_fields
+//     } = req.body;
+
+//     const log = new DailyLog({
+//       employee_id, assignment_id, kpi_item_id,
+//       kpi_name, unit, value, note, log_date, period,
+//       program_values: program_values || {},
+//       extra_fields: extra_fields || {}  // ✅ ADD THIS
+//     });
+//     await log.save();
+
+//     res.status(201).json({ success: true, data: log });
+//   } catch (err) {
+//     res.status(400).json({ success: false, message: err.message });
+//   }
+// });
+
 router.post('/', async (req, res) => {
   try {
     const { 
       employee_id, assignment_id, kpi_item_id, 
       kpi_name, unit, value, note, log_date, period,
-      program_values , extra_fields
+      program_values, extra_fields
     } = req.body;
 
+    // ✅ AUTO-FIX: If assignment_id missing, find active assignment
+    let finalAssignmentId = assignment_id;
+    if (!finalAssignmentId) {
+      const KpiAssignment = require('../models/KpiAssignment');
+      const assignment = await KpiAssignment.findOne({
+        employee_id: new mongoose.Types.ObjectId(employee_id),
+        period: period,
+        status: { $in: ['active', 'completed'] }
+      });
+      if (assignment) {
+        finalAssignmentId = assignment._id;
+      }
+    }
+
     const log = new DailyLog({
-      employee_id, assignment_id, kpi_item_id,
+      employee_id, 
+      assignment_id: finalAssignmentId,  // ✅ Use fixed assignment_id
+      kpi_item_id,
       kpi_name, unit, value, note, log_date, period,
       program_values: program_values || {},
-      extra_fields: extra_fields || {}  // ✅ ADD THIS
+      extra_fields: extra_fields || {}
     });
     await log.save();
 

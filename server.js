@@ -182,6 +182,7 @@ app.use("/api/policies", policyRoutes);
 app.use("/api/sops", sopRoutes);
 app.use("/api/policy-quiz", policyQuizRoutes);
 app.use('/api/announcements', announcementsRouter);
+app.use("/api/department-scoreboard", require("./routes/departmentScoreboardRoutes"));
 
 
 // Applicants & Admin
