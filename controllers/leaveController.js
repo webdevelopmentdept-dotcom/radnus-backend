@@ -125,12 +125,13 @@ exports.approveLeave = async (req, res) => {
     { employee_id: leave.employee_id, date: dateStr },
     {
       $set: {
-        employee_id: leave.employee_id,
-        date:        dateStr,
-        status:      leave.is_half_day ? "half_day" : "leave",
-        method:      "auto",
-        session:     leave.is_half_day ? leave.session : null,
-      },
+  employee_id: leave.employee_id,
+  date: dateStr,
+  status: leave.is_half_day ? "half_day" : "leave",
+  method: "leave_request",  // "auto" → "leave_request"
+  session: leave.is_half_day ? leave.session : null,
+  leave_request_id: leave._id,  // trace பண்ண
+},
     },
     { upsert: true }
   );
@@ -216,9 +217,22 @@ exports.cancelLeaveRequest = async (req, res) => {
     if (!leave) {
       return res.status(404).json({ success: false, message: "Leave not found" });
     }
-    if (leave.status !== "pending") {
-      return res.status(400).json({ success: false, message: "Only pending leaves can be cancelled" });
+
+    // Approved leave-ஆ இருந்தாலும் delete பண்ண allow பண்ணு
+    // Attendance records clean up பண்ணு
+    if (leave.status === "approved") {
+      const start = new Date(leave.from_date);
+      const end = new Date(leave.to_date);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        await Attendance.findOneAndDelete({
+          employee_id: leave.employee_id,
+          date: dateStr,
+          method: "leave_request",
+        });
+      }
     }
+
     await LeaveRequest.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: "Leave request cancelled" });
   } catch (err) {

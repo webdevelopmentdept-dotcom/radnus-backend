@@ -591,8 +591,11 @@ exports.getDailyReport = async (req, res) => {
         }
 
         obj.employee = emp;
-        obj.missing_punch = obj.is_currently_in && (date !== todayStr() ? true : new Date().getHours() >= 20);
-
+const { endMins } = parseShiftMins(emp);
+const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+obj.missing_punch = obj.is_currently_in && 
+  (date !== todayStr() ? true : nowMins >= endMins);
+  
         obj.checkIn = obj.first_in || obj.checkIn || null;
         const { breakOut, breakIn, breakLateMins } = resolveBreakLocal(obj.punches || []);
         // Simple fix: last_out dhan actual check-out
@@ -718,9 +721,13 @@ exports.getMonthlyReport = async (req, res) => {
       const earlyOutDays = enriched.filter(r => (r.early_out_minutes || 0) > 0).length;
       const missingPunch = enriched.filter(r => r.is_currently_in && r.date !== todayS).length;
 
-      const pct = workingDays
-        ? Math.round(((present + half_day * 0.5 + on_leave) / workingDays) * 100)
-        : 0;
+      const leave_for_pct = enriched.filter(r => 
+  r.status === "leave" && r.method === "leave_request"
+).length;
+
+const pct = workingDays
+  ? Math.round(((present + half_day * 0.5 + leave_for_pct) / workingDays) * 100)
+  : 0;
 
       return {
         _id: emp._id,
@@ -928,7 +935,9 @@ exports.hrAddPunch = async (req, res) => {
       remark: remark || "",
     });
 
-    const computed = computeFromPunches(record.punches);
+    const emp = await Employee.findById(employee_id).select("shift").lean();
+const { startMins, endMins } = parseShiftMins(emp);
+const computed = computeFromPunches(record.punches, startMins, endMins);
     Object.assign(record, computed);
 
     await record.save();
@@ -950,8 +959,10 @@ exports.hrDeletePunch = async (req, res) => {
 
     record.punches = record.punches.filter(p => p._id.toString() !== punch_id);
 
-    const computed = computeFromPunches(record.punches);
-    Object.assign(record, computed);
+    const emp = await Employee.findById(employee_id).select("shift").lean();
+const { startMins, endMins } = parseShiftMins(emp);
+const computed = computeFromPunches(record.punches, startMins, endMins);
+Object.assign(record, computed);
 
     await record.save();
     res.json({ success: true, message: "Punch deleted", data: record });
