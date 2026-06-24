@@ -103,8 +103,55 @@ router.get('/totals/:employeeId/:assignmentId', async (req, res) => {
 // DELETE /api/daily-logs/:id — Delete a log entry
 router.delete('/:id', async (req, res) => {
   try {
+    const log = await DailyLog.findById(req.params.id);
+    if (!log) return res.status(404).json({ success: false, message: 'Log not found' });
+
+    const diffHours = (new Date() - new Date(log.createdAt)) / (1000 * 60 * 60);
+    if (diffHours > 24) {
+      return res.status(403).json({ success: false, message: 'Delete not allowed after 24 hours' });
+    }
+
     await DailyLog.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Log deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+router.put('/:id', async (req, res) => {
+  try {
+    const log = await DailyLog.findById(req.params.id);
+    if (!log) return res.status(404).json({ success: false, message: 'Log not found' });
+
+    const diffHours = (new Date() - new Date(log.createdAt)) / (1000 * 60 * 60);
+    if (diffHours > 24) {
+      return res.status(403).json({ success: false, message: 'Edit not allowed after 24 hours' });
+    }
+
+    const historyEntry = {
+      oldValue: log.value,
+      newValue: req.body.value,
+      oldNote: log.note,
+      newNote: req.body.note,
+      editedAt: new Date()
+    };
+
+    const updated = await DailyLog.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          value: req.body.value,
+          note: req.body.note,
+          isEdited: true,
+          updatedAt: new Date()
+        },
+        $push: { editHistory: historyEntry }
+      },
+      { new: true }
+    );
+
+    res.json({ success: true, data: updated });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
