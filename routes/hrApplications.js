@@ -1,14 +1,66 @@
 const express = require("express");
 const router = express.Router();
 const HrApplicant = require("../models/HrApplicant");
+const Job = require("../models/Job");
 
 // ✅ Get all HR job applications
+// ✅ Get all HR job applications (public + internal merged)
 router.get("/applications", async (req, res) => {
   try {
+    // 1️⃣ Existing public applications
     const applications = await HrApplicant.find().sort({ createdAt: -1 });
-    res.json({ success: true, applications });
+
+    // 2️⃣ Internal job applicants
+    const internalJobs = await Job.find({ visibility: "internal" }).populate(
+      "applicants.employeeId",
+      "name email mobile phone department designation employeeId"
+    );
+
+    const internalApps = [];
+    internalJobs.forEach((job) => {
+      (job.applicants || []).forEach((app) => {
+        const emp = app.employeeId;
+        if (!emp) return;
+
+        const statusMap = {
+          applied:      "New",
+          under_review: "Shortlisted",
+          interview:    "Interview",
+          selected:     "Hired",
+          rejected:     "Rejected",
+        };
+
+        internalApps.push({
+  _id:           `internal_${job._id}_${emp._id}`,
+  name:          emp.name        || "—",
+  email:         emp.email       || "—",
+  phone:         emp.mobile || emp.phone || "—",
+  jobTitle:      job.title,
+  location:      emp.department  || "—",
+  department:    emp.department  || "—",
+  status:        statusMap[app.status] || "New",
+  rawStatus:     app.status || "applied",  // ✅ ADD THIS LINE ONLY
+  createdAt:     app.appliedAt   || new Date(),
+  resumeUrl:     null,
+  aadhaarLast4:  null,
+  aiScore:       null,
+  aiGrade:       null,
+  isInternal:    true,
+  internalJobId: String(job._id),
+  internalEmpId: String(emp._id),
+  employeeCode:  emp.employeeId  || "—",
+  designation:   emp.designation || "—",
+  rejectionReason: app.rejectionReason || null,
+});
+      });
+    });
+
+    // 3️⃣ Internal first, then public
+    const allApplications = [...internalApps, ...applications];
+    res.json({ success: true, applications: allApplications });
+
   } catch (err) {
-    console.error("Error fetching HR applications:", err);ch
+    console.error("Error fetching HR applications:", err);
     res.status(500).json({ success: false, msg: "Server error" });
   }
 });

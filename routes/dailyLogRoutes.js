@@ -107,9 +107,9 @@ router.delete('/:id', async (req, res) => {
     if (!log) return res.status(404).json({ success: false, message: 'Log not found' });
 
     const diffHours = (new Date() - new Date(log.createdAt)) / (1000 * 60 * 60);
-    if (diffHours > 24) {
-      return res.status(403).json({ success: false, message: 'Delete not allowed after 24 hours' });
-    }
+    if (diffHours > 24 && !log.isUnlocked) {
+  return res.status(403).json({ success: false, message: 'Delete not allowed after 24 hours' });
+}
 
     await DailyLog.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Log deleted' });
@@ -125,9 +125,9 @@ router.put('/:id', async (req, res) => {
     if (!log) return res.status(404).json({ success: false, message: 'Log not found' });
 
     const diffHours = (new Date() - new Date(log.createdAt)) / (1000 * 60 * 60);
-    if (diffHours > 24) {
-      return res.status(403).json({ success: false, message: 'Edit not allowed after 24 hours' });
-    }
+    if (diffHours > 24 && !log.isUnlocked) {
+  return res.status(403).json({ success: false, message: 'Edit not allowed after 24 hours' });
+}
 
     const historyEntry = {
       oldValue: log.value,
@@ -156,5 +156,41 @@ router.put('/:id', async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// ── HR Unlock ──
+router.patch('/:id/unlock', async (req, res) => {
+  try {
+    const log = await DailyLog.findById(req.params.id);
+    if (!log) return res.status(404).json({ success: false, message: 'Log not found' });
+
+    const updated = await DailyLog.findByIdAndUpdate(
+      req.params.id,
+      { $set: { isUnlocked: true, unlockedAt: new Date(), unlockedBy: req.body.unlockedBy || 'HR' } },
+      { new: true }
+    );
+    res.json({ success: true, data: updated, message: 'Log unlocked' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── HR Re-lock (optional) ──
+router.patch('/:id/lock', async (req, res) => {
+  try {
+    const log = await DailyLog.findById(req.params.id);
+    if (!log) return res.status(404).json({ success: false, message: 'Log not found' });
+
+    const updated = await DailyLog.findByIdAndUpdate(
+      req.params.id,
+      { $set: { isUnlocked: false, unlockedAt: null, unlockedBy: null } },
+      { new: true }
+    );
+    res.json({ success: true, data: updated, message: 'Log re-locked' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+module.exports = router; // ← இது already இருக்கு, மாத்தாதே
 
 module.exports = router;

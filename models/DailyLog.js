@@ -22,6 +22,9 @@ const dailyLogSchema = new mongoose.Schema({
   program_values: { type: mongoose.Schema.Types.Mixed, default: {} },
 
    isEdited: { type: Boolean, default: false },
+   isUnlocked: { type: Boolean, default: false },        // ← NEW
+  unlockedAt: { type: Date, default: null },            // ← NEW
+  unlockedBy: { type: String, default: null },          // ← NEW (HR name)
   editHistory: [{
     oldValue: Number,
     newValue: Number,

@@ -12,6 +12,17 @@ const jobSchema = new mongoose.Schema({
   schedule: { type: String, default: "Day shift" },
   workLocation: { type: String, default: "In-person" },
   contactDetails: { type: String },
+  visibility: { type: String, enum: ["public", "internal"], default: "public" },
+  minExperience: { type: Number, default: 0 },
+   applicants: [{
+    employeeId: { type: mongoose.Schema.Types.ObjectId, ref: "Employee" },
+    appliedAt:  { type: Date, default: Date.now },
+    status: {
+      type: String,
+      enum: ["applied", "under_review", "interview", "selected", "rejected"],
+      default: "applied"
+    }
+  }],
   status: {
     type: String,
     enum: ["active", "closed", "draft"],
