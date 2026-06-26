@@ -44,7 +44,15 @@ const getLateMinutes = (firstIn, shiftStartMins = DEFAULT_SHIFT_START) => {
 
 const getEarlyOutMinutes = (lastOut, shiftEndMins = DEFAULT_SHIFT_END) => {
   if (!lastOut) return 0;
-  return Math.max(shiftEndMins - toMins(lastOut), 0);
+  const mins = toMins(lastOut);
+  
+  // 12:00 AM (midnight) = 0 → employee worked past midnight, not early out
+  if (mins === 0) return 0;
+  
+  // Checkout after shift end → no early out
+  if (mins >= shiftEndMins) return 0;
+  
+  return Math.max(shiftEndMins - mins, 0);
 };
 
 const getOvertimeMinutes = (lastOut, shiftEndMins = DEFAULT_SHIFT_END) => {
@@ -763,13 +771,11 @@ const pct = workingDays
 // ══════════════════════════════════════════
 exports.hrMarkAttendance = async (req, res) => {
   try {
-    const { employee_id, date, status, checkIn, checkOut, punches, shift, remark } = req.body;
+    const { employee_id, date, status, checkIn, checkOut, punches, remark } = req.body;
 
-    // ✅ VALIDATION: Check-out must be after check-in
+    // ✅ Checkout must be after checkin validation
     if (checkIn && checkOut) {
-      const checkInDate = new Date(checkIn);
-      const checkOutDate = new Date(checkOut);
-      if (checkOutDate <= checkInDate) {
+      if (new Date(checkOut) <= new Date(checkIn)) {
         return res.status(400).json({
           success: false,
           message: "Check-out time must be after check-in time"
@@ -777,36 +783,46 @@ exports.hrMarkAttendance = async (req, res) => {
       }
     }
 
-    const noTimeStatus = ["leave", "holiday", "weekend", "absent"].includes(status);
-    // ✅ Shift only update — punch தொட வேண்டாம்
+const noTimeStatus = ["leave", "holiday", "weekend", "absent"].includes(status);
 
-    let newPunches = [];
+let newPunches = []; // ← எப்பவும் fresh start
 
-    if (!noTimeStatus) {
-      if (punches && Array.isArray(punches) && punches.length > 0) {
-        newPunches = punches.map(p => ({
-          type: p.type,
-          time: new Date(p.time),
-          method: "hr_manual",
-          remark: p.remark || "",
-        }));
-      } else if (checkIn) {
-        newPunches.push({ type: "in", time: new Date(checkIn), method: "hr_manual" });
-        if (checkOut) {
-          newPunches.push({ type: "out", time: new Date(checkOut), method: "hr_manual" });
-        }
-      }
+if (!noTimeStatus) {
+  if (punches && Array.isArray(punches) && punches.length > 0) {
+    newPunches = punches.map(p => ({
+      type: p.type,
+      time: new Date(p.time),
+      method: "hr_manual",
+      remark: p.remark || "",
+    }));
+  } else if (checkIn) {
+    newPunches.push({
+      type: "in",
+      time: new Date(checkIn),
+      method: "hr_manual",
+      remark: remark || "",
+    });
+    if (checkOut) {
+      newPunches.push({
+        type: "out",
+        time: new Date(checkOut),
+        method: "hr_manual",
+        remark: remark || "",
+      });
     }
+  }
+}
+
+newPunches.sort((a, b) => new Date(a.time) - new Date(b.time));
 
     const emp2 = await Employee.findById(employee_id).select("shift").lean();
     const { startMins, endMins } = parseShiftMins(emp2);
+
     const computed = newPunches.length > 0
       ? computeFromPunches(newPunches, startMins, endMins)
       : { work_hours: 0, late_minutes: 0, early_out_minutes: 0, overtime_minutes: 0 };
 
     const finalStatus = noTimeStatus ? status : (computed.status || status || "present");
-
-
 
     const record = await Attendance.findOneAndUpdate(
       { employee_id, date },
@@ -818,20 +834,20 @@ exports.hrMarkAttendance = async (req, res) => {
           status: finalStatus,
           first_in: noTimeStatus ? null : (computed.first_in || null),
           last_out: noTimeStatus ? null : (computed.last_out || null),
-          checkIn: noTimeStatus ? null : (computed.first_in || null),  // ADD THIS
-          checkOut: noTimeStatus ? null : (computed.last_out || null), // ADD THIS
+          checkIn: noTimeStatus ? null : (computed.first_in || null),
+          checkOut: noTimeStatus ? null : (computed.last_out || null),
           work_hours: computed.work_hours || 0,
           break_minutes: computed.break_minutes || 0,
           late_minutes: computed.late_minutes || 0,
           early_out_minutes: computed.early_out_minutes || 0,
           overtime_minutes: computed.overtime_minutes || 0,
-          // shift: shift || "General (9:45 AM – 7:00 PM)",
           remark: remark || "",
           method: "hr_manual",
         },
       },
       { upsert: true, new: true }
     );
+
     res.json({ success: true, message: "Attendance marked", data: record });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
