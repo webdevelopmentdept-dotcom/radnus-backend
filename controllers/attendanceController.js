@@ -2,10 +2,6 @@ const mongoose = require("mongoose");
 const Attendance = require("../models/Attendance");
 const Employee = require("../models/Employee");
 const LeaveRequest = require("../models/LeaveRequest");
-
-
-
-
 // ══════════════════════════════════════════
 //  FIXED TIMING CONFIG (No Shift - Hardcoded 10:00 AM to 7:00 PM)
 // ══════════════════════════════════════════
@@ -581,8 +577,6 @@ exports.getDailyReport = async (req, res) => {
       return { breakOut: breakOutPunch.time, breakIn: breakInPunch ? breakInPunch.time : null, breakLateMins };
     };
 
-    // ✅ Shift resolve helper (getDailyReport-க்கு முன்னாடி)
-
     const result = await Promise.all(employees.map(async (emp) => {
       const { startMins, endMins } = parseShiftMins(emp);
 
@@ -729,8 +723,8 @@ exports.getMonthlyReport = async (req, res) => {
       const earlyOutDays = enriched.filter(r => (r.early_out_minutes || 0) > 0).length;
       const missingPunch = enriched.filter(r => r.is_currently_in && r.date !== todayS).length;
 
-      const leave_for_pct = enriched.filter(r => 
-  r.status === "leave" && r.method === "leave_request"
+     const leave_for_pct = enriched.filter(r => 
+  r.status === "leave" && r.method === "hr_manual"
 ).length;
 
 const pct = workingDays
@@ -1021,7 +1015,7 @@ exports.exportExcel = async (req, res) => {
     }
 
     const fmtMins = (mins) => {
-      if (!mins || mins <= 0) return "—";
+  if (mins === null || mins === undefined || mins <= 0) return "—";
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
@@ -1166,14 +1160,14 @@ exports.exportExcel = async (req, res) => {
         views: [{ state: "frozen", ySplit: 4 }],
       });
 
-      summarySheet.mergeCells("A1:K1");
+      summarySheet.mergeCells("A1:L1");
       summarySheet.getCell("A1").value = `Employee Attendance Report — ${monthName} ${year}`;
       summarySheet.getCell("A1").font = { bold: true, size: 16, color: { argb: "FFFFFFFF" } };
       summarySheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF111827" } };
       summarySheet.getCell("A1").alignment = { horizontal: "center", vertical: "middle" };
       summarySheet.getRow(1).height = 36;
 
-      summarySheet.mergeCells("A2:K2");
+      summarySheet.mergeCells("A2:L2");
       summarySheet.getCell("A2").value = `Generated on ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}`;
       summarySheet.getCell("A2").font = { size: 11, color: { argb: "FF6B7280" }, italic: true };
       summarySheet.getCell("A2").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
@@ -1185,7 +1179,7 @@ exports.exportExcel = async (req, res) => {
       const summaryHeaders = [
         "#", "Employee Name", "Emp ID", "Department",
         "Work Days", "Present", "Late", "Half Day",
-        "On Leave", "Absent", "Attendance %"
+        "On Leave", "Absent", "Total Late", "Attendance %"
       ];
       const summaryHeaderRow = summarySheet.getRow(4);
       summaryHeaders.forEach((h, i) => {
@@ -1198,7 +1192,7 @@ exports.exportExcel = async (req, res) => {
       });
       summaryHeaderRow.height = 28;
 
-      const summaryColWidths = [5, 22, 12, 18, 10, 9, 9, 10, 10, 9, 14]; // ← remove 9 (OT Days)
+      const summaryColWidths = [5, 22, 12, 18, 10, 9, 9, 10, 10, 9, 12, 14];// ← remove 9 (OT Days)
       summaryColWidths.forEach((w, i) => {
         summarySheet.getColumn(i + 1).width = w;
       });
@@ -1292,7 +1286,7 @@ exports.exportExcel = async (req, res) => {
         if (otMin > 0) otCount++;
 
         totalBreakLate += breakLateMins || 0;
-        totalLateIn += rec.late_minutes || 0;
+        totalLateIn += lateMin || 0; 
         totalEarlyOut += earlyOutMin || 0;
 
         dayRows.push({
@@ -1323,10 +1317,10 @@ exports.exportExcel = async (req, res) => {
 
       if (!isSingleEmployee && summarySheet) {
         const sRow = summarySheet.addRow([
-          empIdx + 1, emp.name || "—", emp.employeeId || emp.employee_code || "—",
-          emp.department || "—", workDays, presentCount, lateCount, halfCount,
-          leaveCount, absentCount, attendancePct,
-        ]);
+  empIdx + 1, emp.name || "—", emp.employeeId || emp.employee_code || "—",
+  emp.department || "—", workDays, presentCount, lateCount, halfCount,
+  leaveCount, absentCount, totalLateIn > 0 ? fmtMins(totalLateIn) : "—", attendancePct,
+]);
         sRow.height = 22;
         sRow.eachCell((cell) => {
           cell.alignment = { horizontal: "center", vertical: "middle" };
