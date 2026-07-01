@@ -2,15 +2,9 @@ const express = require("express");
 const router = express.Router();
 const Job = require("../models/Job");
 
-// Public — active jobs only (careers page)
-router.get("/public", async (req, res) => {
-  try {
-    const jobs = await Job.find({ status: "active" }).sort({ posted: -1 });
-    res.json({ success: true, jobs });
-  } catch (err) {
-    res.status(500).json({ success: false, msg: "Server error" });
-  }
-});
+// ❌ இங்க இருந்த முதல் "/public" route (filter இல்லாதது) REMOVE பண்ணிட்டேன்.
+// அதுதான் internal jobs-ஐயும் காட்டிண்டு இருந்தது, ஏன்னா Express-ல
+// ஒரு path-க்கு பல handlers இருந்தா, முதலில் define பண்ணது மட்டும் தான் run ஆகும்.
 
 // HR — all jobs
 router.get("/", async (req, res) => {
@@ -54,7 +48,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// ── NEW: Employee dashboard — internal active jobs only ──
+// Employee dashboard — internal active jobs only
 router.get("/internal", async (req, res) => {
   try {
     const jobs = await Job.find({ status: "active", visibility: "internal" })
@@ -66,11 +60,11 @@ router.get("/internal", async (req, res) => {
   }
 });
 
-// Public — active jobs only (careers page) — இது உனது existing route, CHANGE வேண்டாம்
+// Public — active + public jobs only (careers page)
+// ✅ இது ஒரே ஒரு "/public" route. இதுதான் இப்போ actual-ஆ run ஆகும்.
 router.get("/public", async (req, res) => {
   try {
     const jobs = await Job.find({ status: "active", visibility: "public" }).sort({ posted: -1 });
-    // ⚠️ இங்கே visibility: "public" filter add பண்ணு மட்டும்
     res.json({ success: true, jobs });
   } catch (err) {
     res.status(500).json({ success: false, msg: "Server error" });
@@ -87,7 +81,6 @@ router.post("/:id/apply", async (req, res) => {
     if (!job) return res.status(404).json({ success: false, msg: "Job not found" });
     if (job.visibility !== "internal") return res.status(403).json({ success: false, msg: "Not an internal job" });
 
-    // Already applied check
     const alreadyApplied = (job.applicants || []).some(
       (a) => a.employeeId?.toString() === employeeId.toString()
     );
@@ -103,7 +96,7 @@ router.post("/:id/apply", async (req, res) => {
   }
 });
 
-// ── NEW: HR updates an internal applicant's status (fixes the 404 from the Applicants page) ──
+// HR updates an internal applicant's status
 router.put("/:id/applicant-status", async (req, res) => {
   try {
     const { employeeId, status, rejectionReason } = req.body;
@@ -132,7 +125,7 @@ router.put("/:id/applicant-status", async (req, res) => {
   }
 });
 
-// ── NEW: HR removes an internal applicant from a job (powers the Remove button) ──
+// HR removes an internal applicant from a job
 router.delete("/:id/applicant/:employeeId", async (req, res) => {
   try {
     const { id, employeeId } = req.params;
