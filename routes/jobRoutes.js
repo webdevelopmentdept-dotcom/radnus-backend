@@ -2,10 +2,6 @@ const express = require("express");
 const router = express.Router();
 const Job = require("../models/Job");
 
-// ❌ இங்க இருந்த முதல் "/public" route (filter இல்லாதது) REMOVE பண்ணிட்டேன்.
-// அதுதான் internal jobs-ஐயும் காட்டிண்டு இருந்தது, ஏன்னா Express-ல
-// ஒரு path-க்கு பல handlers இருந்தா, முதலில் define பண்ணது மட்டும் தான் run ஆகும்.
-
 // HR — all jobs
 router.get("/", async (req, res) => {
   try {
@@ -60,8 +56,7 @@ router.get("/internal", async (req, res) => {
   }
 });
 
-// Public — active + public jobs only (careers page)
-// ✅ இது ஒரே ஒரு "/public" route. இதுதான் இப்போ actual-ஆ run ஆகும்.
+
 router.get("/public", async (req, res) => {
   try {
     const jobs = await Job.find({ status: "active", visibility: "public" }).sort({ posted: -1 });

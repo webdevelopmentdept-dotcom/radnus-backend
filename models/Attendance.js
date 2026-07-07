@@ -54,6 +54,11 @@ const AttendanceSchema = new mongoose.Schema({
   breakStart: { type: Date },
   breakEnd:   { type: Date },
 
+  permission: {
+  start: { type: String, default: null }, // "10:00"
+  end: { type: String, default: null },   // "11:00"
+},
+
 }, { timestamps: true });
 
 AttendanceSchema.index({ employee_id: 1, date: 1 }, { unique: true });

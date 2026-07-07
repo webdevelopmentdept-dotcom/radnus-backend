@@ -100,7 +100,7 @@ const resolveBreak = (punches) => {
 // ══════════════════════════════════════════
 //  PUNCH CALCULATION ENGINE
 // ══════════════════════════════════════════
-const computeFromPunches = (punches, shiftStartMins = DEFAULT_SHIFT_START, shiftEndMins = DEFAULT_SHIFT_END) => {
+const computeFromPunches = (punches, shiftStartMins = DEFAULT_SHIFT_START, shiftEndMins = DEFAULT_SHIFT_END, permission = null) => {
   const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
 
   let netWorkMs = 0;
@@ -132,26 +132,39 @@ const computeFromPunches = (punches, shiftStartMins = DEFAULT_SHIFT_START, shift
   const workHours = Math.max(0, parseFloat((netWorkMs / 3600000).toFixed(2)));
   const breakMinutes = Math.round(breakMs / 60000);
 
-  const lateMinutes = getLateMinutes(firstIn, shiftStartMins);
+  // ✅ PERMISSION LOGIC: if first-in falls within permission window, treat
+  // permission end time as the effective shift start for late/status calc.
+  let effectiveStartMins = shiftStartMins;
+  let permissionApplied = false;
+  if (permission?.end && firstIn) {
+    const [ph, pm] = permission.end.split(":").map(Number);
+    const permissionEndMins = ph * 60 + pm;
+    const firstInMinsCheck = toMins(firstIn);
+    if (firstInMinsCheck <= permissionEndMins) {
+      effectiveStartMins = permissionEndMins;
+      permissionApplied = true;
+    }
+  }
+
+  const lateMinutes = getLateMinutes(firstIn, effectiveStartMins);
   const earlyOutMinutes = getEarlyOutMinutes(lastOut, shiftEndMins);
   const overtimeMinutes = getOvertimeMinutes(lastOut, shiftEndMins);
 
   let status = "absent";
   if (firstIn) {
     const firstInMins = toMins(firstIn);
-    const halfDayCutoff = HALF_DAY_CUTOFF; // 690 = 11:30 AM
 
-    const HALF_DAY_START = 12 * 60;      // 12:00 PM
-    const HALF_DAY_END = 15 * 60;      // 3:00 PM
+    const HALF_DAY_START = 12 * 60;
+    const HALF_DAY_END = 15 * 60;
 
-    if (firstInMins <= shiftStartMins + 15) {
+    if (firstInMins <= effectiveStartMins + 15) {
       status = "present";
-    } else if (firstInMins <= shiftStartMins + 90) {  // shift start + 1.5hr வரை late
+    } else if (firstInMins <= effectiveStartMins + 90) {
       status = "late";
     } else if (firstInMins >= HALF_DAY_START && firstInMins <= HALF_DAY_END) {
-      status = "half_day";                              // 12:00 – 3:00 PM → half_day
+      status = "half_day";
     } else if (firstInMins > HALF_DAY_END) {
-      status = "absent";                                // 3:00 PM பிறகு → absent
+      status = "absent";
     } else {
       status = "half_day";
     }
@@ -173,6 +186,7 @@ const computeFromPunches = (punches, shiftStartMins = DEFAULT_SHIFT_START, shift
     overtime_minutes: overtimeMinutes,
     status,
     is_currently_in: isCurrentlyIn,
+    permission_applied: permissionApplied,
   };
 
 };
@@ -505,7 +519,7 @@ exports.getMonthlyRecords = async (req, res) => {
       if (obj.punches && obj.punches.length > 0) {
         const sorted = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
         const { breakOut, breakIn, breakLateMins } = resolveBreak(sorted);
-        const computed = computeFromPunches(sorted, startMins, endMins);
+        const computed = computeFromPunches(sorted, startMins, endMins, obj.permission || null);
 
         let actualCheckOut = null;
         if (computed.last_out) {
@@ -588,7 +602,7 @@ exports.getDailyReport = async (req, res) => {
 
         if (obj.punches && obj.punches.length > 0) {
           const { startMins, endMins } = parseShiftMins(emp);
-          const computed = computeFromPunches(obj.punches, startMins, endMins);
+          const computed = computeFromPunches(obj.punches, startMins, endMins, obj.permission || null);
           Object.assign(obj, computed);
         }
 
@@ -677,7 +691,7 @@ exports.getMonthlyReport = async (req, res) => {
         if (obj.punches && obj.punches.length > 0) {
           const sorted = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
           const { startMins, endMins } = parseShiftMins(emp);
-          const c = computeFromPunches(sorted, startMins, endMins)
+          const c = computeFromPunches(sorted, startMins, endMins, obj.permission || null)
           const { breakOut, breakIn, breakLateMins } = resolveBreak(sorted);
 
           let actualCheckOut = null;
@@ -765,7 +779,7 @@ const pct = workingDays
 // ══════════════════════════════════════════
 exports.hrMarkAttendance = async (req, res) => {
   try {
-    const { employee_id, date, status, checkIn, checkOut, punches, remark } = req.body;
+    const { employee_id, date, status, checkIn, checkOut, punches, remark , permissionStart, permissionEnd } = req.body;
 
     // ✅ Checkout must be after checkin validation
     if (checkIn && checkOut) {
@@ -812,6 +826,10 @@ newPunches.sort((a, b) => new Date(a.time) - new Date(b.time));
     const emp2 = await Employee.findById(employee_id).select("shift").lean();
     const { startMins, endMins } = parseShiftMins(emp2);
 
+     const permission = (permissionStart && permissionEnd)
+      ? { start: permissionStart, end: permissionEnd }
+      : null;
+
     const computed = newPunches.length > 0
       ? computeFromPunches(newPunches, startMins, endMins)
       : { work_hours: 0, late_minutes: 0, early_out_minutes: 0, overtime_minutes: 0 };
@@ -837,6 +855,7 @@ newPunches.sort((a, b) => new Date(a.time) - new Date(b.time));
           overtime_minutes: computed.overtime_minutes || 0,
           remark: remark || "",
           method: "hr_manual",
+            permission: permission,
         },
       },
       { upsert: true, new: true }

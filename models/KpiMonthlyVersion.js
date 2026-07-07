@@ -15,7 +15,7 @@ const kpiItemSchema = new mongoose.Schema({
   owner_role:       { type: String, default: 'self' },
   is_admission_kpi: { type: Boolean, default: false },
   program_targets:  [programTargetSchema]
-}, { _id: false });
+}); 
 
 const kpiMonthlyVersionSchema = new mongoose.Schema({
   template_id:  { type: mongoose.Schema.Types.ObjectId, ref: 'KpiTemplate', required: true },
