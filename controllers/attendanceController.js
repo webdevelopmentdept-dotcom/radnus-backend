@@ -10,6 +10,8 @@ const DEFAULT_SHIFT_END = 19 * 60;
 const HALF_DAY_CUTOFF = 11 * 60 + 30; // 690 = 11:30 AM
 const LUNCH_START = 13 * 60 + 30;     // 810 = 1:30 PM
 const LUNCH_END = 14 * 60 + 30;       // 870 = 2:30 PM
+const LUNCH_RETURN_CUTOFF = 15 * 60;   // ✅ ADD THIS — 3:00 PM
+
 
 const parseShiftMins = (emp) => {
   if (emp?.shift?.start && emp?.shift?.end) {
@@ -96,12 +98,30 @@ const resolveBreak = (punches) => {
   };
 };
 
+const isStuckOnLunch = (punches, dateStr) => {
+  if (!punches || punches.length === 0) return false;
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const last = sorted[sorted.length - 1];
+  if (!last || last.type !== "out") return false;
+
+  const outMins = toMinsFromDate(last.time);
+  const isLunchOut = outMins >= LUNCH_START && outMins <= LUNCH_END;
+  if (!isLunchOut) return false;
+
+  const today = todayStr();
+  if (dateStr === today) {
+    const nowMins = toMins(new Date());
+    return nowMins >= LUNCH_RETURN_CUTOFF;
+  }
+  return true; // past date already over → cutoff passed
+};
+
 
 // ══════════════════════════════════════════
 //  PUNCH CALCULATION ENGINE
 // ══════════════════════════════════════════
-const computeFromPunches = (punches, shiftStartMins = DEFAULT_SHIFT_START, shiftEndMins = DEFAULT_SHIFT_END, permission = null) => {
-  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+const computeFromPunches = (punches, shiftStartMins = DEFAULT_SHIFT_START, shiftEndMins = DEFAULT_SHIFT_END, permission = null, dateStr = todayStr()) => {
+const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
 
   let netWorkMs = 0;
   let breakMs = 0;
@@ -172,6 +192,12 @@ const computeFromPunches = (punches, shiftStartMins = DEFAULT_SHIFT_START, shift
   const hasAnyIn = sorted.some(p => p.type === "in");
   if (!hasAnyIn && sorted.some(p => p.type === "out")) {
     status = "absent";
+  }
+
+  if (status !== "absent" && status !== "leave") {
+    if (isStuckOnLunch(sorted, dateStr)) {
+      status = "half_day";
+    }
   }
 
   const isCurrentlyIn = lastInTime !== null;
@@ -519,7 +545,7 @@ exports.getMonthlyRecords = async (req, res) => {
       if (obj.punches && obj.punches.length > 0) {
         const sorted = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
         const { breakOut, breakIn, breakLateMins } = resolveBreak(sorted);
-        const computed = computeFromPunches(sorted, startMins, endMins, obj.permission || null);
+       const computed = computeFromPunches(sorted, startMins, endMins, obj.permission || null, obj.date);
 
         let actualCheckOut = null;
         if (computed.last_out) {
@@ -601,11 +627,10 @@ exports.getDailyReport = async (req, res) => {
 
 
         if (obj.punches && obj.punches.length > 0) {
-          const { startMins, endMins } = parseShiftMins(emp);
-          const computed = computeFromPunches(obj.punches, startMins, endMins, obj.permission || null);
-          Object.assign(obj, computed);
-        }
-
+  const { startMins, endMins } = parseShiftMins(emp);
+  const computed = computeFromPunches(obj.punches, startMins, endMins, obj.permission || null, obj.date);
+  Object.assign(obj, computed);
+}
         obj.employee = emp;
 const { endMins } = parseShiftMins(emp);
 const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
@@ -691,7 +716,7 @@ exports.getMonthlyReport = async (req, res) => {
         if (obj.punches && obj.punches.length > 0) {
           const sorted = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
           const { startMins, endMins } = parseShiftMins(emp);
-          const c = computeFromPunches(sorted, startMins, endMins, obj.permission || null)
+          const c = computeFromPunches(sorted, startMins, endMins, obj.permission || null, obj.date)
           const { breakOut, breakIn, breakLateMins } = resolveBreak(sorted);
 
           let actualCheckOut = null;
@@ -1271,7 +1296,7 @@ exports.exportExcel = async (req, res) => {
         let earlyOutMin = 0;
         if (rec.punches && rec.punches.length > 0) {
           const { startMins, endMins } = parseShiftMins(emp);
-          const computed = computeFromPunches(rec.punches, startMins, endMins);
+          const computed = computeFromPunches(rec.punches, startMins, endMins, null, dateStr);
           lateMin = computed.late_minutes || 0;
           otMin = computed.overtime_minutes || 0;
           earlyOutMin = computed.early_out_minutes || 0;

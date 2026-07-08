@@ -250,7 +250,7 @@ router.get('/:employeeId', async (req, res) => {
       });
 
       if (!existing || existing.status === 'draft') {
-        console.log("Returning pending:", assignment.period);
+        // console.log("Returning pending:", assignment.period);
         return res.json({ success: true, data: assignment });
       }
     }
