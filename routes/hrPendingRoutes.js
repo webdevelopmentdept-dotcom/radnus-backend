@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Employee = require("../models/Employee");
 const Document = require("../models/Document");
+const { createNotification } = require("../helpers/notificationHelper"); // ✅ ADD THIS IMPORT
 
 
 // ================= PENDING =================
@@ -90,16 +91,32 @@ router.get("/rejected", async (req, res) => {
 // ================= APPROVE =================
 router.put("/approve/:id", async (req, res) => {
   try {
-    await Employee.findByIdAndUpdate(req.params.id, {
+    // ✅ CHANGE 1: { new: true } add pannanum, employee updated data (name) kittum
+    const employee = await Employee.findByIdAndUpdate(req.params.id, {
       status: "approved",
       remarks: "",
-       reuploaded: false ,
+      reuploaded: false,
       updatedAt: new Date()
+    }, { new: true });
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    // ✅ CHANGE 2: Activation route-la irundhu same maadhiri notification create panrom
+    await createNotification({
+      recipient_id:   employee._id,
+      recipient_role: "employee",
+      type:           "employee_activated",
+      title:          "Application Approved 🎉",
+      message:        `Congratulations ${employee.name}! Your application has been approved. Welcome aboard!`,
+      link:           "/employee/dashboard"
     });
 
     res.json({ message: "Approved successfully" });
 
   } catch (err) {
+    console.error("Approve error:", err);
     res.status(500).json({ message: "Approve error" });
   }
 });
@@ -110,11 +127,25 @@ router.put("/reject/:id", async (req, res) => {
   try {
     const { remarks } = req.body;
 
-    await Employee.findByIdAndUpdate(req.params.id, {
+    const employee = await Employee.findByIdAndUpdate(req.params.id, {
       status: "rejected",
       remarks: remarks || "Rejected by HR",
       updatedAt: new Date()
-    });
+    }, { new: true }); // ✅ optional: reject-kum notification venumna intha data use pannalam
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    // ⚪ Reject-ku notification venumna, idha uncomment pannunga:
+    // await createNotification({
+    //   recipient_id:   employee._id,
+    //   recipient_role: "employee",
+    //   type:           "system",
+    //   title:          "Application Update",
+    //   message:        `Hi ${employee.name}, your application needs some corrections. Reason: ${employee.remarks}`,
+    //   link:           "/employee/dashboard"
+    // });
 
     res.json({ message: "Rejected successfully" });
 
