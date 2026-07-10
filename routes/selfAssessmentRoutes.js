@@ -6,7 +6,8 @@ const SelfAssessment = require('../models/SelfAssessment');
 const KpiAssignment  = require('../models/KpiAssignment');
 const OkrObjective   = require('../models/OkrObjective');
 const PerformanceReview = require('../models/PerformanceReview');
-
+const Notification = require('../models/Notification');
+const Employee = require('../models/Employee');
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER — score calculate
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,18 +73,53 @@ router.post('/', async (req, res) => {
     const { employee_id, assignment_id, period, items, overall_comment } = req.body;
     const existing = await SelfAssessment.findOne({ employee_id, assignment_id });
 
+    // ✅ NEW — fetch employee name for notification
+    const emp = await Employee.findById(employee_id).select('name');
+
     if (existing) {
       existing.items           = items;
       existing.overall_comment = overall_comment;
       existing.status          = 'submitted';
       await existing.save();
       await updateOkrProgress(assignment_id, items);
+
+      // ✅ NEW — HR notification on self-assessment submit (update case)
+      try {
+        await Notification.create({
+          recipient_id:   "hr_admin_001",
+          recipient_role: "hr",
+          type:           "employee",
+          title:          "Self Assessment Submitted",
+          message:        `${emp?.name || "An employee"} submitted self assessment for ${period}`,
+          link:           "",
+          isRead:         false,
+        });
+      } catch (notifErr) {
+        console.error("Self-assessment notification error:", notifErr.message);
+      }
+
       return res.json({ success: true, data: existing, updated: true });
     }
 
     const assessment = new SelfAssessment({ employee_id, assignment_id, period, items, overall_comment });
     await assessment.save();
     await updateOkrProgress(assignment_id, items);
+
+    // ✅ NEW — HR notification on self-assessment submit (new case)
+    try {
+      await Notification.create({
+        recipient_id:   "hr_admin_001",
+        recipient_role: "hr",
+        type:           "employee",
+        title:          "Self Assessment Submitted",
+        message:        `${emp?.name || "An employee"} submitted self assessment for ${period}`,
+        link:           "",
+        isRead:         false,
+      });
+    } catch (notifErr) {
+      console.error("Self-assessment notification error:", notifErr.message);
+    }
+
     res.status(201).json({ success: true, data: assessment });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });

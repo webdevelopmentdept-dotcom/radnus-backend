@@ -2,12 +2,14 @@ const express  = require('express');
 const router   = express.Router();
 const Employee = require('../models/Employee');
 const Document = require('../models/Document');
+const Notification = require('../models/Notification');
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
 const multer   = require('multer');
 const Counter  = require('../models/Counter');
 const axios    = require('axios');
 const auth = require('../middleware/auth');
+
 
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('../config/cloudinary');
@@ -109,6 +111,21 @@ router.post('/register', async (req, res) => {
 
     await employee.save();
 
+       // ✅ NEW — HR notification on new employee registration
+    try {
+      await Notification.create({
+        recipient_id:   "hr_admin_001",
+        recipient_role: "hr",
+        type:           "employee",
+        title:          "New Employee Registered",
+        message:        `${employee.name} registered as a new employee`,
+        link:           "",
+        isRead:         false,
+      });
+    } catch (notifErr) {
+      console.error("Register notification error:", notifErr.message);
+    }
+
     res.status(201).json({
       message: 'REGISTER_SUCCESS',
       employeeId: employee.employeeId,
@@ -164,7 +181,6 @@ router.post('/login', async (req, res) => {
 
     // const token = jwt.sign({ id: user._id }, 'SECRETKEY', { expiresIn: '7d' });
 const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-
 
     res.json({
       token,
@@ -280,11 +296,26 @@ router.post('/replace-doc', (req, res) => {
         { new: true }
       );
 
-      await Employee.findByIdAndUpdate(doc.employeeId, {
+      const emp = await Employee.findByIdAndUpdate(doc.employeeId, {
         status: 'pending',
         remarks: '',
         reuploaded: true,
-      });
+      }, { new: true });
+
+      // ✅ NEW — HR notification on document reupload
+      try {
+        await Notification.create({
+          recipient_id:   "hr_admin_001",
+          recipient_role: "hr",
+          type:           "document",
+          title:          "Document Reuploaded",
+          message:        `${emp.name} reuploaded "${doc.docType}"`,
+          link:           "",
+          isRead:         false,
+        });
+      } catch (notifErr) {
+        console.error("Reupload notification error:", notifErr.message);
+      }
 
       res.json(updated);
     } catch {
@@ -329,7 +360,23 @@ router.put('/complete-documents', async (req, res) => {
 
     if (!ok) return res.status(400).json({ message: 'UPLOAD_ALL_REQUIRED_DOCS_FIRST' });
 
-    await Employee.findByIdAndUpdate(employeeId, { documentsCompleted: true });
+    const emp = await Employee.findByIdAndUpdate(employeeId, { documentsCompleted: true }, { new: true });
+
+    // ✅ NEW — HR notification on document submission
+    try {
+      await Notification.create({
+        recipient_id:   "hr_admin_001",
+        recipient_role: "hr",
+        type:           "document",
+        title:          "Documents Submitted",
+        message:        `${emp.name} submitted all documents`,
+        link:           "",
+        isRead:         false,
+      });
+    } catch (notifErr) {
+      console.error("Submit notification error:", notifErr.message);
+    }
+
     res.json({ message: 'Documents completed' });
   } catch {
     res.status(500).json({ message: 'Error updating' });

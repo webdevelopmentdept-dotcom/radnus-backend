@@ -38,6 +38,7 @@ const upload = multer({
 });
 
 // ================= UPLOAD HR DOCUMENT =================
+// ================= UPLOAD HR DOCUMENT =================
 router.post("/upload-doc", (req, res) => {
   upload.single("file")(req, res, async (err) => {
     if (err) {
@@ -57,6 +58,17 @@ router.post("/upload-doc", (req, res) => {
         existingDoc.fileUrl = req.file.path;
         existingDoc.publicId = req.file.filename;
         await existingDoc.save();
+
+        // ✅ NEW — Employee notification on HR doc update
+        await createNotification({
+          recipient_id:   employeeId,
+          recipient_role: "employee",
+          type:           "hr",
+          title:          "Document Updated",
+          message:        `HR updated your "${docType}"`,
+          link:           "/employee/documents",
+        });
+
         return res.json({ success: true, message: "Document updated", fileUrl: req.file.path });
       }
 
@@ -67,13 +79,23 @@ router.post("/upload-doc", (req, res) => {
       });
       await newDoc.save();
 
-      res.json({ success: true, message: "Uploaded successfully", fileUrl: req.file.path });
-    } catch (err) {
-      res.status(500).json({ success: false, message: "Upload failed" });
-    }
+      // ✅ NEW — Employee notification on new HR doc upload
+      await createNotification({
+        recipient_id:   employeeId,
+        recipient_role: "employee",
+        type:           "hr",
+        title:          "New Document Available",
+        message:        `HR uploaded a new document: "${docType}"`,
+        link:           "/employee/documents",
+      });
+
+     res.json({ success: true, message: "Uploaded successfully", fileUrl: req.file.path });
+} catch (err) {
+  console.error("HR upload-doc error:", err);   // ✅ terminal la full error varum
+  res.status(500).json({ success: false, message: err.message || "Upload failed" });
+}
   });
 });
-
 // ================= GET HR DOCUMENTS =================
 router.get("/docs/:employeeId", async (req, res) => {
   try {
