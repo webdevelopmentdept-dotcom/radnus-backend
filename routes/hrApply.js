@@ -6,6 +6,8 @@ const cloudinary = require("../config/cloudinary");
 const HrApplicant = require("../models/HrApplicant");
 const Job = require("../models/Job");
 const { screenApplicant } = require("../helpers/aiScreening");
+const Notification = require("../models/Notification");
+const HR_ID = "hr_admin_001";
 
 // Cloudinary storage setup for resumes
 const storage = new CloudinaryStorage({
@@ -56,6 +58,21 @@ router.post("/apply", upload.single("resume"), async (req, res) => {
       resumeUrl: req.file.path,
     });
     await applicant.save();
+
+    // ✅ NEW — notify HR about new public applicant
+    try {
+      await Notification.create({
+        recipient_id:   HR_ID,
+        recipient_role: "hr",
+        type:           "new_applicant",
+        title:          "New Job Application",
+        message:        `${name} applied for "${jobTitle}"`,
+        link:           "",
+        isRead:         false,
+      });
+    } catch (notifErr) {
+      console.error("Notify HR (public apply) failed:", notifErr.message);
+    }
 
     // Candidate-ku immediate response
     res.json({ success: true, msg: "Application submitted!", fileURL: req.file.path });

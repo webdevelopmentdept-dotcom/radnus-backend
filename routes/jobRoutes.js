@@ -1,6 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const Job = require("../models/Job");
+const Notification = require("../models/Notification");
+const Employee = require("../models/Employee");
+const HR_ID = "hr_admin_001";   
 
 // HR — all jobs
 router.get("/", async (req, res) => {
@@ -66,6 +69,40 @@ router.get("/public", async (req, res) => {
   }
 });
 
+
+// Employee — get all jobs this employee applied to (status tracking)
+router.get("/my-applications/:employeeId", async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+
+    const jobs = await Job.find({ "applicants.employeeId": employeeId })
+      .select("title type experience salary visibility status posted applicants")
+      .sort({ posted: -1 });
+
+    const applications = jobs.map((job) => {
+      const applicant = job.applicants.find(
+        (a) => a.employeeId?.toString() === employeeId.toString()
+      );
+      return {
+        jobId: job._id,
+        title: job.title,
+        department: job.type,
+        experience: job.experience,
+        salary: job.salary,
+        jobStatus: job.status,       // active / closed / draft (job itself)
+        appliedAt: applicant?.appliedAt,
+        applicationStatus: applicant?.status || "applied", // applied/under_review/interview/selected/rejected
+        rejectionReason: applicant?.rejectionReason || null,
+      };
+    });
+
+    res.json({ success: true, applications });
+  } catch (err) {
+    console.error("Error fetching my-applications:", err);
+    res.status(500).json({ success: false, msg: "Server error" });
+  }
+});
+
 // Employee applies for internal job
 router.post("/:id/apply", async (req, res) => {
   try {
@@ -84,6 +121,22 @@ router.post("/:id/apply", async (req, res) => {
     await Job.findByIdAndUpdate(req.params.id, {
       $push: { applicants: { employeeId, appliedAt: new Date(), status: "applied" } }
     });
+
+    // ✅ NEW
+    try {
+      const emp = await Employee.findById(employeeId).select("name employeeId");
+      await Notification.create({
+        recipient_id:   HR_ID,
+        recipient_role: "hr",
+        type:           "new_applicant",
+        title:          "New Internal Application",
+        message:        `${emp?.name || "An employee"} applied for "${job.title}"`,
+        link:           "",
+        isRead:         false,
+      });
+    } catch (notifErr) {
+      console.error("Notify HR (internal apply) failed:", notifErr.message);
+    }
 
     res.json({ success: true, msg: "Application submitted!" });
   } catch (err) {
@@ -113,6 +166,33 @@ router.put("/:id/applicant-status", async (req, res) => {
     applicant.rejectionReason = rejectionReason || undefined;
 
     await job.save();
+
+    try {
+      const statusLabelMap = {
+        applied:      "Applied",
+        under_review: "Shortlisted",
+        interview:    "Interview Scheduled",
+        selected:     "Hired 🎉",
+        rejected:     "Rejected",
+      };
+      const label = statusLabelMap[status] || status;
+      const msg = status === "rejected" && rejectionReason
+        ? `Your application for "${job.title}" was rejected. Reason: ${rejectionReason}`
+        : `Your application status for "${job.title}" is now: ${label}`;
+
+      await Notification.create({
+        recipient_id:   String(employeeId),
+        recipient_role: "employee",
+        type:           "hr",
+        title:          "Application Status Updated",
+        message:        msg,
+        link:           "",
+        isRead:         false,
+      });
+    } catch (notifErr) {
+      console.error("Notify employee (status update) failed:", notifErr.message);
+    } 
+
     res.json({ success: true, msg: "Applicant status updated!" });
   } catch (err) {
     console.error("Error updating applicant status:", err);
@@ -138,5 +218,39 @@ router.delete("/:id/applicant/:employeeId", async (req, res) => {
     res.status(500).json({ success: false, msg: "Server error" });
   }
 });
+
+// Employee withdraws their own application — only allowed while status is "applied"
+router.delete("/:id/withdraw/:employeeId", async (req, res) => {
+  try {
+    const { id, employeeId } = req.params;
+    const job = await Job.findById(id);
+    if (!job) return res.status(404).json({ success: false, msg: "Job not found" });
+
+    const applicant = (job.applicants || []).find(
+      (a) => a.employeeId?.toString() === employeeId.toString()
+    );
+    if (!applicant) {
+      return res.status(404).json({ success: false, msg: "You haven't applied for this job" });
+    }
+    if (applicant.status !== "applied") {
+      return res.status(403).json({
+        success: false,
+        msg: "Cannot withdraw — HR has already started reviewing this application",
+      });
+    }
+
+    job.applicants = (job.applicants || []).filter(
+      (a) => a.employeeId?.toString() !== employeeId.toString()
+    );
+    await job.save();
+
+    res.json({ success: true, msg: "Application withdrawn" });
+  } catch (err) {
+    console.error("Error withdrawing application:", err);
+    res.status(500).json({ success: false, msg: "Server error" });
+  }
+});
+
+module.exports = router;
 
 module.exports = router;
