@@ -1408,8 +1408,8 @@ exports.exportExcel = async (req, res) => {
       ws.getRow(2).height = 20;
 
       ws.mergeCells("A3:M3");
-      ws.getCell("A3").value =
-        `Present: ${presentCount}   Late: ${lateCount}   Absent: ${absentCount}   Half Day: ${halfCount}   On Leave: ${leaveCount}   Attendance: ${attendancePct}`;
+     ws.getCell("A3").value =
+      `Total Working Days: ${workDays}   Present: ${presentCount}   Late: ${lateCount}   Absent: ${absentCount}   Half Day: ${halfCount}   On Leave: ${leaveCount}   Attendance: ${attendancePct}`;
       ws.getCell("A3").font = { size: 10, bold: true, color: { argb: "FF1F2937" } };
       ws.getCell("A3").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
       ws.getCell("A3").alignment = { horizontal: "left", vertical: "middle", indent: 1 };

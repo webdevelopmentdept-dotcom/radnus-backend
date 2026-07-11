@@ -46,17 +46,14 @@ exports.createLeaveRequest = async (req, res) => {
       session:     is_half_day ? (session || "morning") : null,
     });
 
-    const hrUsers = await Employee.find({ role: "hr" }).lean();
-    for (const hr of hrUsers) {
-      await createNotification({
-        recipient_id:   hr._id,
-        recipient_role: "hr",
-        type:           "leave",
-        title:          `Leave Request — ${employee_name || "Employee"} 🌴`,
-        message:        `${employee_name || "An employee"} requested ${leave_type} from ${from_date} to ${to_date}.`,
-        link:           "/hr/dashboard/leave/requests",
-      });
-    }
+    await createNotification({
+      recipient_id:   "hr_admin_001",
+      recipient_role: "hr",
+      type:           "leave",
+      title:          `Leave Request — ${employee_name || "Employee"} 🌴`,
+      message:        `${employee_name || "An employee"} requested ${leave_type} from ${from_date} to ${to_date}.`,
+      link:           "/hr/dashboard/leave/requests",
+    });
 
     res.status(201).json({ success: true, message: "Leave request submitted", data: leave });
   } catch (err) {
