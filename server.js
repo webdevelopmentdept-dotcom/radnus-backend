@@ -33,7 +33,8 @@ const allowedOrigins = [
   "https://radnus.in",
   "https://www.radnus.in",
   "https://radnus-frontend-3xb7.vercel.app",
-  "http://localhost:5173"
+  "http://localhost:5173",
+   "http://localhost:5174"
 ];
 
 

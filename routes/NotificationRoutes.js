@@ -80,12 +80,15 @@ router.post("/send-hr-message", async (req, res) => {
 
     // If "all" — fetch all employee ids from existing notifications (or pass from frontend)
     // Frontend sends actual employee id array or ["all"] — handled below
-    let targetIds = employeeIds;
-   if (employeeIds.length === 1 && employeeIds[0] === "all") {
-  const allEmployees = await Employee.find({ status: "approved" }, "_id");
+  let targetIds = employeeIds;
+if (employeeIds.length === 1 && employeeIds[0] === "all") {
+  const allEmployees = await Employee.find(
+    { status: { $in: ["approved", "active"] } },   // ✅ rendu status-um cover pannum
+    "_id"
+  );
   targetIds = allEmployees.map(e => String(e._id));
   if (targetIds.length === 0) {
-    return res.status(400).json({ success: false, message: "No approved employees found" });
+    return res.status(400).json({ success: false, message: "No approved/active employees found" });
   }
 }
 
