@@ -565,6 +565,7 @@ exports.getMonthlyRecords = async (req, res) => {
         obj.late_minutes = computed.late_minutes;
         obj.early_out_minutes = computed.early_out_minutes;
         obj.overtime_minutes = computed.overtime_minutes;
+        obj.status = computed.status;
       }
       return obj;
     });
@@ -1294,12 +1295,14 @@ exports.exportExcel = async (req, res) => {
         let lateMin = 0;
         let otMin = 0;
         let earlyOutMin = 0;
+        let effectiveStatus = rec.status;
         if (rec.punches && rec.punches.length > 0) {
           const { startMins, endMins } = parseShiftMins(emp);
           const computed = computeFromPunches(rec.punches, startMins, endMins, null, dateStr);
           lateMin = computed.late_minutes || 0;
           otMin = computed.overtime_minutes || 0;
           earlyOutMin = computed.early_out_minutes || 0;
+          effectiveStatus = computed.status || rec.status;
         } else {
           lateMin = rec.late_minutes || 0;
           otMin = rec.overtime_minutes || 0;
@@ -1320,13 +1323,13 @@ exports.exportExcel = async (req, res) => {
           half_day: "Half Day",
           leave: "On Leave",
           holiday: "Holiday",
-        }[rec.status] || rec.status;
+        }[effectiveStatus] || effectiveStatus;   // ✅ rec.status → effectiveStatus
 
-        if (rec.status === "present" || rec.status === "late") presentCount++;
-        if (rec.status === "late" || lateMin > 0) lateCount++;
-        if (rec.status === "half_day") halfCount++;
-        if (rec.status === "leave") leaveCount++;
-        if (rec.status === "absent") absentCount++;
+        if (effectiveStatus === "present" || effectiveStatus === "late") presentCount++;   // ✅
+        if (effectiveStatus === "late" || lateMin > 0) lateCount++;   // ✅
+        if (effectiveStatus === "half_day") halfCount++;   // ✅
+        if (effectiveStatus === "leave") leaveCount++;   // ✅
+        if (effectiveStatus === "absent") absentCount++;   // ✅
         if (otMin > 0) otCount++;
 
         totalBreakLate += breakLateMins || 0;
@@ -1350,7 +1353,9 @@ exports.exportExcel = async (req, res) => {
           extraCount: extraPairs.length,
           isWeekend: false,
           rawStatus: rec.status,
+          rawStatus: effectiveStatus,
           remark: rec.remark || "",
+
         });
       }
 
