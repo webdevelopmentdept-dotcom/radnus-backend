@@ -68,10 +68,16 @@ router.post('/', async (req, res) => {
 // GET /api/daily-logs/:employeeId/:assignmentId — Get all logs for assignment
 router.get('/:employeeId/:assignmentId', async (req, res) => {
   try {
-    const logs = await DailyLog.find({
+    const filter = {
       employee_id: req.params.employeeId,
-      assignment_id: req.params.assignmentId
-    }).sort({ log_date: -1 });
+      assignment_id: req.params.assignmentId,
+    };
+    // Employee side calls without ?includeDeleted → deleted logs hidden
+    // HR side calls with ?includeDeleted=true → deleted logs visible (with badge)
+    if (req.query.includeDeleted !== 'true') {
+      filter.isDeleted = { $ne: true };
+    }
+    const logs = await DailyLog.find(filter).sort({ log_date: -1 });
 
     res.json({ success: true, data: logs });
   } catch (err) {
@@ -84,7 +90,8 @@ router.get('/totals/:employeeId/:assignmentId', async (req, res) => {
   try {
     const logs = await DailyLog.find({
       employee_id: req.params.employeeId,
-      assignment_id: req.params.assignmentId
+      assignment_id: req.params.assignmentId,
+      isDeleted: { $ne: true },
     });
 
     // Sum values per kpi_item_id
@@ -111,7 +118,14 @@ router.delete('/:id', async (req, res) => {
   return res.status(403).json({ success: false, message: 'Delete not allowed after 24 hours' });
 }
 
-    await DailyLog.findByIdAndDelete(req.params.id);
+    await DailyLog.findByIdAndUpdate(req.params.id, {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedValue: log.value,
+        deletedNote: log.note,
+      },
+    });
     res.json({ success: true, message: 'Log deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

@@ -24,7 +24,11 @@ const dailyLogSchema = new mongoose.Schema({
    isEdited: { type: Boolean, default: false },
    isUnlocked: { type: Boolean, default: false },        // ← NEW
   unlockedAt: { type: Date, default: null },            // ← NEW
-  unlockedBy: { type: String, default: null },          // ← NEW (HR name)
+  unlockedBy: { type: String, default: null },    
+  isDeleted:   { type: Boolean, default: false },
+deletedAt:   { type: Date, default: null },
+deletedValue:{ type: Number, default: null },   // andha deleted-aana neram irundha value snapshot
+deletedNote: { type: String, default: null },    
   editHistory: [{
     oldValue: Number,
     newValue: Number,
