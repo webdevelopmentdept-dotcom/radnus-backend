@@ -65,6 +65,7 @@ exports.generatePayroll = async (req, res) => {
         department: emp.department,
         designation: emp.designation,
         employee_code: empDetails.employment?.employee_code || "",
+        date_of_joining: empDetails.employment?.date_of_joining || "",
         month, year,
         total_days_in_month: attendanceSummary.total_days_in_month,
         present_days: attendanceSummary.present_days,

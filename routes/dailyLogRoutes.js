@@ -95,7 +95,7 @@ router.get('/totals/:employeeId/:assignmentId', async (req, res) => {
     });
 
     // Sum values per kpi_item_id
-    const totals = {};
+    const totals = {}; 
     logs.forEach(log => {
       if (!totals[log.kpi_item_id]) totals[log.kpi_item_id] = 0;
       totals[log.kpi_item_id] += log.value;

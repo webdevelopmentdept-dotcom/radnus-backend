@@ -122,6 +122,9 @@ const jobsPublicRoutes = require("./routes/Jobspublic");
 const posterRoutes = require("./routes/Posterroutes");
 const excelExportDailyLog = require("./routes/excelExportDailylog");
 const kpiMonthlyVersionsRouter = require('./routes/kpiMonthlyVersions');
+const hrTicketsRoutes = require('./routes/hrTicketsRoutes');
+const employeeTicketsRoutes = require('./routes/employeeTicketsRoutes');
+
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
@@ -163,6 +166,7 @@ app.use("/api", alumniRoutes);
 app.use("/api", trainingRoutes);
 app.use("/api/programs", programRoutes);
 app.use("/api/dept-grade-salary", dgsRoutes);
+app.use("/api/employee", employeeTicketsRoutes);
 
 // HR Modules
 app.use("/api/hr", hrAuthRoutes);
@@ -185,6 +189,8 @@ app.use("/api/policy-quiz", policyQuizRoutes);
 app.use('/api/announcements', announcementsRouter);
 app.use("/api/department-scoreboard", require("./routes/departmentScoreboardRoutes"));
 app.use("/api/payroll", require("./routes/payrollRoutes"));
+app.use('/api/hr', hrTicketsRoutes);
+
 
 
 // Applicants & Admin

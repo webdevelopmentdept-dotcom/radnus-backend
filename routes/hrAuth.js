@@ -1,6 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
 const router = express.Router();
+const jwt = require("jsonwebtoken");
 
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
@@ -14,18 +15,36 @@ router.post("/login", async (req, res) => {
   // ✅ HR Login Check
   if (email === hrEmail) {
     const match = await bcrypt.compare(password, hrHash);
+    // if (match) {
+    //   return res.json({
+    //     success: true,
+    //     msg: "HR login successful",
+    //     role: "hr",
+    //     hr: {
+    //       _id: "hr_admin_001",
+    //       email: hrEmail,
+    //       role: "hr"
+    //     }
+    //   });
+    // }
     if (match) {
-      return res.json({
-        success: true,
-        msg: "HR login successful",
-        role: "hr",
-        hr: {
-          _id: "hr_admin_001",
-          email: hrEmail,
-          role: "hr"
-        }
-      });
+  const token = jwt.sign(
+    { id: "hr_admin_001", role: "hr", email: hrEmail },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+  return res.json({
+    success: true,
+    msg: "HR login successful",
+    role: "hr",
+    token,
+    hr: {
+      _id: "hr_admin_001",
+      email: hrEmail,
+      role: "hr"
     }
+  });
+}
     return res.status(401).json({ success: false, msg: "Invalid password" });
   }
 

@@ -16,6 +16,7 @@ const payslipSchema = new mongoose.Schema({
   department:    { type: String },
   designation:   { type: String },
   employee_code: { type: String },
+  date_of_joining: { type: String, default: "" }, 
 
   month: { type: Number, required: true },
   year:  { type: Number, required: true },
