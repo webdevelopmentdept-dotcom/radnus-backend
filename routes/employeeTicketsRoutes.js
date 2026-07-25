@@ -12,12 +12,12 @@ router.get('/tickets', auth, async (req, res) => {
     const allTickets = await ticketFetch('/tickets');
     const list = Array.isArray(allTickets) ? allTickets : [];
 
-    const myTickets = list.filter(
-      (t) =>
-        t.emp_email &&
-        employee.email &&
-        t.emp_email.toLowerCase() === employee.email.toLowerCase()
-    );
+   const myTickets = list.filter(
+  (t) =>
+    t.emp_code &&
+    employee.employeeId &&
+    t.emp_code.toLowerCase() === employee.employeeId.toLowerCase()
+);
 
     res.json(myTickets);
   } catch (err) {
