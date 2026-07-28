@@ -8,6 +8,7 @@ router.get('/tickets', auth, async (req, res) => {
     const data = await ticketFetch('/tickets');
     res.json(data);
   } catch (err) {
+    console.error('HR tickets fetch error:', err);
     res.status(err.status || 500).json({ error: err.error || 'Failed to fetch tickets' });
   }
 });
@@ -18,6 +19,7 @@ router.get('/tickets/:id', auth, async (req, res) => {
     const data = await ticketFetch(`/tickets/${req.params.id}`);
     res.json(data);
   } catch (err) {
+    console.error('HR ticket detail fetch error:', err);
     res.status(err.status || 500).json({ error: err.error || 'Failed to fetch ticket' });
   }
 });
@@ -31,6 +33,7 @@ router.patch('/tickets/:id', auth, async (req, res) => {
     });
     res.json(data);
   } catch (err) {
+    console.error('HR ticket update error:', err);
     res.status(err.status || 500).json({ error: err.error || 'Failed to update ticket' });
   }
 });
