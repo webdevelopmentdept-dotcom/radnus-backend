@@ -208,4 +208,31 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// ── POST /api/incentive-plans/:id/duplicate ──────────────────────
+router.post("/:id/duplicate", async (req, res) => {
+  try {
+    const original = await IncentivePlan.findById(req.params.id).lean();
+    if (!original) return res.status(404).json({ success: false, message: "Plan not found" });
+
+    delete original._id;
+    delete original.createdAt;
+    delete original.updatedAt;
+    delete original.version_history;
+    delete original.__v;
+
+    const duplicate = new IncentivePlan({
+      ...original,
+      name: `${original.name} (Copy)`,
+      department: req.body.department || "",   // frontend-la puthu dept select panna vidum
+      version_history: [],
+    });
+
+    await duplicate.save();
+    await duplicate.populate("kpi_template_id", "template_name role kpi_items");
+    res.status(201).json({ success: true, data: duplicate });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
