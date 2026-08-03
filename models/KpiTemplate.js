@@ -8,6 +8,7 @@ const kpiItemSchema = new mongoose.Schema({
   weight:     { type: Number, required: true },
   frequency:  { type: String, enum: ['daily','weekly','monthly','quarterly'], default: 'monthly' },
   owner_role: { type: String, enum: ['self','manager','md','hr'], default: 'self' },
+  notes: { type: String, default: "" },
 
   // ✅ NEW — Admission breakdown
   is_admission_kpi: { type: Boolean, default: false },

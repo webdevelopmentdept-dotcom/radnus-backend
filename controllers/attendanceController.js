@@ -31,13 +31,17 @@ const todayStr = () => new Date().toISOString().split("T")[0];
 // ══════════════════════════════════════════
 //  CORE HELPERS
 // ══════════════════════════════════════════
-const GRACE_MINUTES = 15;  // ← இத Add பண்ணு (Line 20-க்கு மேல)
+const GRACE_MINUTES = 5;   // ← 15-la irundhu 5-ku change pannu // ← இத Add பண்ணு (Line 20-க்கு மேல)
 
 const getLateMinutes = (firstIn, shiftStartMins = DEFAULT_SHIFT_START) => {
   if (!firstIn) return 0;
   const mins = toMins(firstIn);
   if (mins >= LUNCH_START && mins <= LUNCH_END) return 0;
-  return Math.max(mins - shiftStartMins, 0);
+
+  const diff = Math.max(mins - shiftStartMins, 0);
+
+  // 5 mins grace-ku ulla vandha late-a count pannadhu
+  return diff > GRACE_MINUTES ? diff : 0;
 };
 
 const getEarlyOutMinutes = (lastOut, shiftEndMins = DEFAULT_SHIFT_END) => {
@@ -170,25 +174,36 @@ const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
   const earlyOutMinutes = getEarlyOutMinutes(lastOut, shiftEndMins);
   const overtimeMinutes = getOvertimeMinutes(lastOut, shiftEndMins);
 
+  // let status = "absent";
+  // if (firstIn) {
+  //   const firstInMins = toMins(firstIn);
+
+  //   const HALF_DAY_START = 12 * 60;
+  //   const HALF_DAY_END = 15 * 60;
+
+  //   if (firstInMins <= effectiveStartMins + 15) {
+  //     status = "present";
+  //   } else if (firstInMins <= effectiveStartMins + 90) {
+  //     status = "late";
+  //   } else if (firstInMins >= HALF_DAY_START && firstInMins <= HALF_DAY_END) {
+  //     status = "half_day";
+  //   } else if (firstInMins > HALF_DAY_END) {
+  //     status = "absent";
+  //   } else {
+  //     status = "half_day";
+  //   }
+  // }
   let status = "absent";
-  if (firstIn) {
-    const firstInMins = toMins(firstIn);
+if (firstIn) {
+  const firstInMins = toMins(firstIn);
 
-    const HALF_DAY_START = 12 * 60;
-    const HALF_DAY_END = 15 * 60;
-
-    if (firstInMins <= effectiveStartMins + 15) {
-      status = "present";
-    } else if (firstInMins <= effectiveStartMins + 90) {
-      status = "late";
-    } else if (firstInMins >= HALF_DAY_START && firstInMins <= HALF_DAY_END) {
-      status = "half_day";
-    } else if (firstInMins > HALF_DAY_END) {
-      status = "absent";
-    } else {
-      status = "half_day";
-    }
+  if (firstInMins <= effectiveStartMins + GRACE_MINUTES) {   // ← 15 → GRACE_MINUTES
+    status = "present";
+  } else {
+    status = "late";
   }
+}
+
   const hasAnyIn = sorted.some(p => p.type === "in");
   if (!hasAnyIn && sorted.some(p => p.type === "out")) {
     status = "absent";

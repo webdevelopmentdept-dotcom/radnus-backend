@@ -13,6 +13,7 @@ const kpiItemSchema = new mongoose.Schema({
   weight:           { type: Number, default: 0 },
   frequency:        { type: String, default: 'monthly' },
   owner_role:       { type: String, default: 'self' },
+  notes: { type: String, default: "" },
   is_admission_kpi: { type: Boolean, default: false },
   program_targets:  [programTargetSchema]
 }); 
