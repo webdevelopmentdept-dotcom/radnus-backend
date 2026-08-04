@@ -113,7 +113,7 @@ router.get("/:id", async (req, res) => {
 // ── POST /api/incentive-plans ─────────────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
-    const { name, department, plan_type } = req.body;
+    const { name,  description, department, plan_type } = req.body;
 
     if (!name || !department)
       return res.status(400).json({ success: false, message: "name & department are required" });
@@ -125,6 +125,8 @@ router.post("/", async (req, res) => {
 
     const plan = new IncentivePlan({
       name,
+            description: description || "",
+
       department,
       plan_type: plan_type || "kpi_linked",
       ...buildPeriodFields(req.body),
@@ -144,11 +146,13 @@ router.post("/", async (req, res) => {
 // ── PUT /api/incentive-plans/:id ──────────────────────────────────────────────
 router.put("/:id", async (req, res) => {
   try {
-    const { name, department, plan_type } = req.body;
+    const { name,  description, department, plan_type } = req.body;
     const isKpi = plan_type === "kpi_linked";
 
     const updateData = {
       name,
+            description: description || "",
+
       department,
       plan_type: plan_type || "kpi_linked",
       ...buildPeriodFields(req.body),

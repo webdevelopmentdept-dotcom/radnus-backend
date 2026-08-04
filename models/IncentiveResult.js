@@ -23,7 +23,22 @@ hr_review_requested:     { type: Boolean, default: false },
 hr_review_requested_at:  { type: Date },
 hr_review_note:          { type: String, default: "" },
 hr_review_remark:        { type: String, default: "" },
-employee_submitted_value:{ type: Number, default: 0 },
+employee_submitted_value:{ type: Number, default: 0 },   // 🔧 now auto-computed = sum of sale_entries
+
+// 🆕 STEP 1: Cumulative sale entries (Option C)
+sale_entries: {
+  type: [{
+    amount:    { type: Number, required: true },
+    date:      { type: Date,   default: Date.now },
+    note:      { type: String, default: "" },
+    added_by:  { type: String, enum: ["employee", "hr"], default: "employee" },
+    added_at:  { type: Date,   default: Date.now },
+  }],
+  default: [],
+},
+period_locked:    { type: Boolean, default: false },
+period_locked_at: { type: Date },
+
 }, { timestamps: true });
 
 module.exports = mongoose.model("IncentiveResult", IncentiveResultSchema);

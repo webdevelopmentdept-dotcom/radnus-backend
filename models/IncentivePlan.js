@@ -15,7 +15,7 @@ const StandaloneSlabSchema = new mongoose.Schema({
   max_target:   { type: Number, default: 0 },   // 0 = no upper limit
   payout_type:  {
     type:    String,
-    enum:    ["fixed", "percent_of_achieved", "percent_of_salary"],
+    enum:    ["fixed", "percent_of_achieved", "percent_of_salary", "per_unit"],
     default: "fixed",
   },
   payout_value: { type: Number, default: 0 },
@@ -56,6 +56,7 @@ const KpiConfigSchema = new mongoose.Schema({
 // ── Main IncentivePlan Schema ─────────────────────────────────────────────────
 const IncentivePlanSchema = new mongoose.Schema({
   name:       { type: String, required: true, trim: true },
+  description: { type: String, default: "", trim: true },   
   department: { type: String, required: true },
 
   // Time Period
@@ -160,6 +161,8 @@ IncentivePlanSchema.methods.resolveStandalonePayout = function (achievedValue = 
         return Math.round((slab.payout_value / 100) * val);
       case "percent_of_salary":
         return Math.round((slab.payout_value / 100) * salary);
+      case "per_unit":
+        return Math.round(val * slab.payout_value);
       default:
         return 0;
     }

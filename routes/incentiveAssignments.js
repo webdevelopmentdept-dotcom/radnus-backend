@@ -5,6 +5,7 @@ const IncentiveAssignment = require("../models/IncentiveAssignment");
 const IncentivePlan       = require("../models/IncentivePlan");
 const IncentiveResult     = require("../models/IncentiveResult");
 const Employee            = require("../models/Employee");
+const { createNotification } = require("../helpers/notificationHelper");
 
 // ── GET /api/incentive-assignments ───────────────────────────────────────────
 router.get("/", async (req, res) => {
@@ -54,15 +55,15 @@ router.post("/", async (req, res) => {
     if (!emp)
       return res.status(404).json({ success: false, message: "Employee not found" });
 
-    if (plan.period_type === "Monthly") {
-      const planPeriod = `${plan.period_year}-${String(plan.period_month).padStart(2, "0")}`;
-      if (period !== planPeriod) {
-        return res.status(400).json({
-          success: false,
-          message: `This plan is for ${planPeriod} only. Create a new plan for ${period}.`,
-        });
-      }
-    }
+    // if (plan.period_type === "Monthly") {
+    //   const planPeriod = `${plan.period_year}-${String(plan.period_month).padStart(2, "0")}`;
+    //   if (period !== planPeriod) {
+    //     return res.status(400).json({
+    //       success: false,
+    //       message: `This plan is for ${planPeriod} only. Create a new plan for ${period}.`,
+    //     });
+    //   }
+    // }
 
     // ── Resolve cycle from plan ────────────────────────────────────────────
     const finalCycle = cycle || plan.period_type || plan.cycle || "Monthly";
@@ -120,6 +121,16 @@ router.post("/", async (req, res) => {
         status:                 "pending",
       });
     }
+
+   // 🆕 Notify employee — plan assigned
+    await createNotification({
+      recipient_id:   employee_id,
+      recipient_role: "employee",
+      type:           "incentive_assigned",
+      title:          "Incentive Plan Assigned 🎯",
+      message:        `You've been assigned "${plan.name}" for ${period}. Track your progress in My Incentive.`,
+      link:           "/employee/my-incentive",
+    });
 
     // ── Return populated assignment ────────────────────────────────────────
     const populated = await IncentiveAssignment.findById(asgn._id)
