@@ -405,6 +405,7 @@ router.get('/me/:id', async (req, res) => {
       remarks:            user.remarks,
       documentsCompleted: !!user.documentsCompleted,
       profileImage:       user.profileImage,
+       shift:              user.shift,  
       documents,
     });
   } catch {
