@@ -391,6 +391,7 @@ router.get('/me/:id', async (req, res) => {
 
     res.json({
       id:                 user._id,
+        employeeId:         user.employeeId,   // ✅ NEW LINE — indha field thaan missing
       name:               user.name,
       email:              user.email,
       mobile:             user.mobile,
