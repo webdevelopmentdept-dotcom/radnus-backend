@@ -1,6 +1,7 @@
 // controllers/advanceController.js
 const Advance  = require("../models/Advance");
 const Employee = require("../models/Employee");
+const { createNotification } = require("../helpers/notificationHelper");
 
 // ── POST /api/advance/request ──────────────────────────────────────
 // Employee (or HR on an employee's behalf) requests a salary advance.
@@ -21,8 +22,7 @@ exports.requestAdvance = async (req, res) => {
 
     const emp = await Employee.findById(employee_id).lean();
     if (!emp) return res.status(404).json({ success: false, message: "Employee not found" });
-
-    const advance = await Advance.create({
+const advance = await Advance.create({
       employee_id,
       employee_name: emp.name,
       department: emp.department,
@@ -30,6 +30,16 @@ exports.requestAdvance = async (req, res) => {
       reason: String(reason).trim(),
       requested_by: requested_by === "hr" ? "hr" : "employee",
       status: "pending",
+    });
+
+    // ── Notify HR of the new advance request ──────────────────────
+    await createNotification({
+      recipient_id:   "hr_admin_001",
+      recipient_role: "hr",
+      type:           "employee",
+      title:          `Advance Request — ${emp.name} 💰`,
+      message:        `${emp.name} requested an advance of ₹${Number(amount).toLocaleString("en-IN")}. Reason: ${String(reason).trim()}`,
+      link:           "/hr/dashboard/payroll/advances",
     });
 
     res.json({ success: true, message: "Advance request submitted", data: advance });
@@ -93,7 +103,19 @@ exports.approveAdvance = async (req, res) => {
     advance.recovery_month = recovery_month ? Number(recovery_month) : today.getMonth() + 1;
     advance.recovery_year  = recovery_year  ? Number(recovery_year)  : today.getFullYear();
 
-    await advance.save();
+   await advance.save();
+
+    // ── Notify the employee that their advance request was approved ──
+    await createNotification({
+      recipient_id:   String(advance.employee_id),
+      recipient_role: "employee",
+      type:           "salary",
+      title:          "Advance Approved ✅",
+      message:        `Your advance request of ₹${Number(advance.amount).toLocaleString("en-IN")} has been approved.`
+                    + (hr_remarks ? ` HR note: ${hr_remarks}` : "")
+                    + ` It will be deducted from your ${advance.recovery_month}/${advance.recovery_year} salary.`,
+      link:           "/employee/my-advance",
+    });
 
     res.json({ success: true, message: "Advance approved", data: advance });
   } catch (err) {
@@ -118,6 +140,17 @@ exports.rejectAdvance = async (req, res) => {
     advance.rejected_at = new Date();
     advance.hr_remarks = hr_remarks || "";
     await advance.save();
+
+    // ── Notify the employee that their advance request was rejected ──
+    await createNotification({
+      recipient_id:   String(advance.employee_id),
+      recipient_role: "employee",
+      type:           "salary",
+      title:          "Advance Rejected ❌",
+      message:        `Your advance request of ₹${Number(advance.amount).toLocaleString("en-IN")} has been rejected.`
+                    + (hr_remarks ? ` HR note: ${hr_remarks}` : ""),
+      link:           "/employee/my-advance",
+    });
 
     res.json({ success: true, message: "Advance request rejected", data: advance });
   } catch (err) {

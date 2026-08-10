@@ -7,6 +7,11 @@ const EmploymentDetails = require("../models/EmploymentDetails");
 const { computeAttendanceSummary, computeSalaryBreakdown, getTotalDaysInMonth } = require("../helpers/payrollCalculator");
 const Advance  = require("../models/Advance");   
 
+const { createNotification } = require("../helpers/notificationHelper");
+
+const MONTH_NAMES = ["", "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
 // ── POST /api/payroll/generate ─────────────────────────────────────
 // body: { month, year, generated_by, statutory_rates? }
 exports.generatePayroll = async (req, res) => {
@@ -219,12 +224,26 @@ exports.approvePayroll = async (req, res) => {
       return res.status(400).json({ success: false, message: `Already ${run.status}` });
     }
 
-    run.status = "approved";
+   run.status = "approved";
     run.approved_by = approved_by || "";
     run.approved_at = new Date();
     await run.save();
 
     await Payslip.updateMany({ payroll_run_id: run._id }, { status: "approved" });
+
+    // ── Notify every employee that their payslip is approved & ready to view ──
+    const approvedPayslips = await Payslip.find({ payroll_run_id: run._id })
+      .select("employee_id employee_name net_pay").lean();
+    await Promise.all(approvedPayslips.map((p) => createNotification({
+      recipient_id:   String(p.employee_id),
+      recipient_role: "employee",
+      type:           "salary",
+      title:          "Payslip Approved ✅",
+      message:        `Your payslip for ${MONTH_NAMES[run.month]} ${run.year} has been approved. Net Pay: ₹${Number(p.net_pay || 0).toLocaleString("en-IN")}.`,
+      link:           "/employee/my-payslips",
+    })));
+
+    // Lock in any advances that were recovered via this run
 
     // Lock in any advances that were recovered via this run
     const payslipsForRun = await Payslip.find({ payroll_run_id: run._id }).select("advance_recoveries").lean();
@@ -253,8 +272,7 @@ exports.markAsPaid = async (req, res) => {
     if (run.status !== "approved") {
       return res.status(400).json({ success: false, message: "Approve the payroll before marking as paid" });
     }
-
-    run.status = "paid";
+run.status = "paid";
     run.paid_at = new Date();
     await run.save();
 
@@ -262,6 +280,18 @@ exports.markAsPaid = async (req, res) => {
       { payroll_run_id: run._id },
       { status: "paid", payment_date: new Date() }
     );
+
+    // ── Notify every employee that their salary has been paid ──────
+    const paidPayslips = await Payslip.find({ payroll_run_id: run._id })
+      .select("employee_id employee_name net_pay").lean();
+    await Promise.all(paidPayslips.map((p) => createNotification({
+      recipient_id:   String(p.employee_id),
+      recipient_role: "employee",
+      type:           "salary",
+      title:          "Salary Paid 💰",
+      message:        `Your salary of ₹${Number(p.net_pay || 0).toLocaleString("en-IN")} for ${MONTH_NAMES[run.month]} ${run.year} has been paid.`,
+      link:           "/employee/my-payslips",
+    })));
 
     res.json({ success: true, message: "Payroll marked as paid", data: run });
   } catch (err) {
@@ -302,13 +332,24 @@ exports.markPayslipAsPaid = async (req, res) => {
     if (payslip.status === "paid") {
       return res.status(400).json({ success: false, message: "This payslip is already marked as paid" });
     }
-
+    
     payslip.status = "paid";
     payslip.payment_date = new Date();
     if (payment_ref) payslip.payment_ref = payment_ref;
     await payslip.save();
 
+    // ── Notify the employee that their salary has been paid ────────
+    await createNotification({
+      recipient_id:   String(payslip.employee_id),
+      recipient_role: "employee",
+      type:           "salary",
+      title:          "Salary Paid 💰",
+      message:        `Your salary of ₹${Number(payslip.net_pay || 0).toLocaleString("en-IN")} for ${MONTH_NAMES[payslip.month]} ${payslip.year} has been paid.`,
+      link:           "/employee/my-payslips",
+    });
+
     const run = await Payroll.findById(payslip.payroll_run_id);
+   
     if (run && run.status !== "paid") {
       const unpaidCount = await Payslip.countDocuments({
         payroll_run_id: run._id,
