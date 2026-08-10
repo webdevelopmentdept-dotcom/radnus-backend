@@ -55,9 +55,22 @@ const payslipSchema = new mongoose.Schema({
     tds:               { type: Number, default: 0 },
     professional_tax:  { type: Number, default: 0 },
     lop_deduction:      { type: Number, default: 0 }, // informational; LOP already excluded from payable_days
-    other:             { type: Number, default: 0 },
+     advance:           { type: Number, default: 0 },
     total_deductions:   { type: Number, default: 0 },
   },
+
+   other_deduction: {
+    amount:   { type: Number, default: 0 },
+    reason:   { type: String, default: "" },
+    added_by: { type: String, default: "" }, // HR name/id who added it
+    added_at: { type: Date },
+  },
+
+  advance_recoveries: [{
+    advance_id: { type: mongoose.Schema.Types.ObjectId, ref: "Advance" },
+    amount:     { type: Number, default: 0 },
+    reason:     { type: String, default: "" },
+  }],
 
   net_pay: { type: Number, default: 0 },
 

@@ -5,6 +5,7 @@ const Payslip  = require("../models/Payslip");
 const Employee = require("../models/Employee");
 const EmploymentDetails = require("../models/EmploymentDetails");
 const { computeAttendanceSummary, computeSalaryBreakdown, getTotalDaysInMonth } = require("../helpers/payrollCalculator");
+const Advance  = require("../models/Advance");   
 
 // ── POST /api/payroll/generate ─────────────────────────────────────
 // body: { month, year, generated_by, statutory_rates? }
@@ -53,10 +54,50 @@ exports.generatePayroll = async (req, res) => {
         empDetails.salary, attendanceSummary, statutory_rates || {}
       );
 
-      // Full fixed monthly salary (before any LOP/attendance reduction)
+    // Full fixed monthly salary (before any LOP/attendance reduction)
       const grossSalaryMonthly = empDetails.salary?.gross_salary || 0;
       // LOP amount = absent days × per-day rate — this is a deduction, separate from earnings.gross_earnings
       const lopAmount = Math.round((attendanceSummary.lop_days || 0) * perDayRate * 100) / 100;
+
+      // ── Salary advance recovery ──────────────────────────────────
+      const advancesToRecover = await Advance.find({
+        employee_id: empDetails.employee_id,
+        status: "approved",
+        recovery_month: month,
+        recovery_year: year,
+      }).lean();
+
+      const advanceDeduction = Math.round(
+        advancesToRecover.reduce((sum, a) => sum + (Number(a.amount) || 0), 0) * 100
+      ) / 100;
+
+      if (advanceDeduction > 0) {
+        deductions.advance = advanceDeduction;
+        deductions.total_deductions = Math.round((deductions.total_deductions + advanceDeduction) * 100) / 100;
+      }
+
+     const advanceRecoveries = advancesToRecover.map((a) => ({
+        advance_id: a._id,
+        amount: a.amount,
+        reason: a.reason,
+      }));
+
+      // ── Preserve any HR-added "Other Deduction" across regeneration ──
+      // (findOneAndUpdate below would otherwise wipe it out on every re-generate)
+      const existingPayslip = await Payslip.findOne({
+        payroll_run_id: run._id,
+        employee_id: empDetails.employee_id,
+      }).select("other_deduction").lean();
+
+      const otherDeduction = existingPayslip?.other_deduction?.amount
+        ? existingPayslip.other_deduction
+        : { amount: 0, reason: "", added_by: "" };
+
+      if (otherDeduction.amount > 0) {
+        deductions.total_deductions = Math.round((deductions.total_deductions + otherDeduction.amount) * 100) / 100;
+      }
+
+      const netPayAfterAdvance = Math.round((netPay - advanceDeduction - (otherDeduction.amount || 0)) * 100) / 100;
 
       const payslipData = {
         payroll_run_id: run._id,
@@ -82,7 +123,9 @@ exports.generatePayroll = async (req, res) => {
         per_day_rate: perDayRate,
         earnings,
         deductions,
-        net_pay: netPay,
+        advance_recoveries: advanceRecoveries,
+        other_deduction: otherDeduction,
+        net_pay: netPayAfterAdvance,
         status: "draft",
       };
 
@@ -92,9 +135,9 @@ exports.generatePayroll = async (req, res) => {
         { upsert: true, new: true }
       );
 
-      totalGross += grossSalaryMonthly;
+        totalGross += grossSalaryMonthly;
       totalDeductions += lopAmount + deductions.total_deductions;
-      totalNet += netPay;
+      totalNet += netPayAfterAdvance;
       count += 1;
     }
 
@@ -182,6 +225,19 @@ exports.approvePayroll = async (req, res) => {
     await run.save();
 
     await Payslip.updateMany({ payroll_run_id: run._id }, { status: "approved" });
+
+    // Lock in any advances that were recovered via this run
+    const payslipsForRun = await Payslip.find({ payroll_run_id: run._id }).select("advance_recoveries").lean();
+    const advanceIds = [];
+    payslipsForRun.forEach((p) => (p.advance_recoveries || []).forEach((a) => {
+      if (a.advance_id) advanceIds.push(a.advance_id);
+    }));
+    if (advanceIds.length) {
+      await Advance.updateMany(
+        { _id: { $in: advanceIds } },
+        { status: "recovered", recovered_in_payroll_run_id: run._id, recovered_at: new Date() }
+      );
+    }
 
     res.json({ success: true, message: "Payroll approved", data: run });
   } catch (err) {
@@ -271,6 +327,62 @@ exports.markPayslipAsPaid = async (req, res) => {
   }
 };
 
+// ── PUT /api/payroll/payslip/:id/other-deduction ─────────────────────
+// body: { amount, reason, added_by }
+// HR sets/updates a manual "Other Deduction" on one payslip (with reason).
+// Allowed only while the payslip is still "draft" — once approved, HR must
+// use "Undo Approve" on the run first (same rule as other payslip edits).
+exports.setOtherDeduction = async (req, res) => {
+  try {
+    const { amount, reason, added_by } = req.body;
+
+    const numAmount = Number(amount);
+    if (amount === undefined || amount === null || isNaN(numAmount) || numAmount < 0) {
+      return res.status(400).json({ success: false, message: "A valid deduction amount is required" });
+    }
+    if (numAmount > 0 && !String(reason || "").trim()) {
+      return res.status(400).json({ success: false, message: "A reason is required when adding a deduction" });
+    }
+
+    const payslip = await Payslip.findById(req.params.id);
+    if (!payslip) return res.status(404).json({ success: false, message: "Payslip not found" });
+    if (payslip.status !== "draft") {
+      return res.status(400).json({
+        success: false,
+        message: "Only draft payslips can be edited. Undo the payroll approval first.",
+      });
+    }
+
+    const newAmount = Math.round(numAmount * 100) / 100;
+    const oldAmount = payslip.other_deduction?.amount || 0;
+    const diff = Math.round((newAmount - oldAmount) * 100) / 100;
+
+    payslip.other_deduction = {
+      amount: newAmount,
+      reason: newAmount > 0 ? String(reason).trim() : "",
+      added_by: added_by || "",
+      added_at: new Date(),
+    };
+    payslip.deductions.total_deductions = Math.round(((payslip.deductions.total_deductions || 0) + diff) * 100) / 100;
+    payslip.net_pay = Math.round(((payslip.net_pay || 0) - diff) * 100) / 100;
+    await payslip.save();
+
+    // Keep the parent payroll run's totals in sync
+    const run = await Payroll.findById(payslip.payroll_run_id);
+    if (run) {
+      run.total_deductions = Math.round(((run.total_deductions || 0) + diff) * 100) / 100;
+      run.total_net_pay = Math.round(((run.total_net_pay || 0) - diff) * 100) / 100;
+      await run.save();
+    }
+
+    res.json({ success: true, message: "Other deduction updated", data: payslip });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
 // ── PUT /api/payroll/payslip/:id/mark-pending ────────────────────────
 exports.markPayslipAsPending = async (req, res) => {
   try {
@@ -317,6 +429,12 @@ exports.revertPayrollApproval = async (req, res) => {
     await run.save();
 
     await Payslip.updateMany({ payroll_run_id: run._id }, { status: "draft" });
+
+    // Un-recover advances so they get picked up again on regeneration
+    await Advance.updateMany(
+      { recovered_in_payroll_run_id: run._id },
+      { status: "approved", $unset: { recovered_in_payroll_run_id: "", recovered_at: "" } }
+    );
 
     res.json({ success: true, message: "Payroll reverted to draft", data: run });
   } catch (err) {

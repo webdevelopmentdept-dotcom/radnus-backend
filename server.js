@@ -196,6 +196,7 @@ app.use('/api/announcements', announcementsRouter);
 app.use("/api/department-scoreboard", require("./routes/departmentScoreboardRoutes"));
 app.use("/api/payroll", require("./routes/payrollRoutes"));
 app.use('/api/hr', hrTicketsRoutes);
+app.use("/api/advance", require("./routes/advanceRoutes"));
 
 
 

@@ -17,6 +17,8 @@ router.delete("/runs/:id",                   payrollCtrl.deletePayrollRun);
 router.get("/payslip/:id",                   payrollCtrl.getPayslipById);
 
 router.put("/payslip/:id/mark-paid",         payrollCtrl.markPayslipAsPaid);
+router.put("/payslip/:id/other-deduction",   payrollCtrl.setOtherDeduction);
+
 router.put("/payslip/:id/mark-pending",      payrollCtrl.markPayslipAsPending);
 
 // Employee self-service
