@@ -124,6 +124,7 @@ const excelExportDailyLog = require("./routes/excelExportDailylog");
 const kpiMonthlyVersionsRouter = require('./routes/kpiMonthlyVersions');
 const hrTicketsRoutes = require('./routes/hrTicketsRoutes');
 const employeeTicketsRoutes = require('./routes/employeeTicketsRoutes');
+const productRoutes = require("./routes/productRoutes");
 
 
 const employeeFeedbackRoutes =require('./routes/employeeFeedbackRoutes')
@@ -197,6 +198,7 @@ app.use("/api/department-scoreboard", require("./routes/departmentScoreboardRout
 app.use("/api/payroll", require("./routes/payrollRoutes"));
 app.use('/api/hr', hrTicketsRoutes);
 app.use("/api/advance", require("./routes/advanceRoutes"));
+app.use("/api/products", productRoutes);
 
 
 

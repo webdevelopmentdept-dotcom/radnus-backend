@@ -1,5 +1,6 @@
-const { TrainingProgram, EmployeeTraining, ComplianceLog } = require("../models/TrainingRca");
+const { TrainingProgram, EmployeeTraining, ComplianceLog, QuizQuestion } = require("../models/TrainingRca");
 const Employee = require("../models/Employee");
+const Product = require("../models/Product");
 
 // ═══════════════════════════════════════════════════════════════
 // TRAINING PROGRAM MASTER APIs (HR)
@@ -44,6 +45,20 @@ const deleteProgram = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+// ── DELETE /api/training/programs — wipe ALL programs ─────────
+// One-time cleanup so the roadmap only ever shows programs HR
+// actually creates (replaces the old dummy-data seed button).
+const deleteAllPrograms = async (req, res) => {
+  try {
+    const result = await TrainingProgram.deleteMany({});
+    // Every product's trainingProgramId now points at a deleted document —
+    // clear it so it reads as "unlinked" everywhere (list badge, backfill
+    // query) instead of a dangling ObjectId that silently fails populate().
+    await Product.updateMany({}, { trainingProgramId: null });
+    res.json({ success: true, message: `${result.deletedCount} programs permanently deleted` });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
 // ── POST /api/training/seed ───────────────────────────────────
 // Seed default programs from Policy 3.15
 const seedDefaultPrograms = async (req, res) => {
@@ -80,9 +95,318 @@ const seedDefaultPrograms = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+// ── One shared "Equipment Training" program every product links to ──
+// (was: a brand-new TrainingProgram per product). Looked up by
+// isShared:true so there's ever only one such document.
+const getOrCreateSharedEquipmentProgram = async () => {
+  let program = await TrainingProgram.findOne({ type: "equipment", isShared: true });
+  if (!program) {
+    program = await TrainingProgram.create({
+      title: "Equipment Training — All Products",
+      type: "equipment",
+      isShared: true,
+      modules: ["KNOW", "OPERATE", "SERVICE", "TRAIN"],
+      conductedBy: "L&D / Trainer",
+      isMandatory: false,
+    });
+  }
+  return program;
+};
+
+// ── POST /api/training/consolidate-equipment ────────────────────
+// One-time migration: merges every existing per-product "equipment"
+// program into the single shared one, re-points affected products AND
+// their existing EmployeeTraining/assignment records so nothing is
+// lost, then removes the now-redundant per-product programs.
+const consolidateEquipmentPrograms = async (req, res) => {
+  try {
+    const shared = await getOrCreateSharedEquipmentProgram();
+
+    // Every OTHER equipment program (per-product, pre-migration ones).
+    const oldPrograms = await TrainingProgram.find({
+      type: "equipment",
+      _id: { $ne: shared._id },
+    });
+
+    let productsRelinked = 0;
+    let recordsRelinked = 0;
+
+    for (const old of oldPrograms) {
+      const productResult = await Product.updateMany(
+        { trainingProgramId: old._id },
+        { trainingProgramId: shared._id }
+      );
+      productsRelinked += productResult.modifiedCount;
+
+      const recordResult = await EmployeeTraining.updateMany(
+        { programId: old._id },
+        { programId: shared._id }
+      );
+      recordsRelinked += recordResult.modifiedCount;
+    }
+
+    // Also catch any product still pointing at nothing/dangling — same
+    // dangling-reference case backfillEquipmentPrograms guards against.
+    const allProducts = await Product.find({});
+    let productsLinked = 0;
+    for (const product of allProducts) {
+      let needsLink = !product.trainingProgramId;
+      if (!needsLink) {
+        const stillExists = await TrainingProgram.exists({ _id: product.trainingProgramId });
+        needsLink = !stillExists;
+      }
+      if (!needsLink) continue;
+      product.trainingProgramId = shared._id;
+      await product.save();
+      productsLinked++;
+    }
+
+    const oldIds = oldPrograms.map(p => p._id);
+    const deleteResult = oldIds.length ? await TrainingProgram.deleteMany({ _id: { $in: oldIds } }) : { deletedCount: 0 };
+
+    res.json({
+      success: true,
+      message: `Merged ${deleteResult.deletedCount} per-product programs into 1 shared program. ${productsRelinked + productsLinked} products and ${recordsRelinked} training records re-linked.`,
+      data: shared,
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+
+const backfillEquipmentPrograms = async (req, res) => {
+  try {
+    const shared = await getOrCreateSharedEquipmentProgram();
+    const allProducts = await Product.find({});
+    let linked = 0;
+    for (const product of allProducts) {
+      // Needs linking if trainingProgramId is empty, OR it still points
+      // at an ID whose TrainingProgram document no longer exists (e.g.
+      // products left over from before deleteAllPrograms started clearing
+      // this field on wipe).
+      let needsLink = !product.trainingProgramId;
+      if (!needsLink) {
+        const stillExists = await TrainingProgram.exists({ _id: product.trainingProgramId });
+        needsLink = !stillExists;
+      }
+      if (!needsLink) continue;
+
+      product.trainingProgramId = shared._id;
+      await product.save();
+      linked++;
+    }
+    res.json({ success: true, message: `${linked} products linked to the shared equipment program` });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── GET /api/training/programs/:id/products ─────────────────────
+// Products linked to this program (Product.trainingProgramId === :id).
+// Employee-facing "View Details" for a training card needs to show
+// which real products an "equipment" program actually covers, plus
+// each product's SOP/video/procedure — this is intentionally open
+// (no canManageProducts gate) since it's read-only training content,
+// not the full Product Management admin surface.
+const getProgramProducts = async (req, res) => {
+  try {
+    const products = await Product.find({ trainingProgramId: req.params.id })
+      .select("productName productCode category skillLevel images trainingVideoUrl operatingProcedure safetyInstructions applications sopId")
+      .populate("sopId")
+      .sort({ productName: 1 });
+    res.json({ success: true, data: products });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+
+
 // ═══════════════════════════════════════════════════════════════
-// EMPLOYEE TRAINING ASSIGNMENT APIs (HR)
+// QUIZ QUESTION BANK (HR authors MCQs per product)
 // ═══════════════════════════════════════════════════════════════
+
+// ── GET /api/training/quiz-questions?productId= ────────────────
+const getQuizQuestions = async (req, res) => {
+  try {
+    const { productId } = req.query;
+    const filter = { isActive: true };
+    if (productId) filter.productId = productId;
+    const questions = await QuizQuestion.find(filter).sort({ createdAt: 1 });
+    res.json({ success: true, data: questions });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── POST /api/training/quiz-questions ───────────────────────────
+const createQuizQuestion = async (req, res) => {
+  try {
+    const { productId, questionText, options, correctOptionIndex } = req.body;
+    if (!productId || !questionText || !Array.isArray(options) || options.length !== 4)
+      return res.status(400).json({ success: false, message: "productId, questionText and exactly 4 options are required" });
+    if (correctOptionIndex === undefined || correctOptionIndex < 0 || correctOptionIndex > 3)
+      return res.status(400).json({ success: false, message: "correctOptionIndex must be 0-3" });
+
+    const question = await QuizQuestion.create({ productId, questionText, options, correctOptionIndex });
+    res.status(201).json({ success: true, data: question, message: "Question added" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── PUT /api/training/quiz-questions/:id ────────────────────────
+const updateQuizQuestion = async (req, res) => {
+  try {
+    const { questionText, options, correctOptionIndex } = req.body;
+    if (options && options.length !== 4)
+      return res.status(400).json({ success: false, message: "Exactly 4 options are required" });
+
+    const updateFields = {};
+    if (questionText !== undefined) updateFields.questionText = questionText;
+    if (options !== undefined) updateFields.options = options;
+    if (correctOptionIndex !== undefined) updateFields.correctOptionIndex = correctOptionIndex;
+
+    const question = await QuizQuestion.findByIdAndUpdate(req.params.id, updateFields, { new: true });
+    if (!question) return res.status(404).json({ success: false, message: "Question not found" });
+    res.json({ success: true, data: question, message: "Question updated" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── DELETE /api/training/quiz-questions/:id ─────────────────────
+const deleteQuizQuestion = async (req, res) => {
+  try {
+    await QuizQuestion.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: "Question deleted" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// EMPLOYEE — STUDY TRACKING + QUIZ
+// ═══════════════════════════════════════════════════════════════
+
+const PASS_THRESHOLD = 70;   // %
+const MAX_ATTEMPTS   = 1;    // single attempt only — no retakes
+
+// ── PUT /api/training/my/:recordId/study-product ────────────────
+// body: { productId }. Marks one product as studied for this record.
+const markProductStudied = async (req, res) => {
+  try {
+    const { productId } = req.body;
+    if (!productId) return res.status(400).json({ success: false, message: "productId required" });
+
+    const record = await EmployeeTraining.findById(req.params.recordId);
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    const existing = record.productProgress.find(p => String(p.productId) === String(productId));
+    if (existing) {
+      existing.studied = true;
+      existing.studiedAt = new Date();
+    } else {
+      record.productProgress.push({ productId, studied: true, studiedAt: new Date() });
+    }
+    if (record.status === "pending" || record.status === "retrain") {
+      record.status = "in_progress";
+      if (!record.startedDate) record.startedDate = new Date();
+    }
+    await record.save();
+
+    res.json({ success: true, data: record, message: "Marked as studied" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── GET /api/training/my/:recordId/quiz ──────────────────────────
+// Builds the combined quiz for a record: pulls questions from every
+// product linked to the record's program (per-product, pooled).
+const getQuiz = async (req, res) => {
+  try {
+    const record = await EmployeeTraining.findById(req.params.recordId).populate("programId");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    const attemptsUsed = record.quizAttempts.length;
+    if (attemptsUsed >= MAX_ATTEMPTS) {
+      return res.status(403).json({ success: false, message: "You have already submitted this test. Only one attempt is allowed." });
+    }
+
+    const products = await Product.find({ trainingProgramId: record.programId?._id }).select("_id productName");
+    if (!products.length) {
+      return res.status(400).json({ success: false, message: "No products linked to this training" });
+    }
+
+    const productIds = products.map(p => p._id);
+    const questions = await QuizQuestion.find({ productId: { $in: productIds }, isActive: true })
+      .select("productId questionText options"); // correctOptionIndex withheld from employee
+
+    if (!questions.length) {
+      return res.status(400).json({ success: false, message: "No quiz questions available yet — check with HR" });
+    }
+
+    // Shuffle for a fresh order each attempt
+    const shuffled = [...questions].sort(() => Math.random() - 0.5);
+
+    res.json({
+      success: true,
+      data: {
+        questions: shuffled,
+        passThreshold: PASS_THRESHOLD,
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── POST /api/training/my/:recordId/quiz/submit ──────────────────
+// body: { answers: [{ questionId, selectedOptionIndex }] }
+const submitQuiz = async (req, res) => {
+  try {
+    const { answers } = req.body;
+    if (!Array.isArray(answers) || !answers.length)
+      return res.status(400).json({ success: false, message: "answers[] required" });
+
+    const record = await EmployeeTraining.findById(req.params.recordId).populate("programId");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    if (record.quizAttempts.length >= MAX_ATTEMPTS) {
+      return res.status(403).json({ success: false, message: "You have already submitted this test. Only one attempt is allowed." });
+    }
+
+    const questionIds = answers.map(a => a.questionId);
+    const questions = await QuizQuestion.find({ _id: { $in: questionIds } });
+    const qMap = new Map(questions.map(q => [String(q._id), q]));
+
+    let correctCount = 0;
+    const scoredAnswers = answers.map(a => {
+      const q = qMap.get(String(a.questionId));
+      const correct = !!q && q.correctOptionIndex === a.selectedOptionIndex;
+      if (correct) correctCount++;
+      return { questionId: a.questionId, selectedOptionIndex: a.selectedOptionIndex, correct };
+    });
+
+    const score = Math.round((correctCount / scoredAnswers.length) * 100);
+    const passed = score >= PASS_THRESHOLD;
+
+    record.quizAttempts.push({ score, passed, answers: scoredAnswers, attemptedAt: new Date() });
+    record.assessmentScore = score;
+
+    // Employee submitting the test does NOT auto-complete the record anymore —
+    // pass or fail, it goes to HR for review. HR looks at the score and
+    // manually marks the record "Completed" (+ issues certification) via
+    // the Update Record modal. Only then does the employee see it as done.
+    record.status = "pending_review";
+
+    await record.save();
+
+    await ComplianceLog.create({
+      employeeId: record.employeeId,
+      programId:  record.programId?._id,
+      programTitle: record.programId?.title || "",
+      action: "score_updated",
+      note: `Quiz submitted — Score: ${score}% — awaiting HR review`,
+      addedBy: "Employee",
+    });
+
+    res.json({
+      success: true,
+      data: {
+        score,
+        passed,
+        status: record.status,
+        certificationIssued: record.certificationIssued,
+      },
+      message: "Test submitted! HR will review your result and confirm training completion.",
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
 
 // ── POST /api/training/assign ─────────────────────────────────
 const assignTraining = async (req, res) => {
@@ -223,6 +547,18 @@ const updateRecord = async (req, res) => {
       if (status === "in_progress" && !record.startedDate) updateFields.startedDate = new Date();
       if (status === "completed") updateFields.completedDate = new Date();
       if (status === "overdue" && !record.startedDate) updateFields.startedDate = null;
+
+      // ✅ NEW — "Retrain" resets the record so the employee has to re-study
+      // every product and retake the test from scratch. Their previous
+      // score/certification is cleared since it no longer applies.
+      if (status === "retrain") {
+        updateFields.productProgress = record.productProgress.map(p => ({ productId: p.productId, studied: false, studiedAt: null }));
+        updateFields.quizAttempts = [];
+        updateFields.assessmentScore = null;
+        updateFields.certificationIssued = false;
+        updateFields.certificationDate = null;
+        updateFields.completedDate = null;
+      }
     }
     if (assessmentScore !== undefined) updateFields.assessmentScore = assessmentScore;
     if (certificationIssued !== undefined) {
@@ -247,7 +583,7 @@ const updateRecord = async (req, res) => {
         programId:  record.programId?._id,
         programTitle: record.programId?.title || "",
         action: status === "completed" ? "completed" : status === "in_progress" ? "started" : status,
-        note: notes || progressNote || "",
+        note: notes || progressNote || (status === "retrain" ? "Sent back for retraining — study checklist and test reset" : ""),
         addedBy: addedBy || "HR",
       });
     }
@@ -258,6 +594,16 @@ const updateRecord = async (req, res) => {
         programTitle: record.programId?.title || "",
         action: "score_updated",
         note: `Score: ${assessmentScore}%`,
+        addedBy: addedBy || "HR",
+      });
+    }
+    if (certificationIssued === true && !record.certificationIssued) {
+      await ComplianceLog.create({
+        employeeId: record.employeeId,
+        programId:  record.programId?._id,
+        programTitle: record.programId?.title || "",
+        action: "cert_issued",
+        note: "Certification issued by HR after review",
         addedBy: addedBy || "HR",
       });
     }
@@ -327,8 +673,46 @@ const markStarted = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// EQUIPMENT COMPETENCY (Knowledge/Product Portal)
+// ═══════════════════════════════════════════════════════════════
+
+// ── PUT /api/training/records/:id/competency ──────────────────
+// Set the KNOW / OPERATE / SERVICE / TRAIN level for an equipment record.
+const updateCompetencyLevel = async (req, res) => {
+  try {
+    const { competencyLevel, addedBy } = req.body;
+    if (!["KNOW", "OPERATE", "SERVICE", "TRAIN"].includes(competencyLevel)) {
+      return res.status(400).json({ success: false, message: "Invalid competency level" });
+    }
+
+    const record = await EmployeeTraining.findById(req.params.id).populate("programId");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+    if (record.programId?.type !== "equipment") {
+      return res.status(400).json({ success: false, message: "Competency levels only apply to equipment programs" });
+    }
+
+    record.competencyLevel = competencyLevel;
+    await record.save();
+
+    await ComplianceLog.create({
+      employeeId: record.employeeId,
+      programId:  record.programId._id,
+      programTitle: record.programId.title,
+      action: "score_updated",
+      note: `Competency set to ${competencyLevel}`,
+      addedBy: addedBy || "HR",
+    });
+
+    res.json({ success: true, data: record, message: `Competency set to ${competencyLevel}` });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
 module.exports = {
-  getAllPrograms, createProgram, updateProgram, deleteProgram, seedDefaultPrograms,
+  getAllPrograms, createProgram, updateProgram, deleteProgram, deleteAllPrograms, seedDefaultPrograms,
+  backfillEquipmentPrograms, consolidateEquipmentPrograms, getOrCreateSharedEquipmentProgram, getProgramProducts,
+  getQuizQuestions, createQuizQuestion, updateQuizQuestion, deleteQuizQuestion,
+  markProductStudied, getQuiz, submitQuiz,
   assignTraining, assignBulk, getAllRecords, getStats, updateRecord, getComplianceLog,
-  getMyTrainings, markStarted,
+  getMyTrainings, markStarted, updateCompetencyLevel,
 };

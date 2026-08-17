@@ -1,13 +1,13 @@
-const express  = require('express');
-const router   = express.Router();
+const express = require('express');
+const router = express.Router();
 const Employee = require('../models/Employee');
 const Document = require('../models/Document');
 const Notification = require('../models/Notification');
-const bcrypt   = require('bcryptjs');
-const jwt      = require('jsonwebtoken');
-const multer   = require('multer');
-const Counter  = require('../models/Counter');
-const axios    = require('axios');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const Counter = require('../models/Counter');
+const axios = require('axios');
 const auth = require('../middleware/auth');
 
 
@@ -111,16 +111,16 @@ router.post('/register', async (req, res) => {
 
     await employee.save();
 
-       // ✅ NEW — HR notification on new employee registration
+    // ✅ NEW — HR notification on new employee registration
     try {
       await Notification.create({
-        recipient_id:   "hr_admin_001",
+        recipient_id: "hr_admin_001",
         recipient_role: "hr",
-        type:           "employee",
-        title:          "New Employee Registered",
-        message:        `${employee.name} registered as a new employee`,
-        link:           "",
-        isRead:         false,
+        type: "employee",
+        title: "New Employee Registered",
+        message: `${employee.name} registered as a new employee`,
+        link: "",
+        isRead: false,
       });
     } catch (notifErr) {
       console.error("Register notification error:", notifErr.message);
@@ -180,7 +180,7 @@ router.post('/login', async (req, res) => {
     }
 
     // const token = jwt.sign({ id: user._id }, 'SECRETKEY', { expiresIn: '7d' });
-const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       token,
@@ -246,7 +246,7 @@ router.post('/upload-doc', (req, res) => {
       const { employeeId, docType } = req.body;
 
       if (!employeeId) return res.status(400).json({ message: 'EMPLOYEE_ID_MISSING' });
-      if (!req.file)   return res.status(400).json({ message: 'NO_FILE_UPLOADED' });
+      if (!req.file) return res.status(400).json({ message: 'NO_FILE_UPLOADED' });
 
       // ✅ FIX: insert இல்லை, upsert — already இருந்தா update பண்ணு
       const savedDoc = await Document.findOneAndUpdate(
@@ -262,16 +262,16 @@ router.post('/upload-doc', (req, res) => {
         'Ration Card Front', 'Ration Card Back',
       ];
 
-      const uploadedDocs  = await Document.find({ employeeId });
+      const uploadedDocs = await Document.find({ employeeId });
       const uploadedTypes = uploadedDocs.map(d => d.docType);
-      const allUploaded   = requiredDocs.every(doc => uploadedTypes.includes(doc));
+      const allUploaded = requiredDocs.every(doc => uploadedTypes.includes(doc));
 
       const isHrUpload = req.body.isHrUpload === "true";
 
-await Employee.findByIdAndUpdate(employeeId, {
-  ...(isHrUpload ? {} : { status: 'pending' }),
-  documentsCompleted: allUploaded ? true : undefined,
-})
+      await Employee.findByIdAndUpdate(employeeId, {
+        ...(isHrUpload ? {} : { status: 'pending' }),
+        documentsCompleted: allUploaded ? true : undefined,
+      })
 
       res.json({ message: 'Uploaded successfully', fileUrl: req.file.path, document: savedDoc });
     } catch {
@@ -305,13 +305,13 @@ router.post('/replace-doc', (req, res) => {
       // ✅ NEW — HR notification on document reupload
       try {
         await Notification.create({
-          recipient_id:   "hr_admin_001",
+          recipient_id: "hr_admin_001",
           recipient_role: "hr",
-          type:           "document",
-          title:          "Document Reuploaded",
-          message:        `${emp.name} reuploaded "${doc.docType}"`,
-          link:           "",
-          isRead:         false,
+          type: "document",
+          title: "Document Reuploaded",
+          message: `${emp.name} reuploaded "${doc.docType}"`,
+          link: "",
+          isRead: false,
         });
       } catch (notifErr) {
         console.error("Reupload notification error:", notifErr.message);
@@ -355,8 +355,8 @@ router.put('/complete-documents', async (req, res) => {
     ];
 
     const uploaded = await Document.find({ employeeId });
-    const types    = uploaded.map(d => d.docType);
-    const ok       = requiredDocs.every(doc => types.includes(doc));
+    const types = uploaded.map(d => d.docType);
+    const ok = requiredDocs.every(doc => types.includes(doc));
 
     if (!ok) return res.status(400).json({ message: 'UPLOAD_ALL_REQUIRED_DOCS_FIRST' });
 
@@ -365,13 +365,13 @@ router.put('/complete-documents', async (req, res) => {
     // ✅ NEW — HR notification on document submission
     try {
       await Notification.create({
-        recipient_id:   "hr_admin_001",
+        recipient_id: "hr_admin_001",
         recipient_role: "hr",
-        type:           "document",
-        title:          "Documents Submitted",
-        message:        `${emp.name} submitted all documents`,
-        link:           "",
-        isRead:         false,
+        type: "document",
+        title: "Documents Submitted",
+        message: `${emp.name} submitted all documents`,
+        link: "",
+        isRead: false,
       });
     } catch (notifErr) {
       console.error("Submit notification error:", notifErr.message);
@@ -386,26 +386,27 @@ router.put('/complete-documents', async (req, res) => {
 // ================= GET USER =================
 router.get('/me/:id', async (req, res) => {
   try {
-    const user      = await Employee.findById(req.params.id);
+    const user = await Employee.findById(req.params.id);
     const documents = await Document.find({ employeeId: req.params.id });
 
     res.json({
-      id:                 user._id,
-        employeeId:         user.employeeId,   // ✅ NEW LINE — indha field thaan missing
-      name:               user.name,
-      email:              user.email,
-      mobile:             user.mobile,
-      altMobile:          user.altMobile,
-      dob:                user.dob,
-      address:            user.address,
-      department:         user.department,
-      designation:        user.designation,
-      essl_id:            user.essl_id,
-      status:             user.status,
-      remarks:            user.remarks,
+      id: user._id,
+      employeeId: user.employeeId,   // ✅ NEW LINE — indha field thaan missing
+      name: user.name,
+      email: user.email,
+      mobile: user.mobile,
+      altMobile: user.altMobile,
+      dob: user.dob,
+      address: user.address,
+      department: user.department,
+      designation: user.designation,
+      essl_id: user.essl_id,
+      status: user.status,
+      remarks: user.remarks,
       documentsCompleted: !!user.documentsCompleted,
-      profileImage:       user.profileImage,
-       shift:              user.shift,  
+      profileImage: user.profileImage,
+      shift: user.shift,
+      canManageProducts: user.canManageProducts,
       documents,
     });
   } catch {
@@ -436,21 +437,21 @@ router.put('/update-profile', async (req, res) => {
 router.get('/employees', async (req, res) => {
   try {
     const { status, email } = req.query;
-    
+
     // ✅ Email filter — HR Approved essl_id lookup
     if (email) {
       const emp = await Employee.findOne({ email });
-      return res.json({ 
+      return res.json({
         data: emp ? [emp] : [],
-        total: emp ? 1 : 0 
+        total: emp ? 1 : 0
       });
     }
-    
-    const filter    = status ? { status } : {};
+
+    const filter = status ? { status } : {};
     const employees = await Employee.find(filter).select(
       "name email department designation employeeId empId essl_id status mobile profileImage"
     );
-    res.json({ total: employees.length, data: employees });
+    res.json({ success: true, total: employees.length, data: employees });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -567,8 +568,8 @@ router.delete('/employees/:id', async (req, res) => {
       message: 'Employee deleted successfully',
       essl_sync: {
         attempted: !!esslId,
-        success:   esslResult.ok,
-        message:   esslResult.ok ? 'Removed from machine' : (esslResult.error || ''),
+        success: esslResult.ok,
+        message: esslResult.ok ? 'Removed from machine' : (esslResult.error || ''),
       },
     });
   } catch (error) {
@@ -595,7 +596,7 @@ router.post('/save-link', async (req, res) => {
     const { employeeId, docType, url } = req.body;
 
     if (!employeeId) return res.status(400).json({ message: 'EMPLOYEE_ID_MISSING' });
-    if (!url)        return res.status(400).json({ message: 'URL_MISSING' });
+    if (!url) return res.status(400).json({ message: 'URL_MISSING' });
 
     const existingDoc = await Document.findOne({ employeeId, docType });
     if (existingDoc) {
@@ -897,20 +898,20 @@ router.post('/forgot-password', async (req, res) => {
     const user = await Employee.findOne({ email });
     if (!user) return res.status(404).json({ message: 'EMAIL_NOT_FOUND' });
 
-    const token  = crypto.randomBytes(32).toString('hex');
+    const token = crypto.randomBytes(32).toString('hex');
     const expiry = Date.now() + 15 * 60 * 1000;
 
     await Employee.findByIdAndUpdate(user._id, {
-      resetPasswordToken:  token,
+      resetPasswordToken: token,
       resetPasswordExpiry: expiry,
     });
 
     const resetLink = `${process.env.FRONTEND_URL}/employee/reset-password/${token}`;
-    const resend    = new Resend(process.env.RESEND_API_KEY);
+    const resend = new Resend(process.env.RESEND_API_KEY);
 
     await resend.emails.send({
-      from:    'HR Portal <noreply@service.radnus.in>',
-      to:      user.email,
+      from: 'HR Portal <noreply@service.radnus.in>',
+      to: user.email,
       subject: 'Reset Your Password — HR Portal',
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px">
@@ -941,7 +942,7 @@ router.post('/reset-password', async (req, res) => {
     const { token, newPassword } = req.body;
 
     const user = await Employee.findOne({
-      resetPasswordToken:  token,
+      resetPasswordToken: token,
       resetPasswordExpiry: { $gt: Date.now() },
     });
 
@@ -950,8 +951,8 @@ router.post('/reset-password', async (req, res) => {
     const hashed = await bcrypt.hash(newPassword, 10);
 
     await Employee.findByIdAndUpdate(user._id, {
-      password:            hashed,
-      resetPasswordToken:  undefined,
+      password: hashed,
+      resetPasswordToken: undefined,
       resetPasswordExpiry: undefined,
     });
 
@@ -1021,11 +1022,11 @@ router.get('/view-doc/:docId', async (req, res) => {
 
     // ✅ NEW private uploads — signed URL generate
     const urlObj = new URL(fileUrl);
-    const parts  = urlObj.pathname.split('/').filter(Boolean);
+    const parts = urlObj.pathname.split('/').filter(Boolean);
     // parts = ['dp9jv4wyh', 'image', 'private', 'v1234567', 'documents', 'filename.jpg']
 
     // ✅ FIX: 'private' பிறகு version skip பண்ணி public_id எடு
-    const privateIdx   = parts.findIndex(p => p === 'private');
+    const privateIdx = parts.findIndex(p => p === 'private');
     const afterPrivate = parts.slice(privateIdx + 1); // ['v1234567', 'documents', 'filename.jpg']
 
     // version number (v로 start ஆனது) skip பண்ணு
@@ -1035,19 +1036,19 @@ router.get('/view-doc/:docId', async (req, res) => {
     // ['documents', 'filename.jpg']
 
     const fullPath = withoutVersion.join('/');           // 'documents/1779530783706-bench-press.jpg'
-    const ext      = fullPath.split('.').pop();           // 'jpg'
+    const ext = fullPath.split('.').pop();           // 'jpg'
     const publicId = fullPath.replace(/\.[^/.]+$/, '');  // 'documents/1779530783706-bench-press'
 
     const resourceType = fileUrl.includes('/image/') ? 'image'
-                       : fileUrl.includes('/video/') ? 'video'
-                       : 'raw';
+      : fileUrl.includes('/video/') ? 'video'
+        : 'raw';
 
     const signedUrl = cloudinary.utils.private_download_url(
       publicId, ext,
       {
         resource_type: resourceType,
-        expires_at:    Math.floor(Date.now() / 1000) + 300,
-        attachment:    false,
+        expires_at: Math.floor(Date.now() / 1000) + 300,
+        attachment: false,
       }
     );
 
@@ -1092,6 +1093,55 @@ router.put('/employees/:id/shift', async (req, res) => {
 
     const updated = await Employee.findById(req.params.id).select("name employeeId shift");
     res.json({ success: true, message: 'Shift updated', data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+router.put('/:id/product-access', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'hr') {
+      return res.status(403).json({ success: false, message: 'Only HR can assign access' });
+    }
+
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
+
+    // Single-assignee rule — turn OFF for everyone else first
+    await Employee.updateMany({ _id: { $ne: emp._id } }, { $set: { canManageProducts: false } });
+
+    emp.canManageProducts = true;
+    await emp.save();
+
+    res.json({ success: true, message: `Product access assigned to ${emp.name}`, data: emp });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ================= REMOVE PRODUCT ACCESS (HR only) =================
+router.delete('/:id/product-access', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'hr') {
+      return res.status(403).json({ success: false, message: 'Only HR can remove access' });
+    }
+    const emp = await Employee.findByIdAndUpdate(req.params.id, { canManageProducts: false }, { new: true });
+    if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
+    res.json({ success: true, message: `Access removed from ${emp.name}` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ================= GET CURRENT ASSIGNED EMPLOYEE (HR view) =================
+router.get('/product-access/current', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'hr') {
+      return res.status(403).json({ success: false, message: 'Only HR can view this' });
+    }
+    const emp = await Employee.findOne({ canManageProducts: true }).select('name employeeId email department');
+    res.json({ success: true, data: emp || null });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

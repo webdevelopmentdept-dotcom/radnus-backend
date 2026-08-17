@@ -43,6 +43,8 @@ const employeeSchema = new mongoose.Schema({
   exitType:          { type: String, enum: ['relieved', 'fired', null], default: null },
   accessDeactivated: { type: Boolean, default: false },
 
+  canManageProducts: { type: Boolean, default: false },
+
   remarks: {
     type:    String,
     default: ""

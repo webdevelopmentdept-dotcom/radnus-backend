@@ -43,7 +43,7 @@ const AttendanceSchema = new mongoose.Schema({
   late_minutes:      { type: Number, default: 0 },   // mins after 10:00 AM grace
   early_out_minutes: { type: Number, default: 0 },   // mins before 7:00 PM (based on last_out)
   overtime_minutes:  { type: Number, default: 0 },   // mins after 7:00 PM (based on last_out)
-
+  half_day_session:  { type: String, enum: ["morning", "afternoon", null], default: null },
   // ── HR override fields ────────────────────────────────────
   method:   { type: String, enum: ["manual", "hr_manual", "auto", "qr"], default: "manual" },
 

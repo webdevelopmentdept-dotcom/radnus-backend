@@ -7,9 +7,10 @@ const LeaveRequest = require("../models/LeaveRequest");
 // ══════════════════════════════════════════
 const DEFAULT_SHIFT_START = 10 * 60;
 const DEFAULT_SHIFT_END = 19 * 60;
-const HALF_DAY_CUTOFF = 11 * 60 + 30; // 690 = 11:30 AM
+const HALF_DAY_CUTOFF = 11 * 60 + 30; 
 const LUNCH_START = 13 * 60 + 30;     // 810 = 1:30 PM
-const LUNCH_END = 14 * 60 + 30;       // 870 = 2:30 PM
+const LUNCH_END = 14 * 60 + 30;   
+const HALF_DAY_MORNING_CUTOFF = 11 * 60;    
 const LUNCH_RETURN_CUTOFF = 15 * 60;   // ✅ ADD THIS — 3:00 PM
 
 
@@ -41,7 +42,7 @@ const getLateMinutes = (firstIn, shiftStartMins = DEFAULT_SHIFT_START) => {
   const diff = Math.max(mins - shiftStartMins, 0);
 
   // 5 mins grace-ku ulla vandha late-a count pannadhu
-  return diff > GRACE_MINUTES ? diff : 0;
+  return diff > GRACE_MINUTES ? diff - GRACE_MINUTES : 0;
 };
 
 const getEarlyOutMinutes = (lastOut, shiftEndMins = DEFAULT_SHIFT_END) => {
@@ -174,46 +175,63 @@ const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
   const earlyOutMinutes = getEarlyOutMinutes(lastOut, shiftEndMins);
   const overtimeMinutes = getOvertimeMinutes(lastOut, shiftEndMins);
 
-  // let status = "absent";
-  // if (firstIn) {
-  //   const firstInMins = toMins(firstIn);
+  
+//   let status = "absent";
+// if (firstIn) {
+//   const firstInMins = toMins(firstIn);
 
-  //   const HALF_DAY_START = 12 * 60;
-  //   const HALF_DAY_END = 15 * 60;
+//   if (firstInMins <= effectiveStartMins + GRACE_MINUTES) {   // ← 15 → GRACE_MINUTES
+//     status = "present";
+//   } else {
+//     status = "late";
+//   }
+// }
 
-  //   if (firstInMins <= effectiveStartMins + 15) {
-  //     status = "present";
-  //   } else if (firstInMins <= effectiveStartMins + 90) {
-  //     status = "late";
-  //   } else if (firstInMins >= HALF_DAY_START && firstInMins <= HALF_DAY_END) {
-  //     status = "half_day";
-  //   } else if (firstInMins > HALF_DAY_END) {
-  //     status = "absent";
-  //   } else {
-  //     status = "half_day";
-  //   }
-  // }
-  let status = "absent";
+//   const hasAnyIn = sorted.some(p => p.type === "in");
+//   if (!hasAnyIn && sorted.some(p => p.type === "out")) {
+//     status = "absent";
+//   }
+
+//   if (status !== "absent" && status !== "leave") {
+//     if (isStuckOnLunch(sorted, dateStr)) {
+//       status = "half_day";
+//     }
+//   }
+
+
+let status = "absent";
+let half_day_session = null;
 if (firstIn) {
   const firstInMins = toMins(firstIn);
-
-  if (firstInMins <= effectiveStartMins + GRACE_MINUTES) {   // ← 15 → GRACE_MINUTES
+  if (firstInMins <= effectiveStartMins + GRACE_MINUTES) {
     status = "present";
-  } else {
+  } else if (firstInMins <= HALF_DAY_MORNING_CUTOFF) {
     status = "late";
+  } else {
+    status = "half_day";
+    half_day_session = "morning";
   }
 }
 
-  const hasAnyIn = sorted.some(p => p.type === "in");
-  if (!hasAnyIn && sorted.some(p => p.type === "out")) {
-    status = "absent";
-  }
+const hasAnyIn = sorted.some(p => p.type === "in");
+    if (!hasAnyIn && sorted.some(p => p.type === "out")) {
+   status = "absent";
+ }
 
-  if (status !== "absent" && status !== "leave") {
-    if (isStuckOnLunch(sorted, dateStr)) {
-      status = "half_day";
-    }
+if (status !== "absent" && status !== "leave") {
+  if (isStuckOnLunch(sorted, dateStr)) {
+    status = "half_day";
+    half_day_session = half_day_session || "afternoon";
   }
+}
+// NEW BLOCK — add after the isStuckOnLunch check
+if (status !== "absent" && status !== "leave" && !half_day_session) {
+  const { breakLateMins: lunchLateMins } = resolveBreak(sorted);
+  if (lunchLateMins > 0) {
+    status = "half_day";
+    half_day_session = "afternoon";
+  }
+}
 
   const isCurrentlyIn = lastInTime !== null;
 
@@ -226,6 +244,8 @@ if (firstIn) {
     early_out_minutes: earlyOutMinutes,
     overtime_minutes: overtimeMinutes,
     status,
+        half_day_session,
+
     is_currently_in: isCurrentlyIn,
     permission_applied: permissionApplied,
   };
@@ -581,6 +601,8 @@ exports.getMonthlyRecords = async (req, res) => {
         obj.early_out_minutes = computed.early_out_minutes;
         obj.overtime_minutes = computed.overtime_minutes;
         obj.status = computed.status;
+              obj.half_day_session = computed.half_day_session || null;
+
       }
       return obj;
     });
@@ -754,7 +776,7 @@ exports.getMonthlyReport = async (req, res) => {
             ...(fakeOut ? [{ type: "out", time: fakeOut }] : []),
           ];
           const c = computeFromPunches(fakePunches, startMins, endMins);
-          return { ...obj, status: c.status, late_minutes: c.late_minutes };
+          return { ...obj, status: c.status, late_minutes: c.late_minutes, half_day_session: c.half_day_session || null };
         }
 
         return obj;
@@ -894,6 +916,8 @@ newPunches.sort((a, b) => new Date(a.time) - new Date(b.time));
           late_minutes: computed.late_minutes || 0,
           early_out_minutes: computed.early_out_minutes || 0,
           overtime_minutes: computed.overtime_minutes || 0,
+                   half_day_session: noTimeStatus ? null : (computed.half_day_session || null),
+
           remark: remark || "",
           method: "hr_manual",
             permission: permission,
@@ -1311,6 +1335,7 @@ exports.exportExcel = async (req, res) => {
         let otMin = 0;
         let earlyOutMin = 0;
         let effectiveStatus = rec.status;
+        let halfDaySession = rec.half_day_session || null;
         if (rec.punches && rec.punches.length > 0) {
           const { startMins, endMins } = parseShiftMins(emp);
           const computed = computeFromPunches(rec.punches, startMins, endMins, null, dateStr);
@@ -1318,6 +1343,7 @@ exports.exportExcel = async (req, res) => {
           otMin = computed.overtime_minutes || 0;
           earlyOutMin = computed.early_out_minutes || 0;
           effectiveStatus = computed.status || rec.status;
+          halfDaySession = computed.half_day_session || null;
         } else {
           lateMin = rec.late_minutes || 0;
           otMin = rec.overtime_minutes || 0;
@@ -1331,14 +1357,18 @@ exports.exportExcel = async (req, res) => {
         const extraOutText = extraPairs.length ? extraPairs.map(p => fmtTime(p.out)).join("\n") : "—";
         const extraInText = extraPairs.length ? extraPairs.map(p => fmtTime(p.in)).join("\n") : "—";
 
-        const statusLabel = {
+        let statusLabel = {
           present: "Present",
           late: "Present",
           absent: "Absent",
           half_day: "Half Day",
           leave: "On Leave",
           holiday: "Holiday",
-        }[effectiveStatus] || effectiveStatus;   // ✅ rec.status → effectiveStatus
+        }[effectiveStatus] || effectiveStatus;
+
+        if (effectiveStatus === "half_day" && halfDaySession) {
+          statusLabel = `Half Day (${halfDaySession === "morning" ? "Morning" : "Afternoon"} Leave)`;
+        }   // ✅ rec.status → effectiveStatus
 
         if (effectiveStatus === "present" || effectiveStatus === "late") presentCount++;   // ✅
         if (effectiveStatus === "late" || lateMin > 0) lateCount++;   // ✅
