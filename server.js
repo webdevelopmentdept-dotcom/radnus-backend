@@ -125,7 +125,7 @@ const kpiMonthlyVersionsRouter = require('./routes/kpiMonthlyVersions');
 const hrTicketsRoutes = require('./routes/hrTicketsRoutes');
 const employeeTicketsRoutes = require('./routes/employeeTicketsRoutes');
 const productRoutes = require("./routes/productRoutes");
-
+const walkinRoutes = require("./routes/walkinApplicants");
 
 const employeeFeedbackRoutes =require('./routes/employeeFeedbackRoutes')
 const hrFeedbackRoutes = require('./routes/hrFeedbackRoutes');
@@ -174,6 +174,7 @@ app.use("/api/dept-grade-salary", dgsRoutes);
 app.use("/api/employee", employeeTicketsRoutes);
 app.use("/api/employee", employeeFeedbackRoutes);
 app.use("/api/hr", hrFeedbackRoutes);
+app.use("/api/hr/walkin", walkinRoutes);
 
 // HR Modules
 app.use("/api/hr", hrAuthRoutes);
