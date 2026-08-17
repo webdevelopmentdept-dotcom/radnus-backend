@@ -447,7 +447,11 @@ router.get('/employees', async (req, res) => {
       });
     }
 
-    const filter = status ? { status } : {};
+    let filter = {};
+if (status) {
+  const statuses = status.split(',').map(s => s.trim());
+  filter = { status: { $in: statuses } };
+}
     const employees = await Employee.find(filter).select(
       "name email department designation employeeId empId essl_id status mobile profileImage"
     );
