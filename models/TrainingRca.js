@@ -19,6 +19,14 @@ const trainingProgramSchema = new mongoose.Schema({
   // per-product program each time.
   isShared:    { type: Boolean, default: false },
   duration:    { type: String, default: "" },       // "7 Days", "1 Month", etc.
+  videoSource: { type: String, enum: ["upload","youtube",""], default: "" },
+videoUrl:    { type: String, default: "" },   // Cloudinary URL OR YouTube link
+videoPublicId: { type: String, default: "" },
+  // ✅ NEW — optional PDF training material (Cloudinary-hosted), separate
+  // from the video. A program can have a video, a PDF, both, or neither.
+  pdfUrl:      { type: String, default: "" },
+  pdfPublicId: { type: String, default: "" },
+  pdfName:     { type: String, default: "" }, // original filename, shown to employee
   certification: { type: String, default: "" },     // "RCA Foundation Certificate"
   conductedBy: { type: String, default: "" },       // "HR & Culture"
   frequency:   { type: String, enum: ["once","monthly","quarterly","half_yearly","annual","on_joining","within_30_days"], default: "once" },
@@ -42,6 +50,9 @@ const employeeTrainingSchema = new mongoose.Schema({
   certificationIssued: { type: Boolean, default: false },
   certificationDate:   { type: Date },
 
+    submittedForReview: { type: Boolean, default: false },
+  submittedDate:       { type: Date },
+
   // Per-product "studied" checklist — only meaningful for "equipment"
   // type programs (which cover several products). Employee marks each
   // product as studied before the combined quiz unlocks.
@@ -50,6 +61,20 @@ const employeeTrainingSchema = new mongoose.Schema({
     studied:   { type: Boolean, default: false },
     studiedAt: { type: Date },
   }],
+
+  // ✅ NEW — tracks whether the employee actually finished watching the
+  // program-level training video (non-equipment programs, e.g. "Excel
+  // training"). Set to true only when the <video> onEnded event fires,
+  // so it can't be faked by just opening the modal.
+  videoWatched:   { type: Boolean, default: false },
+  videoWatchedAt: { type: Date },
+
+  // ✅ NEW — same idea for a PDF document attached to the program. PDFs
+  // have no reliable "finished" event like a video does, so this is set
+  // when the employee explicitly confirms via the "Mark as Read" button
+  // (only enabled after they've opened the PDF at least once).
+  pdfRead:   { type: Boolean, default: false },
+  pdfReadAt: { type: Date },
 
   // Quiz attempt history. Policy: single attempt only — one submission
   // per record. Kept as an array for audit history even though only
@@ -95,14 +120,28 @@ const complianceLogSchema = new mongoose.Schema({
   date:        { type: Date, default: Date.now },
 }, { timestamps: true });
 
-// ─── Quiz Question Bank (HR-authored, per product) ────────────
+// ─── Quiz Question Bank (HR-authored, per product OR per program) ────
 const quizQuestionSchema = new mongoose.Schema({
-  productId:     { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+  // Exactly ONE of these two is set per question — equipment-training
+  // questions are linked to a Product, non-equipment programs
+  // (e.g. "Excel training") link straight to the TrainingProgram.
+  productId:     { type: mongoose.Schema.Types.ObjectId, ref: "Product", default: null },
+  programId:     { type: mongoose.Schema.Types.ObjectId, ref: "TrainingProgram", default: null },
   questionText:  { type: String, required: true },
   options:       { type: [String], validate: v => v.length === 4 }, // exactly 4 options
   correctOptionIndex: { type: Number, required: true, min: 0, max: 3 },
   isActive:      { type: Boolean, default: true },
 }, { timestamps: true });
+
+quizQuestionSchema.pre("validate", function (next) {
+  if (!this.productId && !this.programId) {
+    return next(new Error("Either productId or programId is required"));
+  }
+  if (this.productId && this.programId) {
+    return next(new Error("A question can only be linked to a product OR a program, not both"));
+  }
+  next();
+});
 
 const TrainingProgram   = mongoose.model("TrainingProgram",   trainingProgramSchema);
 const EmployeeTraining  = mongoose.model("EmployeeTraining",  employeeTrainingSchema);

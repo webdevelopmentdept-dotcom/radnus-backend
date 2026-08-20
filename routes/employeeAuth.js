@@ -193,49 +193,6 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ================= UPLOAD DOCUMENT =================
-// router.post('/upload-doc', (req, res) => {
-//   upload.single('file')(req, res, async (err) => {
-//     if (err) return res.status(400).json({ message: err.message });
-
-//     try {
-//       const { employeeId, docType } = req.body;
-
-//       if (!employeeId) return res.status(400).json({ message: 'EMPLOYEE_ID_MISSING' });
-//       if (!req.file)   return res.status(400).json({ message: 'NO_FILE_UPLOADED' });
-
-//       const existingDoc = await Document.findOne({ employeeId, docType });
-//       if (existingDoc) return res.status(400).json({ message: 'DOCUMENT_ALREADY_UPLOADED' });
-
-//       const newDoc = new Document({
-//         employeeId,
-//         docType,
-//         fileUrl: req.file.path,
-//       });
-//       await newDoc.save();
-
-//       const requiredDocs = [
-//         'Aadhaar', 'PAN', 'Passport Photo',
-//         '10th Marksheet', '12th Marksheet',
-//         'Resume', 'Bank Passbook',
-//         'Ration Card Front', 'Ration Card Back',
-//       ];
-
-//       const uploadedDocs  = await Document.find({ employeeId });
-//       const uploadedTypes = uploadedDocs.map(d => d.docType);
-//       const allUploaded   = requiredDocs.every(doc => uploadedTypes.includes(doc));
-
-//       await Employee.findByIdAndUpdate(employeeId, {
-//         status: 'pending',
-//         documentsCompleted: allUploaded ? true : undefined,
-//       });
-
-//       res.json({ message: 'Uploaded successfully', fileUrl: req.file.path });
-//     } catch {
-//       res.status(500).json({ message: 'Upload failed' });
-//     }
-//   });
-// });
 
 // ================= UPLOAD DOCUMENT =================
 router.post('/upload-doc', (req, res) => {
@@ -278,6 +235,54 @@ router.post('/upload-doc', (req, res) => {
       res.status(500).json({ message: 'Upload failed' });
     }
   });
+});
+
+
+// ================= DELETE DOCUMENT =================
+// NOTE: this route was missing entirely, which is why the delete button
+// on HR-issued documents (Offer Letter, Appointment Letter, NDA, etc.)
+// and employee-uploaded documents silently did nothing — the frontend's
+// DELETE request to /api/employee/delete-doc had no matching route and
+// was failing with a 404 that only showed up in the console.
+router.delete('/delete-doc', async (req, res) => {
+  try {
+    const { employeeId, docType } = req.body;
+
+    if (!employeeId) return res.status(400).json({ message: 'EMPLOYEE_ID_MISSING' });
+    if (!docType)    return res.status(400).json({ message: 'DOC_TYPE_MISSING' });
+
+    const doc = await Document.findOne({ employeeId, docType });
+    if (!doc) return res.status(404).json({ message: 'DOCUMENT_NOT_FOUND' });
+
+    // Best-effort cleanup of the Cloudinary asset — a failure here should
+    // not block removing the database record.
+    if (doc.publicId) {
+      try {
+        await cloudinary.uploader.destroy(doc.publicId, { resource_type: 'auto' });
+      } catch (cloudErr) {
+        console.error('Cloudinary destroy failed (continuing with DB delete):', cloudErr.message);
+      }
+    }
+
+    await Document.deleteOne({ _id: doc._id });
+
+    // Keep documentsCompleted status accurate after removal.
+    const requiredDocs = [
+      'Aadhaar', 'PAN', 'Passport Photo',
+      '10th Marksheet', '12th Marksheet',
+      'Resume', 'Bank Passbook',
+      'Ration Card Front', 'Ration Card Back',
+    ];
+    const remainingDocs = await Document.find({ employeeId });
+    const remainingTypes = remainingDocs.map(d => d.docType);
+    const allUploaded = requiredDocs.every(rd => remainingTypes.includes(rd));
+    await Employee.findByIdAndUpdate(employeeId, { documentsCompleted: allUploaded });
+
+    res.json({ message: 'Document deleted successfully' });
+  } catch (err) {
+    console.error('Delete-doc error:', err);
+    res.status(500).json({ message: 'Delete failed' });
+  }
 });
 
 // ================= REPLACE DOCUMENT =================
@@ -359,6 +364,23 @@ router.put('/complete-documents', async (req, res) => {
     const ok = requiredDocs.every(doc => types.includes(doc));
 
     if (!ok) return res.status(400).json({ message: 'UPLOAD_ALL_REQUIRED_DOCS_FIRST' });
+
+    // ✅ Identity Proof — Ration Card (both sides) OR Gas Book must be present
+    const hasRation  = types.includes('Ration Card Front') && types.includes('Ration Card Back');
+    const hasGasBook = types.includes('Gas Book');
+    if (!hasRation && !hasGasBook) {
+      return res.status(400).json({ message: 'IDENTITY_PROOF_REQUIRED' });
+    }
+
+    // ✅ Reference Numbers 1 & 2 — always mandatory, regardless of identity proof choice
+    const refDoc1 = uploaded.find(d => d.docType === 'Reference Number 1');
+    const refDoc2 = uploaded.find(d => d.docType === 'Reference Number 2');
+    const hasRefNumbers =
+      refDoc1 && refDoc1.fileUrl && refDoc1.fileUrl.trim() !== '' &&
+      refDoc2 && refDoc2.fileUrl && refDoc2.fileUrl.trim() !== '';
+    if (!hasRefNumbers) {
+      return res.status(400).json({ message: 'REFERENCE_NUMBERS_REQUIRED' });
+    }
 
     const emp = await Employee.findByIdAndUpdate(employeeId, { documentsCompleted: true }, { new: true });
 

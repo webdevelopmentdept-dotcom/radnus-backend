@@ -1,6 +1,7 @@
 const { TrainingProgram, EmployeeTraining, ComplianceLog, QuizQuestion } = require("../models/TrainingRca");
 const Employee = require("../models/Employee");
 const Product = require("../models/Product");
+const { createNotification } = require("../helpers/notificationHelper");
 
 // ═══════════════════════════════════════════════════════════════
 // TRAINING PROGRAM MASTER APIs (HR)
@@ -23,7 +24,24 @@ const getAllPrograms = async (req, res) => {
 // ── POST /api/training/programs ───────────────────────────────
 const createProgram = async (req, res) => {
   try {
-    const program = await TrainingProgram.create(req.body);
+    const body = { ...req.body };
+    const videoFile = req.files?.video?.[0];
+    const pdfFile   = req.files?.pdf?.[0];
+
+    if (videoFile) {                       // uploaded video file
+      body.videoSource = "upload";
+      body.videoUrl = videoFile.path;
+      body.videoPublicId = videoFile.filename;
+    } else if (body.videoUrl) {            // youtube link typed by HR
+      body.videoSource = "youtube";
+    }
+    if (pdfFile) {                         // uploaded PDF file
+      body.pdfUrl = pdfFile.path;
+      body.pdfPublicId = pdfFile.filename;
+      body.pdfName = pdfFile.originalname;
+    }
+    if (typeof body.modules === "string") body.modules = JSON.parse(body.modules); // FormData sends arrays as string
+    const program = await TrainingProgram.create(body);
     res.status(201).json({ success: true, data: program, message: "Training program created" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -31,7 +49,25 @@ const createProgram = async (req, res) => {
 // ── PUT /api/training/programs/:id ────────────────────────────
 const updateProgram = async (req, res) => {
   try {
-    const program = await TrainingProgram.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const body = { ...req.body };
+    const videoFile = req.files?.video?.[0];
+    const pdfFile   = req.files?.pdf?.[0];
+
+    if (videoFile) {
+      body.videoSource = "upload";
+      body.videoUrl = videoFile.path;
+      body.videoPublicId = videoFile.filename;
+    } else if (body.videoUrl && !body.videoSource) {
+      body.videoSource = "youtube";
+    }
+    if (pdfFile) {                         // replace/attach PDF
+      body.pdfUrl = pdfFile.path;
+      body.pdfPublicId = pdfFile.filename;
+      body.pdfName = pdfFile.originalname;
+    }
+    if (typeof body.modules === "string") body.modules = JSON.parse(body.modules);
+
+    const program = await TrainingProgram.findByIdAndUpdate(req.params.id, body, { new: true });
     if (!program) return res.status(404).json({ success: false, message: "Program not found" });
     res.json({ success: true, data: program, message: "Program updated" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -221,27 +257,33 @@ const getProgramProducts = async (req, res) => {
 // QUIZ QUESTION BANK (HR authors MCQs per product)
 // ═══════════════════════════════════════════════════════════════
 
-// ── GET /api/training/quiz-questions?productId= ────────────────
+// ── GET /api/training/quiz-questions?productId=&programId= ─────
 const getQuizQuestions = async (req, res) => {
   try {
-    const { productId } = req.query;
+    const { productId, programId } = req.query;
     const filter = { isActive: true };
     if (productId) filter.productId = productId;
+    if (programId) filter.programId = programId;
     const questions = await QuizQuestion.find(filter).sort({ createdAt: 1 });
     res.json({ success: true, data: questions });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
 // ── POST /api/training/quiz-questions ───────────────────────────
+// body: { productId } OR { programId } — exactly one — plus the question.
 const createQuizQuestion = async (req, res) => {
   try {
-    const { productId, questionText, options, correctOptionIndex } = req.body;
-    if (!productId || !questionText || !Array.isArray(options) || options.length !== 4)
-      return res.status(400).json({ success: false, message: "productId, questionText and exactly 4 options are required" });
+    const { productId, programId, questionText, options, correctOptionIndex } = req.body;
+    if (!productId && !programId)
+      return res.status(400).json({ success: false, message: "Either productId or programId is required" });
+    if (productId && programId)
+      return res.status(400).json({ success: false, message: "Link the question to a product OR a program, not both" });
+    if (!questionText || !Array.isArray(options) || options.length !== 4)
+      return res.status(400).json({ success: false, message: "questionText and exactly 4 options are required" });
     if (correctOptionIndex === undefined || correctOptionIndex < 0 || correctOptionIndex > 3)
       return res.status(400).json({ success: false, message: "correctOptionIndex must be 0-3" });
 
-    const question = await QuizQuestion.create({ productId, questionText, options, correctOptionIndex });
+    const question = await QuizQuestion.create({ productId: productId || null, programId: programId || null, questionText, options, correctOptionIndex });
     res.status(201).json({ success: true, data: question, message: "Question added" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -306,9 +348,98 @@ const markProductStudied = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+// ── PUT /api/training/my/:recordId/video-watched ─────────────────
+// Called when the employee's <video> onEnded event fires (i.e. they
+// actually watched the training video to completion, not just opened
+// it). Used for non-equipment programs that only have a single
+// program-level video (e.g. "Excel training").
+const markVideoWatched = async (req, res) => {
+  try {
+    const record = await EmployeeTraining.findById(req.params.recordId);
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    if (!record.videoWatched) {
+      record.videoWatched = true;
+      record.videoWatchedAt = new Date();
+    }
+    if (record.status === "pending" || record.status === "retrain") {
+      record.status = "in_progress";
+      if (!record.startedDate) record.startedDate = new Date();
+    }
+    await record.save();
+
+    res.json({ success: true, data: record, message: "Video marked as watched" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── PUT /api/training/my/:recordId/pdf-read ───────────────────────
+// Employee explicitly confirms they've read the attached PDF (there's
+// no reliable "finished reading" browser event for a PDF like there is
+// for a video, so this is a deliberate confirm-click, gated in the UI
+// on having opened the PDF at least once).
+const markPdfRead = async (req, res) => {
+  try {
+    const record = await EmployeeTraining.findById(req.params.recordId);
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    if (!record.pdfRead) {
+      record.pdfRead = true;
+      record.pdfReadAt = new Date();
+    }
+    if (record.status === "pending" || record.status === "retrain") {
+      record.status = "in_progress";
+      if (!record.startedDate) record.startedDate = new Date();
+    }
+    await record.save();
+
+    res.json({ success: true, data: record, message: "PDF marked as read" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── PUT /api/training/my/:recordId/complete ──────────────────────
+// For NON-equipment programs only (no quiz to unlock this) — e.g.
+// "Excel training". Employee clicks "Mark as Completed" once the video
+// is watched; this pushes the record into pending_review, same as a
+// submitted quiz, so HR still has to confirm it before it counts as
+// truly completed.
+const markProgramComplete = async (req, res) => {
+  try {
+    const record = await EmployeeTraining.findById(req.params.recordId).populate("programId").populate("employeeId", "name");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    if (record.programId?.type === "equipment") {
+      return res.status(400).json({ success: false, message: "Equipment trainings must be completed via the quiz, not this action" });
+    }
+    if (!record.videoWatched && record.programId?.videoUrl) {
+      return res.status(400).json({ success: false, message: "Watch the training video till the end before marking this complete" });
+    }
+    if (!record.pdfRead && record.programId?.pdfUrl) {
+      return res.status(400).json({ success: false, message: "Read the training PDF before marking this complete" });
+    }
+    if (["completed", "pending_review"].includes(record.status)) {
+      return res.json({ success: true, data: record, message: "Already submitted" });
+    }
+
+    record.status = "pending_review";
+    await record.save();
+
+    await createNotification({
+      recipient_id:   "hr_admin_001",
+      recipient_role: "hr",
+      type:           "employee",
+      title:          `Training Submitted — ${record.employeeId?.name || "Employee"} 📚`,
+      message:        `${record.employeeId?.name || "An employee"} has submitted "${record.programId?.title || "a training"}" for your review.`,
+      link:           "/hr/dashboard/training",
+    });
+
+    res.json({ success: true, data: record, message: "Submitted for HR review" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
 // ── GET /api/training/my/:recordId/quiz ──────────────────────────
-// Builds the combined quiz for a record: pulls questions from every
-// product linked to the record's program (per-product, pooled).
+// Builds the quiz for a record. Equipment programs pool questions
+// across every linked product; non-equipment programs (e.g. "Excel
+// training") use questions linked directly to the program.
 const getQuiz = async (req, res) => {
   try {
     const record = await EmployeeTraining.findById(req.params.recordId).populate("programId");
@@ -319,14 +450,19 @@ const getQuiz = async (req, res) => {
       return res.status(403).json({ success: false, message: "You have already submitted this test. Only one attempt is allowed." });
     }
 
-    const products = await Product.find({ trainingProgramId: record.programId?._id }).select("_id productName");
-    if (!products.length) {
-      return res.status(400).json({ success: false, message: "No products linked to this training" });
+    let questions;
+    if (record.programId?.type === "equipment") {
+      const products = await Product.find({ trainingProgramId: record.programId?._id }).select("_id productName");
+      if (!products.length) {
+        return res.status(400).json({ success: false, message: "No products linked to this training" });
+      }
+      const productIds = products.map(p => p._id);
+      questions = await QuizQuestion.find({ productId: { $in: productIds }, isActive: true })
+        .select("productId questionText options"); // correctOptionIndex withheld from employee
+    } else {
+      questions = await QuizQuestion.find({ programId: record.programId?._id, isActive: true })
+        .select("programId questionText options");
     }
-
-    const productIds = products.map(p => p._id);
-    const questions = await QuizQuestion.find({ productId: { $in: productIds }, isActive: true })
-      .select("productId questionText options"); // correctOptionIndex withheld from employee
 
     if (!questions.length) {
       return res.status(400).json({ success: false, message: "No quiz questions available yet — check with HR" });
@@ -353,7 +489,7 @@ const submitQuiz = async (req, res) => {
     if (!Array.isArray(answers) || !answers.length)
       return res.status(400).json({ success: false, message: "answers[] required" });
 
-    const record = await EmployeeTraining.findById(req.params.recordId).populate("programId");
+    const record = await EmployeeTraining.findById(req.params.recordId).populate("programId").populate("employeeId", "name");
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
 
     if (record.quizAttempts.length >= MAX_ATTEMPTS) {
@@ -393,6 +529,15 @@ const submitQuiz = async (req, res) => {
       action: "score_updated",
       note: `Quiz submitted — Score: ${score}% — awaiting HR review`,
       addedBy: "Employee",
+    });
+
+    await createNotification({
+      recipient_id:   "hr_admin_001",
+      recipient_role: "hr",
+      type:           "employee",
+      title:          `Training Test Submitted — ${record.employeeId?.name || "Employee"} 📚`,
+      message:        `${record.employeeId?.name || "An employee"} scored ${score}% on "${record.programId?.title || "a training"}" and it's ready for your review.`,
+      link:           "/hr/dashboard/training",
     });
 
     res.json({
@@ -444,9 +589,20 @@ const assignTraining = async (req, res) => {
     });
 
     await record.populate(["employeeId","programId"]);
+
+    await createNotification({
+      recipient_id:   employeeId,
+      recipient_role: "employee",
+      type:           "hr",
+      title:          "New Training Assigned 📚",
+      message:        `"${prog.title}" has been assigned to you. Check your training roadmap.`,
+      link:           "/employee/training",
+    });
+
     res.status(201).json({ success: true, data: record, message: "Training assigned" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
+
 
 // ── POST /api/training/assign-bulk ───────────────────────────
 // Assign a program to multiple employees at once
@@ -467,6 +623,16 @@ const assignBulk = async (req, res) => {
 
       await EmployeeTraining.create({ employeeId: empId, programId, dueDate: dueDate || null, addedBy: addedBy || "HR" });
       await ComplianceLog.create({ employeeId: empId, programId, programTitle: prog.title, action: "assigned", addedBy: addedBy || "HR" });
+
+      await createNotification({
+        recipient_id:   empId,
+        recipient_role: "employee",
+        type:           "hr",
+        title:          "New Training Assigned 📚",
+        message:        `"${prog.title}" has been assigned to you. Check your training roadmap.`,
+        link:           "/employee/training",
+      });
+
       results.assigned.push(empId);
     }
 
@@ -487,6 +653,7 @@ const getAllRecords = async (req, res) => {
     let records = await EmployeeTraining.find(filter)
       .populate("employeeId", "name department designation level")
       .populate("programId")
+      .populate("quizAttempts.answers.questionId", "questionText options correctOptionIndex")
       .sort({ assignedDate: -1 });
 
     // Filter by department
@@ -545,10 +712,10 @@ const updateRecord = async (req, res) => {
     if (status !== undefined) {
       updateFields.status = status;
       if (status === "in_progress" && !record.startedDate) updateFields.startedDate = new Date();
-      if (status === "completed") updateFields.completedDate = new Date();
+      if (status === "completed") { updateFields.completedDate = new Date(); }
       if (status === "overdue" && !record.startedDate) updateFields.startedDate = null;
 
-      // ✅ NEW — "Retrain" resets the record so the employee has to re-study
+      // "Retrain" resets the record so the employee has to re-study
       // every product and retake the test from scratch. Their previous
       // score/certification is cleared since it no longer applies.
       if (status === "retrain") {
@@ -583,9 +750,33 @@ const updateRecord = async (req, res) => {
         programId:  record.programId?._id,
         programTitle: record.programId?.title || "",
         action: status === "completed" ? "completed" : status === "in_progress" ? "started" : status,
-        note: notes || progressNote || (status === "retrain" ? "Sent back for retraining — study checklist and test reset" : ""),
+        note: notes || progressNote || "",
         addedBy: addedBy || "HR",
       });
+
+      // HR confirmed this training as complete — notify the employee
+      if (status === "completed") {
+        await createNotification({
+          recipient_id:   record.employeeId,
+          recipient_role: "employee",
+          type:           "hr",
+          title:          "Training Completed ✅",
+          message:        `HR has confirmed "${record.programId?.title || "your training"}" as complete.${assessmentScore !== undefined ? ` Score: ${assessmentScore}%.` : ""}`,
+          link:           "/employee/training",
+        });
+      }
+
+      // HR sent the record back for retraining — let the employee know
+      if (status === "retrain") {
+        await createNotification({
+          recipient_id:   record.employeeId,
+          recipient_role: "employee",
+          type:           "hr",
+          title:          "Retraining Required 🔁",
+          message:        `HR has asked you to retrain on "${record.programId?.title || "your training"}". Please go through the material again and retake the test.`,
+          link:           "/employee/training",
+        });
+      }
     }
     if (assessmentScore !== undefined) {
       await ComplianceLog.create({
@@ -711,7 +902,7 @@ const updateCompetencyLevel = async (req, res) => {
 module.exports = {
   getAllPrograms, createProgram, updateProgram, deleteProgram, deleteAllPrograms, seedDefaultPrograms,
   backfillEquipmentPrograms, consolidateEquipmentPrograms, getOrCreateSharedEquipmentProgram, getProgramProducts,
-  getQuizQuestions, createQuizQuestion, updateQuizQuestion, deleteQuizQuestion,
+  getQuizQuestions, createQuizQuestion, updateQuizQuestion, deleteQuizQuestion, markVideoWatched, markPdfRead, markProgramComplete,
   markProductStudied, getQuiz, submitQuiz,
   assignTraining, assignBulk, getAllRecords, getStats, updateRecord, getComplianceLog,
   getMyTrainings, markStarted, updateCompetencyLevel,
