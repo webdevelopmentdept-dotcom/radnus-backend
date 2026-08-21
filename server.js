@@ -129,7 +129,7 @@ const walkinRoutes = require("./routes/walkinApplicants");
 
 const employeeFeedbackRoutes =require('./routes/employeeFeedbackRoutes')
 const hrFeedbackRoutes = require('./routes/hrFeedbackRoutes');
-
+const  loanProcessRoutes=require('./routes/loanprocessRoutes')
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
@@ -200,8 +200,8 @@ app.use("/api/payroll", require("./routes/payrollRoutes"));
 app.use('/api/hr', hrTicketsRoutes);
 app.use("/api/advance", require("./routes/advanceRoutes"));
 app.use("/api/products", productRoutes);
-
-
+app.use("/api/loan-process",  loanProcessRoutes);
+app.use("/api/admin-loan-process", require("./routes/adminLoanProcessRoutes"));
 
 // Applicants & Admin
 app.use("/api/applicants", applicantRoutes);
@@ -219,9 +219,6 @@ app.use("/api", require("./routes/hrSettingsRoutes"));
 app.use("/api/leave-types", require("./routes/hrSettingsRoutes"));
 app.use("/api/leave-requests", require("./routes/leaveRoutes")); // ✅ NEW
 app.use("/api/leave-requests", require("./routes/leaveRoutes")); // ✅
-
-
-
 
 app.use("/api", attendanceRoutes);
 app.use("/", require("./routes/esslRoutes"));

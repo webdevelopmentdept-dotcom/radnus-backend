@@ -429,6 +429,8 @@ router.get('/me/:id', async (req, res) => {
       profileImage: user.profileImage,
       shift: user.shift,
       canManageProducts: user.canManageProducts,
+       canManageLoanProcess: user.canManageLoanProcess, 
+       isLoanProcessHead: user.isLoanProcessHead,
       documents,
     });
   } catch {
