@@ -14,6 +14,11 @@ const loanCustomerSchema = new mongoose.Schema(
     communicationAddress: { type: String, default: "" },
     unitAddress: { type: String, default: "" },
     businessType: { type: String, default: "" },
+    scheme: {
+      type: String,
+      enum: ["PMEGP", "UYEGP", "AABCS", ""],
+      default: "",
+    },
     loanValue: { type: Number, default: 0 },
     contactNo: { type: String, required: true, trim: true },
     mailId: { type: String, default: "", trim: true },
