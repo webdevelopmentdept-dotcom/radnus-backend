@@ -11,6 +11,7 @@ const loanCustomerSchema = new mongoose.Schema(
   {
     // ── Tab 1: Customer Basic Details ─────────────────────────────────────
     customerName: { type: String, required: true, trim: true },
+    loanDate: { type: Date, default: Date.now },
     communicationAddress: { type: String, default: "" },
     unitAddress: { type: String, default: "" },
     businessType: { type: String, default: "" },

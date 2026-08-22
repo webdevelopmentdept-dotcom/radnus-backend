@@ -70,6 +70,8 @@ router.post("/create", auth, canManageLoanProcess, uploadDocs, async (req, res) 
   try {
     const {
       customerName,
+        loanDate,
+
       communicationAddress,
       unitAddress,
       businessType,
@@ -103,6 +105,7 @@ router.post("/create", auth, canManageLoanProcess, uploadDocs, async (req, res) 
 
     const customer = await LoanCustomer.create({
       customerName,
+       loanDate: loanDate ? new Date(loanDate) : Date.now(),
       communicationAddress,
       unitAddress,
       businessType,
@@ -251,9 +254,12 @@ router.put("/:id", auth, canManageLoanProcess, async (req, res) => {
   try {
     const {
       customerName,
+        loanDate,
+
       communicationAddress,
       unitAddress,
       businessType,
+      scheme,
       loanValue,
       contactNo,
       mailId,
@@ -265,9 +271,12 @@ router.put("/:id", auth, canManageLoanProcess, async (req, res) => {
       req.params.id,
       {
         customerName,
+            loanDate: loanDate ? new Date(loanDate) : undefined,
+
         communicationAddress,
         unitAddress,
         businessType,
+         scheme,
         loanValue: Number(loanValue) || 0,
         contactNo,
         mailId,
