@@ -5,7 +5,7 @@ const {
   backfillEquipmentPrograms, consolidateEquipmentPrograms, getProgramProducts,
   getQuizQuestions, createQuizQuestion, updateQuizQuestion, deleteQuizQuestion,
   markProductStudied, markVideoWatched, markPdfRead, markProgramComplete, getQuiz, submitQuiz,
-  assignTraining, assignBulk, getAllRecords, getStats, updateRecord, getComplianceLog,
+  assignTraining, assignBulk, getAllRecords, getStats, updateRecord, markAllComplete, getComplianceLog,
   getMyTrainings, markStarted, updateCompetencyLevel,
 } = require("../controllers/trainingrcaController");
 const multer = require("multer");
@@ -46,6 +46,7 @@ router.post  ("/training/seed",            seedDefaultPrograms);
 router.post  ("/training/backfill-equipment", backfillEquipmentPrograms);
 router.post  ("/training/consolidate-equipment", consolidateEquipmentPrograms);
 router.get   ("/training/programs/:id/products", getProgramProducts);
+router.put   ("/training/programs/:id/mark-all-complete", markAllComplete);
 
 // ── HR Assignment ─────────────────────────────────────────────
 router.post  ("/training/assign",          assignTraining);

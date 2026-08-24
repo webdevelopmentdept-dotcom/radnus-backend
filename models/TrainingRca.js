@@ -19,6 +19,11 @@ const trainingProgramSchema = new mongoose.Schema({
   // per-product program each time.
   isShared:    { type: Boolean, default: false },
   duration:    { type: String, default: "" },       // "7 Days", "1 Month", etc.
+    // Offline (in-person/classroom) training support
+  deliveryMode: { type: String, enum: ["online","offline"], default: "online" },
+  sessionDate:  { type: Date, default: null },
+  sessionTime:  { type: String, default: "" },  
+  venue:        { type: String, default: "" },
   videoSource: { type: String, enum: ["upload","youtube",""], default: "" },
 videoUrl:    { type: String, default: "" },   // Cloudinary URL OR YouTube link
 videoPublicId: { type: String, default: "" },
@@ -39,8 +44,7 @@ videoPublicId: { type: String, default: "" },
 const employeeTrainingSchema = new mongoose.Schema({
   employeeId:   { type: mongoose.Schema.Types.ObjectId, ref: "Employee", required: true },
   programId:    { type: mongoose.Schema.Types.ObjectId, ref: "TrainingProgram", required: true },
-
-  status:       { type: String, enum: ["pending","in_progress","completed","overdue","waived","failed_retake","needs_hr_review","pending_review","retrain"], default: "pending" },
+status:       { type: String, enum: ["pending","in_progress","completed","overdue","waived","failed_retake","needs_hr_review","pending_review","retrain","absent"], default: "pending" },
   assignedDate: { type: Date, default: Date.now },
   dueDate:      { type: Date },
   startedDate:  { type: Date },
@@ -114,7 +118,7 @@ const complianceLogSchema = new mongoose.Schema({
   employeeId:  { type: mongoose.Schema.Types.ObjectId, ref: "Employee", required: true },
   programId:   { type: mongoose.Schema.Types.ObjectId, ref: "TrainingProgram" },
   programTitle:{ type: String },
-  action:      { type: String, enum: ["assigned","started","completed","overdue","score_updated","cert_issued","waived","retrain"] },
+action:      { type: String, enum: ["assigned","started","completed","overdue","score_updated","cert_issued","waived","retrain","absent","bulk_completed"] },
   note:        { type: String, default: "" },
   addedBy:     { type: String, default: "HR" },
   date:        { type: Date, default: Date.now },

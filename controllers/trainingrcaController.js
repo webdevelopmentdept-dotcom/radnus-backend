@@ -778,6 +778,19 @@ const updateRecord = async (req, res) => {
         });
       }
     }
+
+          // HR marked this record as absent/not attended (offline session exception)
+      if (status === "absent") {
+        await createNotification({
+          recipient_id:   record.employeeId,
+          recipient_role: "employee",
+          type:           "hr",
+          title:          "Marked Absent",
+          message:        `HR has marked you absent / not attended for "${record.programId?.title || "your training"}". Please reach out to HR to reschedule.`,
+          link:           "/employee/training",
+        });
+      }
+
     if (assessmentScore !== undefined) {
       await ComplianceLog.create({
         employeeId: record.employeeId,
@@ -802,6 +815,62 @@ const updateRecord = async (req, res) => {
     res.json({ success: true, data: updated, message: "Training record updated" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
+
+
+// ── PUT /api/training/programs/:id/mark-all-complete ─────────
+// "Finish Training" — offline/instructor-led programs-ku. Assign panna
+// ella employees-um (already completed/waived illatha) "completed" ah
+// bulk mark pannum. Absent aana person-a HR Records tab-la individually
+// "absent" ah maathanum.
+const markAllComplete = async (req, res) => {
+  try {
+    const prog = await TrainingProgram.findById(req.params.id);
+    if (!prog) return res.status(404).json({ success: false, message: "Program not found" });
+
+    const records = await EmployeeTraining.find({
+      programId: req.params.id,
+      status: { $nin: ["completed", "waived"] },
+    }).populate("employeeId", "name");
+
+    if (!records.length) {
+      return res.json({ success: true, data: { updated: 0 }, message: "Nothing to update — everyone assigned is already completed." });
+    }
+
+    const now = new Date();
+    let updated = 0;
+
+    for (const record of records) {
+      record.status = "completed";
+      record.completedDate = now;
+      if (!record.startedDate) record.startedDate = now;
+       record.progressLog.push({ note: "Marked complete via HR bulk 'Finish Training'", addedBy: req.body?.addedBy || "HR" });
+      await record.save();
+
+      await ComplianceLog.create({
+        employeeId: record.employeeId?._id || record.employeeId,
+        programId: prog._id,
+        programTitle: prog.title,
+        action: "bulk_completed",
+        note: "Marked complete via HR bulk 'Finish Training'",
+        addedBy: req.body?.addedBy || "HR",
+      });
+
+      await createNotification({
+        recipient_id:   record.employeeId?._id || record.employeeId,
+        recipient_role: "employee",
+        type:           "hr",
+        title:          "Training Completed ✅",
+        message:        `HR has marked "${prog.title}" as complete for you.`,
+        link:           "/employee/training",
+      });
+
+      updated++;
+    }
+
+    res.json({ success: true, data: { updated }, message: `Marked ${updated} employee${updated === 1 ? "" : "s"} as completed.` });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
 
 // ── GET /api/training/compliance-log ─────────────────────────
 const getComplianceLog = async (req, res) => {
@@ -899,11 +968,15 @@ const updateCompetencyLevel = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+
+
+
+// PUDHU CODE (replace pannu):
 module.exports = {
   getAllPrograms, createProgram, updateProgram, deleteProgram, deleteAllPrograms, seedDefaultPrograms,
   backfillEquipmentPrograms, consolidateEquipmentPrograms, getOrCreateSharedEquipmentProgram, getProgramProducts,
   getQuizQuestions, createQuizQuestion, updateQuizQuestion, deleteQuizQuestion, markVideoWatched, markPdfRead, markProgramComplete,
   markProductStudied, getQuiz, submitQuiz,
-  assignTraining, assignBulk, getAllRecords, getStats, updateRecord, getComplianceLog,
+  assignTraining, assignBulk, getAllRecords, getStats, updateRecord, markAllComplete, getComplianceLog,
   getMyTrainings, markStarted, updateCompetencyLevel,
 };
