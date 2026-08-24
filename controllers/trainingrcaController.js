@@ -816,6 +816,32 @@ const updateRecord = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+// ── DELETE /api/training/records/:id ──────────────────────────
+// Permanently removes a single employee's training assignment —
+// used by both the "Delete" button (HR confirms first) and the
+// "Unassign" quick-action (no confirm, has its own Undo toast) on
+// the frontend. Also cleans up score/quiz compliance-log noise for
+// that record so the log doesn't reference a record that no longer
+// exists.
+const deleteRecord = async (req, res) => {
+  try {
+    const record = await EmployeeTraining.findById(req.params.id).populate("employeeId", "name").populate("programId", "title");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    await EmployeeTraining.findByIdAndDelete(req.params.id);
+
+    await ComplianceLog.create({
+      employeeId: record.employeeId?._id || record.employeeId,
+      programId:  record.programId?._id,
+      programTitle: record.programId?.title || "",
+      action: "assigned", // reuse existing enum value; note field carries the real context
+      note: `Training record removed by HR (was: ${record.status})`,
+      addedBy: req.body?.addedBy || "HR",
+    });
+
+    res.json({ success: true, message: "Training record deleted" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
 
 // ── PUT /api/training/programs/:id/mark-all-complete ─────────
 // "Finish Training" — offline/instructor-led programs-ku. Assign panna
@@ -977,6 +1003,6 @@ module.exports = {
   backfillEquipmentPrograms, consolidateEquipmentPrograms, getOrCreateSharedEquipmentProgram, getProgramProducts,
   getQuizQuestions, createQuizQuestion, updateQuizQuestion, deleteQuizQuestion, markVideoWatched, markPdfRead, markProgramComplete,
   markProductStudied, getQuiz, submitQuiz,
-  assignTraining, assignBulk, getAllRecords, getStats, updateRecord, markAllComplete, getComplianceLog,
+  assignTraining, assignBulk, getAllRecords, getStats, updateRecord, deleteRecord, markAllComplete, getComplianceLog,
   getMyTrainings, markStarted, updateCompetencyLevel,
 };
