@@ -184,8 +184,7 @@ router.get("/:id", auth, canManageLoanProcess, async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
   try {
-    const { field, value, reasonForPending } = req.body;
-
+    const { field, value, reasonForPending, remark, date } = req.body;
     const validFields = [
       "cibilVerification",
       "documentCollection",
@@ -206,10 +205,19 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
     const customer = await LoanCustomer.findById(req.params.id);
     if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
 
-    customer.checklist[field] = !!value;
+                customer.checklist[field] = !!value;
+    customer.markModified("checklist");
     if (reasonForPending !== undefined) customer.reasonForPending = reasonForPending;
+        if (remark !== undefined) {
+      customer.checklistRemarks[field] = remark;
+      customer.markModified("checklistRemarks");
+    }
+    if (date !== undefined) {
+      customer.checklistDates[field] = date ? new Date(date) : null;
+      customer.markModified("checklistDates");
+    }
 
-    await customer.save(); // pre-save hook recalculates processPercent + status
+    await customer.save();
 
     res.json({ success: true, customer });
   } catch (err) {

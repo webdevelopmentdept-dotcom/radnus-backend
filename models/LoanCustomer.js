@@ -58,6 +58,35 @@ const loanCustomerSchema = new mongoose.Schema(
       completed: { type: Boolean, default: false },
     },
 
+     // Optional per-stage remark, one text field per checklist key
+    checklistRemarks: {
+      cibilVerification: { type: String, default: "" },
+      documentCollection: { type: String, default: "" },
+      applicationProcess: { type: String, default: "" },
+      quotation: { type: String, default: "" },
+      auditorReference: { type: String, default: "" },
+      documentPayment: { type: String, default: "" },
+      finalisationVerification: { type: String, default: "" },
+      finalSubmission: { type: String, default: "" },
+      courier: { type: String, default: "" },
+      completed: { type: String, default: "" },
+    },
+
+        // Optional per-stage date — only used for documentPayment & courier on the UI,
+    // but kept for all keys so the pattern stays consistent with checklistRemarks
+    checklistDates: {
+      cibilVerification: { type: Date, default: null },
+      documentCollection: { type: Date, default: null },
+      applicationProcess: { type: Date, default: null },
+      quotation: { type: Date, default: null },
+      auditorReference: { type: Date, default: null },
+      documentPayment: { type: Date, default: null },
+      finalisationVerification: { type: Date, default: null },
+      finalSubmission: { type: Date, default: null },
+      courier: { type: Date, default: null },
+      completed: { type: Date, default: null },
+    },
+
     processPercent: { type: Number, default: 0 },
     reasonForPending: { type: String, default: "" },
 
