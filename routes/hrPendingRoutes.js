@@ -10,7 +10,7 @@ router.get("/pending", async (req, res) => {
   try {
 
     const employees = await Employee.find({
-      status: "pending" // ✅ IMPORTANT
+     status: { $in: ["pending", "admin_pending"] }
     });
 
     const result = await Promise.all(
@@ -89,11 +89,11 @@ router.get("/rejected", async (req, res) => {
 
 
 // ================= APPROVE =================
+// ================= APPROVE (HR STEP) =================
 router.put("/approve/:id", async (req, res) => {
   try {
-    // ✅ CHANGE 1: { new: true } add pannanum, employee updated data (name) kittum
     const employee = await Employee.findByIdAndUpdate(req.params.id, {
-      status: "approved",
+      status: "admin_pending",
       remarks: "",
       reuploaded: false,
       updatedAt: new Date()
@@ -103,24 +103,22 @@ router.put("/approve/:id", async (req, res) => {
       return res.status(404).json({ message: "Employee not found" });
     }
 
-    // ✅ CHANGE 2: Activation route-la irundhu same maadhiri notification create panrom
     await createNotification({
-      recipient_id:   employee._id,
-      recipient_role: "employee",
-      type:           "employee_activated",
-      title:          "Application Approved 🎉",
-      message:        `Congratulations ${employee.name}! Your application has been approved. Welcome aboard!`,
-      link:           "/employee/dashboard"
+      recipient_id:   null,
+      recipient_role: "admin",
+      type:           "general",
+      title:          "New HR Approval Pending",
+      message:        `${employee.name}'s application has been approved by HR and is waiting for your approval.`,
+      link:           "/admin/pending-approvals"
     });
 
-    res.json({ message: "Approved successfully" });
+    res.json({ message: "Sent for Admin approval" });
 
   } catch (err) {
     console.error("Approve error:", err);
     res.status(500).json({ message: "Approve error" });
   }
 });
-
 
 // ================= REJECT =================
 router.put("/reject/:id", async (req, res) => {

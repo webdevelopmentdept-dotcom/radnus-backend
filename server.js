@@ -183,6 +183,7 @@ app.use("/api/hr", hrApplicationsRoutes);
 app.use("/api/hr", hrPendingRoutes);
 app.use("/api/hr", employeeAuth);
 app.use("/api/hr/activation", require("./routes/hrActivationRoutes"));
+app.use("/api/admin", require("./routes/adminPendingRoutes"));
 app.use('/api/wellness', wellnessRoutes);
 app.use('/api/wellnesshr', require('./routes/wellnesshr'));
 app.use('/api/wellnessemployee', require('./routes/wellnessemployee'));

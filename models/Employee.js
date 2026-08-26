@@ -31,7 +31,7 @@ const employeeSchema = new mongoose.Schema({
 
   status: {
     type:    String,
-    enum:    ["pending", "approved", "rejected", "relieved", "fired", "active"],
+    enum:    ["pending", "admin_pending", "approved", "rejected", "relieved", "fired", "active"],
     default: "pending"
   },
 

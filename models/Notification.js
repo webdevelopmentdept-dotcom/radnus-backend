@@ -5,7 +5,7 @@ const notificationSchema = new mongoose.Schema({
     type: String,  // ✅ ObjectId → String-ஆ மாத்து
     required: false 
   },
-  recipient_role: { type: String, enum: ["employee", "hr"], required: true },
+  recipient_role: { type: String, enum: ["employee", "hr", "admin"], required: true },
 
   // ✅ Types matching your existing frontend TYPE_META
   type: {
