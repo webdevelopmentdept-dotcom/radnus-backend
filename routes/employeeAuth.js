@@ -477,7 +477,7 @@ if (status) {
   filter = { status: { $in: statuses } };
 }
     const employees = await Employee.find(filter).select(
-      "name email department designation employeeId empId essl_id status mobile profileImage"
+      "name email department designation employeeId empId essl_id status mobile profileImage exitType accessDeactivated"
     );
     res.json({ success: true, total: employees.length, data: employees });
   } catch (err) {
