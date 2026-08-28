@@ -66,7 +66,21 @@ const uploadDocs = upload.fields(DOC_FIELDS.map((name) => ({ name, maxCount: 1 }
 //  TAB 1 — CREATE CUSTOMER (with document upload)
 //  POST /api/loan-process/create
 // ══════════════════════════════════════════════════════
-router.post("/create", auth, canManageLoanProcess, uploadDocs, async (req, res) => {
+router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
+  uploadDocs(req, res, (err) => {
+    if (err) {
+      console.error("Upload error:", err);
+      return res.status(400).json({
+        success: false,
+        message:
+          err.code === "LIMIT_FILE_SIZE"
+            ? "One of the documents is larger than 5MB. Please upload a smaller file."
+            : err.message || "File upload failed",
+      });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     const {
       customerName,
@@ -121,12 +135,11 @@ router.post("/create", auth, canManageLoanProcess, uploadDocs, async (req, res) 
     });
 
     res.json({ success: true, customer });
-  } catch (err) {
+    } catch (err) {
     console.error("Loan customer create error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
 // ══════════════════════════════════════════════════════
 //  TAB 2 — LIST ALL CUSTOMERS (checklist view)
 //  GET /api/loan-process/all

@@ -129,7 +129,7 @@ const walkinRoutes = require("./routes/walkinApplicants");
 
 const employeeFeedbackRoutes =require('./routes/employeeFeedbackRoutes')
 const hrFeedbackRoutes = require('./routes/hrFeedbackRoutes');
-const  loanProcessRoutes=require('./routes/loanprocessRoutes')
+const loanProcessRoutes = require('./routes/loanprocessRoutes')
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
@@ -248,6 +248,11 @@ mongoose
 /* --------------------------------------------------
    START SERVER
 -------------------------------------------------- */
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ success: false, message: err.message || "Server error" });
+});
 
 const PORT = process.env.PORT || 5000;
 
