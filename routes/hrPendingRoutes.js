@@ -211,6 +211,8 @@ router.get("/employees", async (req, res) => {
           status: emp.status,
           reuploaded: emp.reuploaded,
           documentsCompleted: emp.documentsCompleted,
+           exitType: emp.exitType,
+          accessDeactivated: emp.accessDeactivated,
           documents: docs
         };
       })

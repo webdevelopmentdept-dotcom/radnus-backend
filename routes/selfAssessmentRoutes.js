@@ -149,11 +149,16 @@ router.get('/all', async (req, res) => {
 router.get('/performance-reviews/all', async (req, res) => {
   try {
     const reviews = await PerformanceReview.find({ status: 'finalized' })
-      .populate('employee_id', 'name email department designation')
+      .populate('employee_id', 'name email department designation status')
       .populate('assignment_id')
       .sort({ createdAt: -1 });
 
-    const data = reviews.map(r => ({
+    // ✅ Exclude fired/relieved employees from Top Performers
+    const activeReviews = reviews.filter(r =>
+      r.employee_id && !['fired', 'relieved'].includes(r.employee_id.status)
+    );
+
+        const data = activeReviews.map(r => ({
       _id:           r._id,
       employee_id:   r.employee_id,
       period:        r.period,
