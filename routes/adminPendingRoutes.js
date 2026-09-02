@@ -22,6 +22,8 @@ router.get("/pending", async (req, res) => {
           designation: emp.designation,
           status: emp.status,
           remarks: emp.remarks,
+          hrRemarks: emp.hrRemarks,
+          mdRemarks: emp.mdRemarks,
           createdAt: emp.createdAt,
           updatedAt: emp.updatedAt,
           documents: docs
@@ -39,12 +41,14 @@ router.get("/pending", async (req, res) => {
 // ================= ADMIN APPROVE (FINAL) =================
 router.put("/approve/:id", async (req, res) => {
   try {
+    const { remarks } = req.body;   // ✅ இது சேர்க்கணும்
+
     const employee = await Employee.findByIdAndUpdate(req.params.id, {
       status: "approved",
       remarks: "",
+      mdRemarks: remarks || "",
       updatedAt: new Date()
     }, { new: true });
-
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
@@ -73,6 +77,7 @@ router.put("/reject/:id", async (req, res) => {
     const employee = await Employee.findByIdAndUpdate(req.params.id, {
       status: "rejected",
       remarks: remarks || "Rejected by Admin",
+      mdRemarks: remarks || "Rejected by MD",
       updatedAt: new Date()
     }, { new: true });
 

@@ -30,6 +30,8 @@ router.get("/pending", async (req, res) => {
           designation: emp.designation,
           status: emp.status,
           remarks: emp.remarks,
+          hrRemarks: emp.hrRemarks,
+          mdRemarks: emp.mdRemarks,
           reuploaded: emp.reuploaded,
           createdAt: emp.createdAt,
           updatedAt: emp.updatedAt,
@@ -72,7 +74,9 @@ router.get("/rejected", async (req, res) => {
           designation: emp.designation,
           status: emp.status,
           remarks: emp.remarks, // ✅ FIXED
-            reuploaded: emp.reuploaded,
+            hrRemarks: emp.hrRemarks,
+          mdRemarks: emp.mdRemarks,
+          reuploaded: emp.reuploaded,
           createdAt: emp.createdAt,
           updatedAt: emp.updatedAt,
           documents: docs
@@ -92,9 +96,12 @@ router.get("/rejected", async (req, res) => {
 // ================= APPROVE (HR STEP) =================
 router.put("/approve/:id", async (req, res) => {
   try {
+    const { remarks } = req.body;   // ✅ இது சேர்க்கணும்
+
     const employee = await Employee.findByIdAndUpdate(req.params.id, {
       status: "admin_pending",
       remarks: "",
+      hrRemarks: remarks || "",
       reuploaded: false,
       updatedAt: new Date()
     }, { new: true });
@@ -125,11 +132,12 @@ router.put("/reject/:id", async (req, res) => {
   try {
     const { remarks } = req.body;
 
-    const employee = await Employee.findByIdAndUpdate(req.params.id, {
+        const employee = await Employee.findByIdAndUpdate(req.params.id, {
       status: "rejected",
       remarks: remarks || "Rejected by HR",
+      hrRemarks: remarks || "Rejected by HR",   // ✅ add பண்ணுங்க
       updatedAt: new Date()
-    }, { new: true }); // ✅ optional: reject-kum notification venumna intha data use pannalam
+    }, { new: true });
 
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
@@ -175,6 +183,8 @@ router.get("/approved", async (req, res) => {
           department: emp.department,
           designation: emp.designation,
           essl_id: emp.essl_id || null,
+          hrRemarks: emp.hrRemarks,
+          mdRemarks: emp.mdRemarks,
           reuploaded: emp.reuploaded,   // 🔥 ADD THIS LINE
           documents: docs
         };

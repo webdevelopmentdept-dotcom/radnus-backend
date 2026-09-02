@@ -47,7 +47,17 @@ const employeeSchema = new mongoose.Schema({
   canManageLoanProcess: { type: Boolean, default: false }, 
 isLoanProcessHead: { type: Boolean, default: false },
 
-  remarks: {
+    remarks: {
+    type:    String,
+    default: ""
+  },
+
+  hrRemarks: {
+    type:    String,
+    default: ""
+  },
+
+  mdRemarks: {
     type:    String,
     default: ""
   },
