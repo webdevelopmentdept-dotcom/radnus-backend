@@ -13,6 +13,18 @@ const createNotification = async ({
   link = ""
 }) => {
   try {
+    // ✅ Duplicate guard — if the exact same notification (same recipient,
+    // title, message) was already created in the last 10 seconds, skip it.
+    const tenSecondsAgo = new Date(Date.now() - 10_000);
+    const dupe = await Notification.findOne({
+      recipient_id,
+      recipient_role,
+      title,
+      message,
+      createdAt: { $gte: tenSecondsAgo }
+    });
+    if (dupe) return dupe;
+
     await Notification.create({
       recipient_id,
       recipient_role,

@@ -3,12 +3,14 @@ const router = express.Router();
 const Employee = require('../models/Employee');
 const Document = require('../models/Document');
 const Notification = require('../models/Notification');
+const { createNotification } = require('../helpers/notificationHelper');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const Counter = require('../models/Counter');
 const axios = require('axios');
 const auth = require('../middleware/auth');
+
 
 
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
@@ -112,15 +114,14 @@ router.post('/register', async (req, res) => {
     await employee.save();
 
     // ✅ NEW — HR notification on new employee registration
-    try {
-      await Notification.create({
+       try {
+      await createNotification({
         recipient_id: "hr_admin_001",
         recipient_role: "hr",
-        type: "employee",
-        title: "New Employee Registered",
-        message: `${employee.name} registered as a new employee`,
+        type: "document",
+        title: "Documents Submitted",
+        message: `${emp.name} submitted all documents`,
         link: "",
-        isRead: false,
       });
     } catch (notifErr) {
       console.error("Register notification error:", notifErr.message);

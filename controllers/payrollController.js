@@ -423,6 +423,226 @@ exports.setOtherDeduction = async (req, res) => {
 };
 
 
+// ── PUT /api/payroll/payslip/:id ────────────────────────────────
+// HR: full edit of a draft payslip's employee/period info,
+// earnings/deductions/attendance
+exports.updatePayslip = async (req, res) => {
+  try {
+    const payslip = await Payslip.findById(req.params.id);
+    if (!payslip) return res.status(404).json({ success: false, message: "Payslip not found" });
+
+    if (payslip.status !== "draft") {
+      return res.status(400).json({
+        success: false,
+        message: "Only draft payslips can be edited. Undo the payroll approval first.",
+      });
+    }
+
+    const {
+      employee_name, designation, department, employee_code, date_of_joining,
+      month, year, worked_days,
+      earnings, deductions, absent_days, half_days, other_deduction, edited_by,
+    } = req.body;
+
+    // ── Employee & period info (simple overrides, display-only fields) ──
+    if (employee_name !== undefined) payslip.employee_name = employee_name;
+    if (designation !== undefined) payslip.designation = designation;
+    if (department !== undefined) payslip.department = department;
+    if (employee_code !== undefined) payslip.employee_code = employee_code;
+    if (date_of_joining !== undefined) payslip.date_of_joining = date_of_joining;
+    if (month !== undefined) payslip.month = Number(month) || payslip.month;
+    if (year !== undefined) payslip.year = Number(year) || payslip.year;
+
+    // ── Earnings / deductions / attendance ──
+    if (earnings) Object.assign(payslip.earnings, earnings);
+    if (deductions) Object.assign(payslip.deductions, deductions);
+    if (absent_days !== undefined) payslip.absent_days = Number(absent_days) || 0;
+    if (half_days !== undefined) payslip.half_days = Number(half_days) || 0;
+    if (other_deduction) {
+      payslip.other_deduction = {
+        amount: Number(other_deduction.amount) || 0,
+        reason: other_deduction.reason || "",
+        added_by: edited_by || "",
+        added_at: new Date(),
+      };
+    }
+
+    // ── Worked Days edit: back-calculate present_days, then recompute
+    //    payable_days and scale earnings proportionally so Total Earnings
+    //    & Net Pay follow the new worked-days total ──
+    if (worked_days !== undefined) {
+      const half = payslip.half_days || 0;
+      const paidLeave = payslip.paid_leave_days || 0;
+      let newPresent = Number(worked_days) - half * 0.5 - paidLeave;
+      if (newPresent < 0) newPresent = 0;
+      payslip.present_days = Math.round(newPresent * 100) / 100;
+
+      const payableDays =
+        payslip.present_days + half * 0.5 + paidLeave +
+        (payslip.holiday_days || 0) + (payslip.weekend_days || 0);
+      payslip.payable_days = Math.round(payableDays * 100) / 100;
+
+      const oldGross = payslip.earnings.gross_earnings || 0;
+      const newGrossFromDays = Math.round((payslip.per_day_rate || 0) * payableDays * 100) / 100;
+      const ratio = oldGross > 0 ? newGrossFromDays / oldGross : 1;
+
+      // scale the fixed salary components (overtime stays as-is — it's separate from worked days)
+      payslip.earnings.basic = Math.round((payslip.earnings.basic || 0) * ratio * 100) / 100;
+      payslip.earnings.hra = Math.round((payslip.earnings.hra || 0) * ratio * 100) / 100;
+      payslip.earnings.special_allowance = Math.round((payslip.earnings.special_allowance || 0) * ratio * 100) / 100;
+      payslip.earnings.conveyance_allowance = Math.round((payslip.earnings.conveyance_allowance || 0) * ratio * 100) / 100;
+    }
+
+    // ── recalculate gross_earnings, total_deductions, net_pay ──
+    const e = payslip.earnings;
+    payslip.earnings.gross_earnings =
+      (e.basic || 0) + (e.hra || 0) + (e.special_allowance || 0) +
+      (e.conveyance_allowance || 0) + (e.overtime_amount || 0);
+
+    const d = payslip.deductions;
+    const advanceTotal = (payslip.advance_recoveries || []).reduce((s, a) => s + (a.amount || 0), 0);
+    payslip.deductions.total_deductions =
+      (d.pf || 0) + (d.esi || 0) + (d.tds || 0) + (d.professional_tax || 0) +
+      advanceTotal + (payslip.other_deduction?.amount || 0);
+
+    const lopAmount = (payslip.absent_days || 0) * (payslip.per_day_rate || 0);
+    const halfDayAmount = (payslip.half_days || 0) * (payslip.per_day_rate || 0) * 0.5;
+
+    payslip.net_pay = Math.round(
+      (payslip.earnings.gross_earnings - payslip.deductions.total_deductions - lopAmount - halfDayAmount) * 100
+    ) / 100;
+
+    await payslip.save();
+    res.json({ success: true, data: payslip });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── PUT /api/payroll/payslip/:id ────────────────────────────────
+// HR: full edit of a draft payslip's employee/period info,
+// earnings/deductions/attendance
+exports.updatePayslip = async (req, res) => {
+  try {
+    const payslip = await Payslip.findById(req.params.id);
+    if (!payslip) return res.status(404).json({ success: false, message: "Payslip not found" });
+
+    if (payslip.status !== "draft") {
+      return res.status(400).json({
+        success: false,
+        message: "Only draft payslips can be edited. Undo the payroll approval first.",
+      });
+    }
+
+    const {
+      employee_name, designation, department, employee_code, date_of_joining,
+      month, year, worked_days,
+      earnings, deductions, lop_days, half_days, other_deduction, edited_by,
+    } = req.body;
+
+    // ── Employee & period info (simple overrides, display-only fields) ──
+    if (employee_name !== undefined) payslip.employee_name = employee_name;
+    if (designation !== undefined) payslip.designation = designation;
+    if (department !== undefined) payslip.department = department;
+    if (employee_code !== undefined) payslip.employee_code = employee_code;
+    if (date_of_joining !== undefined) payslip.date_of_joining = date_of_joining;
+    if (month !== undefined) payslip.month = Number(month) || payslip.month;
+    if (year !== undefined) payslip.year = Number(year) || payslip.year;
+
+    // ── Earnings / deductions / attendance ──
+    if (earnings) Object.assign(payslip.earnings, earnings);
+    if (deductions) Object.assign(payslip.deductions, deductions);
+    if (half_days !== undefined) payslip.half_days = Number(half_days) || 0;
+
+    const oldLopDays = payslip.lop_days ?? ((payslip.absent_days || 0) + (payslip.unpaid_leave_days || 0));
+    let lopDelta = 0;
+    if (lop_days !== undefined) {
+      const newLopDays = Number(lop_days) || 0;
+      lopDelta = newLopDays - oldLopDays; // +ve = more LOP days added, -ve = LOP days removed
+      payslip.lop_days = newLopDays;
+      // mirror onto the raw fields too, so any other screen reading
+      // absent_days/unpaid_leave_days directly stays consistent
+      payslip.absent_days = payslip.lop_days;
+      payslip.unpaid_leave_days = 0;
+    }
+    if (other_deduction) {
+      payslip.other_deduction = {
+        amount: Number(other_deduction.amount) || 0,
+        reason: other_deduction.reason || "",
+        added_by: edited_by || "",
+        added_at: new Date(),
+      };
+    }
+
+    // ── Recompute present_days from whichever attendance input changed:
+    //    explicit "Worked Days" edit takes priority; otherwise, an LOP-days
+    //    change shifts present_days by the opposite delta (so +1 LOP day
+    //    removes exactly 1 day's pay, and vice versa) ──
+    let presentDaysChanged = false;
+
+    if (worked_days !== undefined) {
+      const half = payslip.half_days || 0;
+      const paidLeave = payslip.paid_leave_days || 0;
+      const holiday = payslip.holiday_days || 0;
+      const weekend = payslip.weekend_days || 0;
+      let newPresent = Number(worked_days) - half * 0.5 - paidLeave - holiday - weekend;
+      if (newPresent < 0) newPresent = 0;
+      payslip.present_days = Math.round(newPresent * 100) / 100;
+      presentDaysChanged = true;
+    } else if (lopDelta !== 0) {
+      let newPresent = (payslip.present_days || 0) - lopDelta;
+      if (newPresent < 0) newPresent = 0;
+      payslip.present_days = Math.round(newPresent * 100) / 100;
+      presentDaysChanged = true;
+    }
+
+    if (presentDaysChanged) {
+      const half = payslip.half_days || 0;
+      const paidLeave = payslip.paid_leave_days || 0;
+      const payableDays =
+        payslip.present_days + half * 0.5 + paidLeave +
+        (payslip.holiday_days || 0) + (payslip.weekend_days || 0);
+      payslip.payable_days = Math.round(payableDays * 100) / 100;
+
+      const oldGross = payslip.earnings.gross_earnings || 0;
+      const newGrossFromDays = Math.round((payslip.per_day_rate || 0) * payableDays * 100) / 100;
+      const ratio = oldGross > 0 ? newGrossFromDays / oldGross : 1;
+
+      // scale the fixed salary components (overtime stays as-is — it's separate from attendance)
+      payslip.earnings.basic = Math.round((payslip.earnings.basic || 0) * ratio * 100) / 100;
+      payslip.earnings.hra = Math.round((payslip.earnings.hra || 0) * ratio * 100) / 100;
+      payslip.earnings.special_allowance = Math.round((payslip.earnings.special_allowance || 0) * ratio * 100) / 100;
+      payslip.earnings.conveyance_allowance = Math.round((payslip.earnings.conveyance_allowance || 0) * ratio * 100) / 100;
+    }
+
+    // ── recalculate gross_earnings, total_deductions, net_pay ──
+    const e = payslip.earnings;
+    payslip.earnings.gross_earnings =
+      (e.basic || 0) + (e.hra || 0) + (e.special_allowance || 0) +
+      (e.conveyance_allowance || 0) + (e.overtime_amount || 0);
+
+    const d = payslip.deductions;
+    const advanceTotal = (payslip.advance_recoveries || []).reduce((s, a) => s + (a.amount || 0), 0);
+    payslip.deductions.total_deductions =
+      (d.pf || 0) + (d.esi || 0) + (d.tds || 0) + (d.professional_tax || 0) +
+      advanceTotal + (payslip.other_deduction?.amount || 0);
+
+    // net_pay = gross_earnings − total_deductions ONLY.
+    // NOTE: LOP/Half-day amounts are already excluded from gross_earnings
+    // (payable_days used at payroll generation time already skips absent/LOP
+    // days). They're shown as a separate line on the payslip purely for
+    // employee-facing breakdown — do NOT subtract them again here, or the
+    // deduction gets counted twice.
+    payslip.net_pay = Math.round(
+      (payslip.earnings.gross_earnings - payslip.deductions.total_deductions) * 100
+    ) / 100;
+
+    await payslip.save();
+    res.json({ success: true, data: payslip });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 // ── PUT /api/payroll/payslip/:id/mark-pending ────────────────────────
 exports.markPayslipAsPending = async (req, res) => {

@@ -18,6 +18,7 @@ router.get("/payslip/:id",                   payrollCtrl.getPayslipById);
 
 router.put("/payslip/:id/mark-paid",         payrollCtrl.markPayslipAsPaid);
 router.put("/payslip/:id/other-deduction",   payrollCtrl.setOtherDeduction);
+router.put("/payslip/:id", payrollCtrl.updatePayslip);
 
 router.put("/payslip/:id/mark-pending",      payrollCtrl.markPayslipAsPending);
 

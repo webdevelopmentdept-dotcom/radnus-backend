@@ -118,8 +118,9 @@ async function computeAttendanceSummary(employeeId, month, year) {
           half_days += 1;
           break;
         case "leave":
-          if (leavePaidMap[dateStr] === false) unpaid_leave_days += 1;
-          else paid_leave_days += 1; // default to paid if not matched (approved leave assumed paid)
+          // Per HR policy: ANY "on leave" status counts as LOP,
+          // regardless of the leave type's paid/unpaid config.
+          unpaid_leave_days += 1;
           break;
         case "holiday":
           holiday_days += 1;
@@ -136,8 +137,8 @@ async function computeAttendanceSummary(employeeId, month, year) {
       if (holidaySet.has(dateStr)) holiday_days += 1;
       else if (weekendDayNames.has(dayName)) weekend_days += 1;
       else if (leavePaidMap[dateStr] !== undefined) {
-        if (leavePaidMap[dateStr]) paid_leave_days += 1;
-        else unpaid_leave_days += 1;
+        // Per HR policy: ANY approved leave counts as LOP.
+        unpaid_leave_days += 1;
       } else absent_days += 1; // no record, not holiday/weekend, no approved leave → LOP
     }
   });

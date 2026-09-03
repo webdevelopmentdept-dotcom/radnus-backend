@@ -8,6 +8,7 @@ const OkrObjective   = require('../models/OkrObjective');
 const PerformanceReview = require('../models/PerformanceReview');
 const Notification = require('../models/Notification');
 const Employee = require('../models/Employee');
+const { createNotification } = require('../helpers/notificationHelper');
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER — score calculate
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,15 +85,14 @@ router.post('/', async (req, res) => {
       await updateOkrProgress(assignment_id, items);
 
       // ✅ NEW — HR notification on self-assessment submit (update case)
-      try {
-        await Notification.create({
+            try {
+        await createNotification({
           recipient_id:   "hr_admin_001",
           recipient_role: "hr",
           type:           "employee",
           title:          "Self Assessment Submitted",
           message:        `${emp?.name || "An employee"} submitted self assessment for ${period}`,
           link:           "",
-          isRead:         false,
         });
       } catch (notifErr) {
         console.error("Self-assessment notification error:", notifErr.message);
@@ -106,15 +106,14 @@ router.post('/', async (req, res) => {
     await updateOkrProgress(assignment_id, items);
 
     // ✅ NEW — HR notification on self-assessment submit (new case)
-    try {
-      await Notification.create({
+       try {
+      await createNotification({
         recipient_id:   "hr_admin_001",
         recipient_role: "hr",
         type:           "employee",
         title:          "Self Assessment Submitted",
         message:        `${emp?.name || "An employee"} submitted self assessment for ${period}`,
         link:           "",
-        isRead:         false,
       });
     } catch (notifErr) {
       console.error("Self-assessment notification error:", notifErr.message);
