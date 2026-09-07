@@ -203,6 +203,7 @@ app.use("/api/advance", require("./routes/advanceRoutes"));
 app.use("/api/products", productRoutes);
 app.use("/api/loan-process",  loanProcessRoutes);
 app.use("/api/admin-loan-process", require("./routes/adminLoanProcessRoutes"));
+app.use("/api/admin-loan-analytics", require("./routes/adminLoanAnalyticsRoutes"));
 
 // Applicants & Admin
 app.use("/api/applicants", applicantRoutes);
