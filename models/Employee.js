@@ -46,6 +46,7 @@ const employeeSchema = new mongoose.Schema({
   canManageProducts: { type: Boolean, default: false },
   canManageLoanProcess: { type: Boolean, default: false }, 
 isLoanProcessHead: { type: Boolean, default: false },
+loanProcessReportAccess: { type: Boolean, default: false },
 
     remarks: {
     type:    String,

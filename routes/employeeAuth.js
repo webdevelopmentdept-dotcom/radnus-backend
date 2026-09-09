@@ -432,6 +432,7 @@ router.get('/me/:id', async (req, res) => {
       canManageProducts: user.canManageProducts,
        canManageLoanProcess: user.canManageLoanProcess, 
        isLoanProcessHead: user.isLoanProcessHead,
+       loanProcessReportAccess: user.loanProcessReportAccess,
       documents,
     });
   } catch {

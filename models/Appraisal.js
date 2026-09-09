@@ -38,6 +38,20 @@ const appraisalSchema = new mongoose.Schema(
       max: 100,
     },
 
+    // Auto-pulled from Recognition Hub (announced awards within this appraisal's period)
+    // PMS Score = KPI Achievement (performance_score) + Competency/Behaviour (hr_rating)
+    //             + Recognition (recognition_score, incl. Innovation)
+    recognition_score: {
+      type: Number,
+      default: 0,
+    },
+
+    recognition_breakdown: {
+      spot:         { count: { type: Number, default: 0 }, points: { type: Number, default: 0 } },
+      monthly_star: { count: { type: Number, default: 0 }, points: { type: Number, default: 0 } },
+      innovation:   { count: { type: Number, default: 0 }, points: { type: Number, default: 0 } },
+    },
+
     // HR gives this manually
     hr_rating: {
       type: String,

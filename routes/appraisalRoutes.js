@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Appraisal = require("../models/Appraisal");
 const PerformanceReview = require("../models/PerformanceReview");
+const { computeRecognitionScore } = require("../helpers/recognitionScoreHelper");
 
 // ═══════════════════════════════════════════════
 // POST /api/appraisals — Create new appraisal
@@ -40,6 +41,17 @@ router.post("/", async (req, res) => {
       // If PerformanceReview model doesn't exist yet, skip
     }
 
+    // Auto-pull recognition score from Recognition Hub (announced awards in this period)
+    let recognition_score = 0;
+    let recognition_breakdown = undefined;
+    try {
+      const rec = await computeRecognitionScore(employee_id, period_from, period_to);
+      recognition_score = rec.total;
+      recognition_breakdown = rec.breakdown;
+    } catch {
+      // If EmployeeAward model doesn't exist yet, skip
+    }
+
     const appraisal = new Appraisal({
       title,
       period_from,
@@ -47,6 +59,8 @@ router.post("/", async (req, res) => {
       appraisal_type,
       employee_id,
       performance_score,
+      recognition_score,
+      recognition_breakdown,
       hr_rating,
       increment_percent,
       promotion,
@@ -61,6 +75,37 @@ router.post("/", async (req, res) => {
     res.status(201).json({ success: true, data: appraisal });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// PATCH /api/appraisals/:id/refresh-recognition
+// Re-pull recognition score from Recognition Hub (in case
+// awards were announced after this appraisal was created)
+// ═══════════════════════════════════════════════
+router.patch("/:id/refresh-recognition", async (req, res) => {
+  try {
+    const appraisal = await Appraisal.findById(req.params.id);
+    if (!appraisal) {
+      return res.status(404).json({ success: false, message: "Appraisal not found" });
+    }
+
+    const rec = await computeRecognitionScore(
+      appraisal.employee_id,
+      appraisal.period_from,
+      appraisal.period_to
+    );
+
+    appraisal.recognition_score = rec.total;
+    appraisal.recognition_breakdown = rec.breakdown;
+    await appraisal.save();
+
+    const populated = await Appraisal.findById(appraisal._id)
+      .populate("employee_id", "name email department designation");
+
+    res.json({ success: true, data: populated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const EmployeeAward = require('../models/EmployeeAward');
 const { createNotification } = require('../helpers/notificationHelper');
+const { computeRecognitionScore } = require('../helpers/recognitionScoreHelper');
 
 // Award config per type
 const AWARD_CONFIG = {
@@ -74,11 +75,23 @@ router.get('/summary', async (req, res) => {
   }
 });
 
+// GET recognition score for one employee (used by PMS/Appraisal module)
+// Query: ?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD (optional — filters by announced_at)
+router.get('/recognition-score/:employeeId', async (req, res) => {
+  try {
+    const { fromDate, toDate } = req.query;
+    const result = await computeRecognitionScore(req.params.employeeId, fromDate, toDate);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // POST nominate
 router.post('/', async (req, res) => {
   try {
     const {
-      award_type, employee_id, nominated_by,
+      award_type, category, employee_id, nominated_by,
       nomination_source, period, reason,
       achievement_details, cash_amount,
     } = req.body;
@@ -91,7 +104,7 @@ router.post('/', async (req, res) => {
     }
 
     const award = new EmployeeAward({
-      award_type, employee_id, nominated_by,
+      award_type, category, employee_id, nominated_by,
       nomination_source, period, reason,
       achievement_details,
       cash_amount: cash_amount || AWARD_CONFIG[award_type]?.cash_min || 0,

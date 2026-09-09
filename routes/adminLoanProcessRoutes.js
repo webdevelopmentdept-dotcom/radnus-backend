@@ -325,7 +325,7 @@ router.get("/access/employees", async (req, res) => {
     }
 
         const employees = await Employee.find(filter)
-      .select("name email department canManageLoanProcess isLoanProcessHead")
+     .select("name email department canManageLoanProcess isLoanProcessHead loanProcessReportAccess")
       .sort({ name: 1 });
       
     res.json({ success: true, data: employees });
@@ -382,6 +382,25 @@ router.patch("/access/:id/head", async (req, res) => {
       return res.status(404).json({ success: false, message: "Employee not found" });
     }
 
+    res.json({ success: true, data: employee });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+router.patch("/access/:id/report-access", async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const employee = await Employee.findByIdAndUpdate(
+      req.params.id,
+      { loanProcessReportAccess: !!enabled },
+      { new: true }
+    ).select("name email department canManageLoanProcess isLoanProcessHead loanProcessReportAccess");
+
+    if (!employee) {
+      return res.status(404).json({ success: false, message: "Employee not found" });
+    }
     res.json({ success: true, data: employee });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

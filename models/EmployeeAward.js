@@ -7,6 +7,9 @@ const employeeAwardSchema = new mongoose.Schema({
     required: true
   },
 
+  // Recognition category — e.g. "Performance Excellence", "Teamwork & Support"
+  category: { type: String, default: '' },
+
   // Nominee
   employee_id: {
     type: mongoose.Schema.Types.ObjectId,
