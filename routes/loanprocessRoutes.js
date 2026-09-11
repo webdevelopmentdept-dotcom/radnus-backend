@@ -244,6 +244,16 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
     if (req.query.staffId) filter.staffId = req.query.staffId;
     if (req.query.status) filter.status = req.query.status;
 
+    // ⬇️ ITHU RENDU BLOCK ADD PANNANUM (idhu than fix)
+    if (req.query.dateFrom || req.query.dateTo) {
+      filter.loanDate = {};
+      if (req.query.dateFrom) filter.loanDate.$gte = new Date(req.query.dateFrom);
+      if (req.query.dateTo) filter.loanDate.$lte = new Date(`${req.query.dateTo}T23:59:59`);
+    }
+    if (req.query.search) {
+      filter.customerName = { $regex: req.query.search, $options: "i" };
+    }
+
     const customers = await LoanCustomer.find(filter)
       .select("-documents")
       .populate("staffId", "name email")
