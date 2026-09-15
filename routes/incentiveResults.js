@@ -573,6 +573,13 @@ router.put("/:id", async (req, res) => {
       }
     }
 
+        if (req.body.status === "paid") {
+      const existingForPaid = await IncentiveResult.findById(req.params.id).select("paid_at");
+      if (existingForPaid && !existingForPaid.paid_at) {
+        req.body.paid_at = new Date();
+      }
+    }
+
    const result = await IncentiveResult.findByIdAndUpdate(
       req.params.id,
       req.body,

@@ -87,13 +87,31 @@ const loanCustomerSchema = new mongoose.Schema(
       completed: { type: Date, default: null },
     },
 
-    processPercent: { type: Number, default: 0 },
+       processPercent: { type: Number, default: 0 },
     reasonForPending: { type: String, default: "" },
 
     status: {
       type: String,
       enum: ["IN_PROGRESS", "COMPLETED"],
       default: "IN_PROGRESS",
+    },
+
+    // ── Incentive eligibility (Online Loan Application + Projection Dispatch) ──
+    // "Online Loan Application" label re-uses checklist.applicationProcess,
+    // "Projection Dispatch" label re-uses checklist.courier. Field names kept
+    // as-is so existing saved records don't need a migration.
+    incentive: {
+      eligibility: {
+        type: String,
+        enum: ["Not Eligible", "Eligible for Processing", "Paid"],
+        default: "Not Eligible",
+      },
+      eligibleAt: { type: Date, default: null },
+      amount: { type: Number, default: 0 },
+      paidAt: { type: Date, default: null },
+      paidBy: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
+      paidByName: { type: String, default: "" },
+      paidRemark: { type: String, default: "" },
     },
   },
   { timestamps: true }
@@ -106,6 +124,19 @@ loanCustomerSchema.pre("save", function (next) {
   const done = stages.filter(Boolean).length;
   this.processPercent = total ? Math.round((done / total) * 100) : 0;
   this.status = this.checklist.completed ? "COMPLETED" : "IN_PROGRESS";
+
+  // Auto-flip incentive eligibility based on the 2 mandatory activities.
+  // Never downgrade automatically once it's "Paid" — manual/locked state.
+  if (this.incentive.eligibility !== "Paid") {
+    const bothDone = !!this.checklist.applicationProcess && !!this.checklist.courier;
+    if (bothDone && this.incentive.eligibility !== "Eligible for Processing") {
+      this.incentive.eligibility = "Eligible for Processing";
+      this.incentive.eligibleAt = new Date();
+    } else if (!bothDone && this.incentive.eligibility === "Eligible for Processing") {
+      this.incentive.eligibility = "Not Eligible";
+      this.incentive.eligibleAt = null;
+    }
+  }
   next();
 });
 

@@ -38,6 +38,7 @@ sale_entries: {
 },
 period_locked:    { type: Boolean, default: false },
 period_locked_at: { type: Date },
+paid_at: { type: Date, default: null },
 
 }, { timestamps: true });
 

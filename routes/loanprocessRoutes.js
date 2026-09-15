@@ -8,6 +8,17 @@ const ExcelJS = require("exceljs");
 
 const LoanCustomer = require("../models/LoanCustomer");
 const auth = require("../middleware/auth");
+const { createNotification } = require("../helpers/notificationHelper");
+
+
+// ── Loan Incentive approval — HR (fixed login) or Admin only ──
+// Deliberately separate from canManageLoanProcess: HR is blocked from the
+// general Loan Process module, but HR does approve/pay loan incentives.
+const canApproveLoanIncentive = (req, res, next) => {
+  if (req.user?.role === "admin" || req.user?.role === "hr") return next();
+  return res.status(403).json({ success: false, message: "You don't have access to Loan Incentive approvals" });
+};
+
 
 // ── Auth check — only employees with canManageLoanProcess OR hr role ───────
 const canManageLoanProcess = async (req, res, next) => {
@@ -424,8 +435,23 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid checklist field" });
     }
 
-    const customer = await LoanCustomer.findById(req.params.id);
+        const customer = await LoanCustomer.findById(req.params.id);
     if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
+
+    // ── Lock: once incentive is Paid, these 2 fields can't change anymore.
+    const INCENTIVE_LINKED_FIELDS = ["applicationProcess", "courier"];
+    if (
+      customer.incentive?.eligibility === "Paid" &&
+      INCENTIVE_LINKED_FIELDS.includes(field) &&
+      !!value !== !!customer.checklist[field]
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Incentive already paid for this loan — Online Loan Application / Projection Dispatch can't be changed anymore.",
+      });
+    }
+
+    const wasEligible = customer.incentive?.eligibility === "Eligible for Processing";
 
                 customer.checklist[field] = !!value;
     customer.markModified("checklist");
@@ -439,11 +465,130 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       customer.markModified("checklistDates");
     }
 
-    await customer.save();
+    await customer.save(); // pre("save") hook flips customer.incentive.eligibility
+
+    const nowEligible = customer.incentive.eligibility === "Eligible for Processing";
+
+    if (!wasEligible && nowEligible) {
+      createNotification({
+        recipient_id: String(customer.staffId),
+        recipient_role: "employee",
+        type: "incentive_review",
+        title: "Eligible for loan incentive",
+        message: `You're eligible for incentive processing on ${customer.customerName}'s loan — Online Loan Application & Projection Dispatch both done.`,
+        link: "/employee/dashboard/loan-process",
+      });
+      createNotification({
+        recipient_id: null,
+        recipient_role: "hr",
+        type: "incentive_review",
+        title: "Loan incentive pending approval",
+        message: `${customer.staffName} completed both activities for ${customer.customerName}'s loan — pending your approval.`,
+        link: "/hr/dashboard/incentives/loan-payouts",
+      });
+    }
 
     res.json({ success: true, customer });
   } catch (err) {
     console.error("Checklist update error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+//  LOAN INCENTIVE — list loans pending HR approval
+//  GET /api/loan-process/incentives/pending
+// ══════════════════════════════════════════════════════
+router.get("/incentives/pending", auth, canApproveLoanIncentive, async (req, res) => {
+  try {
+    const customers = await LoanCustomer.find({ "incentive.eligibility": "Eligible for Processing" })
+      .select("customerName loanValue staffId staffName incentive checklistDates createdAt")
+      .sort({ "incentive.eligibleAt": 1 });
+    res.json({ success: true, customers });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+//  LOAN INCENTIVE — list loans already paid (HR/Admin history)
+//  GET /api/loan-process/incentives/paid
+// ══════════════════════════════════════════════════════
+router.get("/incentives/paid", auth, canApproveLoanIncentive, async (req, res) => {
+  try {
+    const customers = await LoanCustomer.find({ "incentive.eligibility": "Paid" })
+      .select("customerName loanValue staffId staffName incentive checklistDates createdAt")
+      .sort({ "incentive.paidAt": -1 });
+    res.json({ success: true, customers });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+//  LOAN INCENTIVE — my own loans + incentive status
+//  GET /api/loan-process/incentives/mine
+// ══════════════════════════════════════════════════════
+router.get("/incentives/mine", auth, async (req, res) => {
+  try {
+    if (!req.user?.id) return res.json({ success: true, customers: [] });
+    const customers = await LoanCustomer.find({
+      staffId: req.user.id,
+      "incentive.eligibility": { $in: ["Eligible for Processing", "Paid"] },
+    })
+      .select("customerName loanValue incentive")
+      .sort({ "incentive.eligibleAt": -1 });
+    res.json({ success: true, customers });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+//  LOAN INCENTIVE — Approve & pay (HR/Admin, manual amount)
+//  POST /api/loan-process/:id/incentive/approve
+//  Body: { amount, remark? }
+// ══════════════════════════════════════════════════════
+router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req, res) => {
+  try {
+    const { amount, remark } = req.body;
+    const amt = Number(amount);
+    if (!amt || amt <= 0) {
+      return res.status(400).json({ success: false, message: "Enter a valid incentive amount" });
+    }
+
+    const customer = await LoanCustomer.findById(req.params.id);
+    if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
+
+    if (customer.incentive.eligibility !== "Eligible for Processing") {
+      return res.status(400).json({
+        success: false,
+        message: "This loan isn't in 'Eligible for Processing' state.",
+      });
+    }
+
+    customer.incentive.eligibility = "Paid";
+    customer.incentive.amount = amt;
+    customer.incentive.paidAt = new Date();
+    customer.incentive.paidBy = mongoose.Types.ObjectId.isValid(req.user?.id)
+  ? req.user.id
+  : null;
+    customer.incentive.paidByName = req.user?.name || (req.user?.role === "hr" ? "HR" : "Admin");
+    customer.incentive.paidRemark = remark || "";
+    await customer.save();
+
+    createNotification({
+      recipient_id: String(customer.staffId),
+      recipient_role: "employee",
+      type: "incentive_paid",
+      title: "Loan incentive paid",
+      message: `₹${amt} incentive paid for ${customer.customerName}'s loan.`,
+      link: "/employee/dashboard/loan-process",
+    });
+
+    res.json({ success: true, customer });
+  } catch (err) {
+    console.error("Incentive approve error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
