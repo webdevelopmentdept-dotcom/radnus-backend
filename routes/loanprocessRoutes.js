@@ -14,11 +14,25 @@ const { createNotification } = require("../helpers/notificationHelper");
 // ── Loan Incentive approval — HR (fixed login) or Admin only ──
 // Deliberately separate from canManageLoanProcess: HR is blocked from the
 // general Loan Process module, but HR does approve/pay loan incentives.
-const canApproveLoanIncentive = (req, res, next) => {
+const canApproveLoanIncentive = async (req, res, next) => {
   if (req.user?.role === "admin" || req.user?.role === "hr") return next();
+  try {
+    const Employee = require("../models/Employee");
+    const emp = await Employee.findById(req.user?.id).select("name canApproveLoanIncentive");
+    if (emp?.canApproveLoanIncentive) {
+      req.loanIncentiveEmployee = emp;
+      return next();
+    }
+  } catch (err) { }
   return res.status(403).json({ success: false, message: "You don't have access to Loan Incentive approvals" });
 };
 
+// ── HR (fixed login) or Admin only — for managing WHO gets Loan Incentive
+// Payout access (Accounts-team toggle).
+const hrOrAdminOnly = (req, res, next) => {
+  if (req.user?.role === "admin" || req.user?.role === "hr") return next();
+  return res.status(403).json({ success: false, message: "You don't have access to this" });
+};
 
 // ── Auth check — only employees with canManageLoanProcess OR hr role ───────
 const canManageLoanProcess = async (req, res, next) => {
@@ -113,12 +127,12 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
   try {
     const {
       customerName,
-        loanDate,
+      loanDate,
 
       communicationAddress,
       unitAddress,
       businessType,
-       scheme,  
+      scheme,
       loanValue,
       contactNo,
       mailId,
@@ -148,11 +162,11 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
 
     const customer = await LoanCustomer.create({
       customerName,
-       loanDate: loanDate ? new Date(loanDate) : Date.now(),
+      loanDate: loanDate ? new Date(loanDate) : Date.now(),
       communicationAddress,
       unitAddress,
       businessType,
-      scheme,  
+      scheme,
       loanValue: Number(loanValue) || 0,
       contactNo,
       mailId,
@@ -164,7 +178,7 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
     });
 
     res.json({ success: true, customer });
-    } catch (err) {
+  } catch (err) {
     console.error("Loan customer create error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -208,7 +222,7 @@ router.get("/all", auth, canManageLoanProcess, async (req, res) => {
 
 router.get("/report", auth, canViewLoanProcessReport, async (req, res) => {
   try {
-        const filter = {};
+    const filter = {};
     if (req.query.staffId) filter.staffId = req.query.staffId;
     if (req.query.status) filter.status = req.query.status;
     if (req.query.dateFrom || req.query.dateTo) {
@@ -223,25 +237,25 @@ router.get("/report", auth, canViewLoanProcessReport, async (req, res) => {
       .sort({ createdAt: -1 });
 
     const staffBreakdown = await LoanCustomer.aggregate([
-  {
-    $group: {
-      _id: "$staffId",
-      staffName: { $first: "$staffName" },
-      applications: { $sum: 1 },
-      revenue: { $sum: "$loanValue" },
-      completedCount: { $sum: { $cond: [{ $eq: ["$status", "COMPLETED"] }, 1, 0] } },
-    },
-  },
-  {
-    $project: {
-      staffName: 1, applications: 1, revenue: 1, completedCount: 1,
-      conversionRate: {
-        $cond: [{ $eq: ["$applications", 0] }, 0, { $round: [{ $multiply: [{ $divide: ["$completedCount", "$applications"] }, 100] }, 0] }],
+      {
+        $group: {
+          _id: "$staffId",
+          staffName: { $first: "$staffName" },
+          applications: { $sum: 1 },
+          revenue: { $sum: "$loanValue" },
+          completedCount: { $sum: { $cond: [{ $eq: ["$status", "COMPLETED"] }, 1, 0] } },
+        },
       },
-    },
-  },
-  { $sort: { revenue: -1 } },
-]);
+      {
+        $project: {
+          staffName: 1, applications: 1, revenue: 1, completedCount: 1,
+          conversionRate: {
+            $cond: [{ $eq: ["$applications", 0] }, 0, { $round: [{ $multiply: [{ $divide: ["$completedCount", "$applications"] }, 100] }, 0] }],
+          },
+        },
+      },
+      { $sort: { revenue: -1 } },
+    ]);
 
     res.json({ success: true, data: customers, staffBreakdown, total: customers.length });
   } catch (err) {
@@ -341,8 +355,8 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
 
     sheet.getColumn("loanValue").numFmt = "₹#,##0";
     sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheet.columns.length } };
-   
-        // ── Employee-wise Summary sheet ─────────────────────────────────────
+
+    // ── Employee-wise Summary sheet ─────────────────────────────────────
     const staffMap = {};
     customers.forEach((c) => {
       const key = c.staffId?._id?.toString() || c.staffId?.toString() || c.staffName || "unknown";
@@ -384,7 +398,7 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
     staffSheet.getColumn("revenue").numFmt = "₹#,##0";
     staffSheet.getColumn("conversionRate").numFmt = '0"%"';
     staffSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: staffSheet.columns.length } };
-    
+
     const fileName = `loan-process-report-${new Date().toISOString().slice(0, 10)}.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
@@ -435,28 +449,45 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid checklist field" });
     }
 
-        const customer = await LoanCustomer.findById(req.params.id);
+    const customer = await LoanCustomer.findById(req.params.id);
     if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
 
-    // ── Lock: once incentive is Paid, these 2 fields can't change anymore.
+    // ── Lock: once incentive is Paid, these 2 rows (checkbox/remark/date) can't change anymore.
     const INCENTIVE_LINKED_FIELDS = ["applicationProcess", "courier"];
-    if (
-      customer.incentive?.eligibility === "Paid" &&
-      INCENTIVE_LINKED_FIELDS.includes(field) &&
-      !!value !== !!customer.checklist[field]
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Incentive already paid for this loan — Online Loan Application / Projection Dispatch can't be changed anymore.",
-      });
+    if (customer.incentive?.eligibility === "Paid" && INCENTIVE_LINKED_FIELDS.includes(field)) {
+      const valueChanged = !!value !== !!customer.checklist[field];
+      const remarkChanged = remark !== undefined && remark !== (customer.checklistRemarks?.[field] || "");
+      const dateChanged =
+        date !== undefined &&
+        String(date || "") !== (customer.checklistDates?.[field] ? customer.checklistDates[field].toISOString().slice(0, 10) : "");
+      if (valueChanged || remarkChanged || dateChanged) {
+        return res.status(400).json({
+          success: false,
+          message: "Incentive already paid for this loan — Online Loan Application / Projection Dispatch can't be changed anymore.",
+        });
+      }
+    }
+
+    // ── Application Number / Courier Slip No is proof — can't tick the box without it.
+    let finalValue = !!value;
+    if (INCENTIVE_LINKED_FIELDS.includes(field)) {
+      const finalRemark = remark !== undefined ? remark : customer.checklistRemarks?.[field] || "";
+      if (finalValue && !finalRemark.trim()) {
+        const label = field === "applicationProcess" ? "Application Number" : "Courier Slip No";
+        return res.status(400).json({
+          success: false,
+          message: `Enter the ${label} before checking this — it's proof for the incentive.`,
+        });
+      }
+      if (!finalRemark.trim()) finalValue = false; // safety net
     }
 
     const wasEligible = customer.incentive?.eligibility === "Eligible for Processing";
 
-                customer.checklist[field] = !!value;
+    customer.checklist[field] = finalValue;
     customer.markModified("checklist");
     if (reasonForPending !== undefined) customer.reasonForPending = reasonForPending;
-        if (remark !== undefined) {
+    if (remark !== undefined) {
       customer.checklistRemarks[field] = remark;
       customer.markModified("checklistRemarks");
     }
@@ -495,14 +526,48 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
   }
 });
 
+
+router.get("/incentives/access/accounts-employees", auth, hrOrAdminOnly, async (req, res) => {
+  try {
+    const Employee = require("../models/Employee");
+    const filter = { department: { $regex: "account", $options: "i" } };
+    if (req.query.search) filter.name = { $regex: req.query.search, $options: "i" };
+    const employees = await Employee.find(filter)
+      .select("name email department canApproveLoanIncentive")
+      .sort({ name: 1 });
+    res.json({ success: true, data: employees });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.patch("/incentives/access/:id", auth, hrOrAdminOnly, async (req, res) => {
+  try {
+    const Employee = require("../models/Employee");
+    const { enabled } = req.body;
+    if (enabled) await Employee.updateMany({}, { canApproveLoanIncentive: false });
+    const employee = await Employee.findByIdAndUpdate(
+      req.params.id,
+      { canApproveLoanIncentive: !!enabled },
+      { new: true }
+    ).select("name email department canApproveLoanIncentive");
+    if (!employee) return res.status(404).json({ success: false, message: "Employee not found" });
+    res.json({ success: true, data: employee });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
 // ══════════════════════════════════════════════════════
 //  LOAN INCENTIVE — list loans pending HR approval
 //  GET /api/loan-process/incentives/pending
 // ══════════════════════════════════════════════════════
 router.get("/incentives/pending", auth, canApproveLoanIncentive, async (req, res) => {
   try {
+
     const customers = await LoanCustomer.find({ "incentive.eligibility": "Eligible for Processing" })
-      .select("customerName loanValue staffId staffName incentive checklistDates createdAt")
+      .select("customerName loanValue staffId staffName incentive checklistDates checklistRemarks createdAt")
       .sort({ "incentive.eligibleAt": 1 });
     res.json({ success: true, customers });
   } catch (err) {
@@ -517,7 +582,7 @@ router.get("/incentives/pending", auth, canApproveLoanIncentive, async (req, res
 router.get("/incentives/paid", auth, canApproveLoanIncentive, async (req, res) => {
   try {
     const customers = await LoanCustomer.find({ "incentive.eligibility": "Paid" })
-      .select("customerName loanValue staffId staffName incentive checklistDates createdAt")
+      .select("customerName loanValue staffId staffName incentive checklistDates checklistRemarks createdAt")
       .sort({ "incentive.paidAt": -1 });
     res.json({ success: true, customers });
   } catch (err) {
@@ -571,9 +636,12 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
     customer.incentive.amount = amt;
     customer.incentive.paidAt = new Date();
     customer.incentive.paidBy = mongoose.Types.ObjectId.isValid(req.user?.id)
-  ? req.user.id
-  : null;
-    customer.incentive.paidByName = req.user?.name || (req.user?.role === "hr" ? "HR" : "Admin");
+      ? req.user.id
+      : null;
+    customer.incentive.paidByName =
+      req.user?.role === "hr" ? "HR" :
+        req.user?.role === "admin" ? "Admin" :
+          req.loanIncentiveEmployee?.name || req.user?.name || "Accounts";
     customer.incentive.paidRemark = remark || "";
     await customer.save();
 
@@ -629,7 +697,7 @@ router.put("/:id", auth, canManageLoanProcess, async (req, res) => {
   try {
     const {
       customerName,
-        loanDate,
+      loanDate,
 
       communicationAddress,
       unitAddress,
@@ -646,12 +714,12 @@ router.put("/:id", auth, canManageLoanProcess, async (req, res) => {
       req.params.id,
       {
         customerName,
-            loanDate: loanDate ? new Date(loanDate) : undefined,
+        loanDate: loanDate ? new Date(loanDate) : undefined,
 
         communicationAddress,
         unitAddress,
         businessType,
-         scheme,
+        scheme,
         loanValue: Number(loanValue) || 0,
         contactNo,
         mailId,

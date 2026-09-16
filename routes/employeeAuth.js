@@ -433,7 +433,8 @@ router.get('/me/:id', async (req, res) => {
        canManageLoanProcess: user.canManageLoanProcess, 
        isLoanProcessHead: user.isLoanProcessHead,
        loanProcessReportAccess: user.loanProcessReportAccess,
-      documents,
+       canApproveLoanIncentive: user.canApproveLoanIncentive,
+       documents,
     });
   } catch {
     res.status(500).json({ message: 'Error fetching user' });
