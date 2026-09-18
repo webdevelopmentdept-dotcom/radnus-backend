@@ -33,9 +33,17 @@ sale_entries: {
     note:      { type: String, default: "" },
     added_by:  { type: String, enum: ["employee", "hr"], default: "employee" },
     added_at:  { type: Date,   default: Date.now },
+
+    // 🆕 Per-entry lifecycle — used only for "daily" payout_frequency plans
+    status:      { type: String, enum: ["pending", "approved", "rejected", "paid"], default: "pending" },
+    approved_at: { type: Date },
+    paid_at:     { type: Date },
+    hr_remark:   { type: String, default: "" },
+    payout:      { type: Number, default: 0 },
   }],
   default: [],
 },
+
 period_locked:    { type: Boolean, default: false },
 period_locked_at: { type: Date },
 paid_at: { type: Date, default: null },

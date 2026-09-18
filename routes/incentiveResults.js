@@ -233,17 +233,46 @@ async function syncResultState(result, plan) {
     changed = true;
   }
 
-  if (locked) {
-    // 🆕 Per-entry slab match, summed — not cumulative-total match
-    const { total: amount } = calcEntriesPayout(plan, entries, result.salary || 0);
+    if (locked) {
+    const isDaily = plan.payout_frequency === "daily";
+
+    // 🆕 Daily mode: only PAID entries count (each entry's payout was already
+    // resolved & frozen at pay time). Pending/approved/rejected must NOT count.
+    // Monthly mode: unchanged — recompute from all entries via slab match.
+    const amount = isDaily
+      ? entries.filter(e => e.status === "paid").reduce((s, e) => s + (Number(e.payout) || 0), 0)
+      : calcEntriesPayout(plan, entries, result.salary || 0).total;
+
     if (result.calculated_amount !== amount) {
       result.calculated_amount = amount;
       changed = true;
     }
-    if (!result.hr_review_requested) {
+
+    // 🆕 Monthly mode only — flag the whole card for HR's one-time end-of-month
+    // review. Daily-mode entries were already reviewed one-by-one; don't push
+    // the whole card into the old batch-review queue again.
+    if (!isDaily && !result.hr_review_requested) {
       result.hr_review_requested    = true;
       result.hr_review_requested_at = new Date();
       changed = true;
+    }
+
+    // 🆕 Daily mode — decide the whole-card status once the month is locked:
+    //   • Any entry still "pending" or "approved" (not yet paid/rejected)
+    //     → keep status "pending" so it STAYS VISIBLE in HR Review Requests
+    //       (nothing gets lost/forgotten — see explanation below)
+    //   • Nothing left unpaid, and at least one entry got paid
+    //     → status "paid" (main tab shows ✓ Paid / Completed)
+    //   • Nothing ever got paid (all rejected / never actioned)
+    //     → stays "pending" — HR still needs to look at it
+    if (isDaily) {
+      const stillOpen = entries.some(e => e.status === "pending" || e.status === "approved");
+      const hasPaid    = entries.some(e => e.status === "paid");
+      const newStatus  = (!stillOpen && hasPaid) ? "paid" : "pending";
+      if (result.status !== newStatus) {
+        result.status = newStatus;
+        changed = true;
+      }
     }
   }
 
@@ -436,16 +465,28 @@ router.get("/pending-reviews", async (req, res) => {
       if (r.plan_id?.plan_type === "standalone") await syncResultState(r, r.plan_id);
     }
 
-    const results = await IncentiveResult.find({
-      hr_review_requested: true,
-      status: "pending"
+           // 🆕 Broad candidate set first — narrow it down after populate,
+    // because "daily vs monthly" lives on the populated plan, not the result.
+    const candidates = await IncentiveResult.find({
+      $or: [
+        { hr_review_requested: true, status: "pending" },               // monthly mode — final-submitted batch
+        { "sale_entries.status": { $in: ["pending", "approved"] } },    // 🆕 daily mode — not yet PAID
+      ],
     })
       .populate("employee_id", "name department designation salary")
       .populate({
         path: "plan_id",
-        select: "name plan_type standalone_slabs standalone_target_type standalone_payout_type standalone_payout_value"
+        select: "name plan_type standalone_slabs standalone_target_type standalone_payout_type standalone_payout_value payout_frequency"
       })
-      .sort({ hr_review_requested_at: -1 });
+      .sort({ hr_review_requested_at: -1, updatedAt: -1 });
+
+    // 🆕 Keep: monthly-mode batches (old rule) OR daily-mode results that still
+    // have at least one entry not yet paid (pending = needs approve, approved = needs pay)
+    const results = candidates.filter(r => {
+      const isDaily = r.plan_id?.payout_frequency === "daily";
+      if (!isDaily) return r.hr_review_requested === true && r.status === "pending";
+      return (r.sale_entries || []).some(e => e.status === "pending" || e.status === "approved");
+    });
 
     res.json({ success: true, data: results });
   } catch (err) {
@@ -678,17 +719,156 @@ router.post("/:id/add-entry", async (req, res) => {
     if (isPeriodLocked(result.cycle_period))
       return res.status(409).json({ success: false, message: "This period is locked. Contact HR to add/correct entries." });
 
-    result.sale_entries.push({
+       result.sale_entries.push({
       amount:   Number(amount),
       date:     date ? new Date(date) : new Date(),
       note:     note || "",
       added_by: "employee",
       added_at: new Date(),
+      status:   plan.payout_frequency === "daily" ? "pending" : "approved",
     });
 
     await syncResultState(result, plan);
 
+    // 🆕 Daily mode → this ஒரு entry தனியா ஒரு request. Notify HR immediately.
+    if (plan.payout_frequency === "daily") {
+      const populatedForNotif = await IncentiveResult.findById(result._id).populate("employee_id", "name department");
+      await createNotification({
+        recipient_id:   "hr_admin_001",
+        recipient_role: "hr",
+        type:           "incentive_review",
+        title:          `Incentive Request — ${populatedForNotif.employee_id?.name || "Employee"} 💰`,
+        message:        `${populatedForNotif.employee_id?.name || "An employee"} requested ₹${Number(amount).toLocaleString("en-IN")} for ${result.cycle_period}. Please review.`,
+        link:           "/hr/dashboard/incentives/results",
+      });
+    }
+
     res.json({ success: true, message: "Entry added ✅", data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🆕 Daily-mode per-entry approve / pay / reject
+// ══════════════════════════════════════════════════════════════════════════
+
+// ── POST /api/incentive-results/:id/entries/:entryId/approve ──
+router.post("/:id/entries/:entryId/approve", async (req, res) => {
+  try {
+    const { remark } = req.body;
+    const result = await IncentiveResult.findById(req.params.id).populate("plan_id");
+    if (!result) return res.status(404).json({ success: false, message: "Result not found" });
+
+    const entry = result.sale_entries.id(req.params.entryId);
+    if (!entry) return res.status(404).json({ success: false, message: "Entry not found" });
+    if (entry.status === "paid")
+      return res.status(409).json({ success: false, message: "Already paid" });
+
+    entry.status      = "approved";
+    entry.approved_at = new Date();
+    entry.hr_remark    = remark || "";
+
+    await result.save();
+
+    await createNotification({
+      recipient_id:   result.employee_id,
+      recipient_role: "employee",
+      type:           "incentive_approved",
+      title:          "Incentive Request Approved ✅",
+      message:        `Your incentive request of ₹${Number(entry.amount).toLocaleString("en-IN")} has been approved.`,
+      link:           "/employee/my-incentive",
+    });
+
+    res.json({ success: true, message: "Entry approved ✅", data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /api/incentive-results/:id/entries/:entryId/pay ──
+router.post("/:id/entries/:entryId/pay", async (req, res) => {
+  try {
+    const { paid_date } = req.body;   // 🆕 optional — HR can backdate/forward the paid date
+    const result = await IncentiveResult.findById(req.params.id).populate("plan_id");
+    if (!result) return res.status(404).json({ success: false, message: "Result not found" });
+
+    const entry = result.sale_entries.id(req.params.entryId);
+    if (!entry) return res.status(404).json({ success: false, message: "Entry not found" });
+    if (entry.status !== "approved")
+      return res.status(400).json({ success: false, message: "Approve the entry before marking as paid" });
+
+    const plan = result.plan_id;
+
+    // 🆕 FIX: pay the SLAB-RESOLVED payout for this entry, not the raw achieved amount
+    const payoutAmt = plan?.resolveStandalonePayout
+      ? plan.resolveStandalonePayout(Number(entry.amount) || 0, result.salary || 0)
+      : Number(entry.amount) || 0;
+
+    entry.status  = "paid";
+    entry.paid_at = paid_date ? new Date(paid_date) : new Date();   // 🆕 custom or today
+    entry.payout  = payoutAmt;   // 🆕 store what was actually paid for this entry  // 🆕 store what was actually paid for this entry
+
+    // 🆕 Result-level totals: calculated_amount = sum of PAID entries' PAYOUT (not raw amount)
+    const paidEntries = result.sale_entries.filter(e => e.status === "paid");
+    result.calculated_amount        = paidEntries.reduce((s, e) => s + (Number(e.payout) || 0), 0);
+    result.employee_submitted_value = result.sale_entries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+    // 🆕 FIX: Daily-mode plan → don't close out the whole month just because
+    // ONE entry got paid. Keep result.status = "pending" so the employee can
+    // keep adding entries all month. Only monthly-mode plans (final-submit
+    // flow) should flip result.status to "paid".
+    if (plan?.payout_frequency !== "daily") {
+      result.status  = "paid";
+      result.paid_at = new Date();
+    } else {
+      result.paid_at = new Date(); // 🆕 track "last paid" timestamp, but keep status open
+    }
+
+    await result.save();
+
+    await createNotification({
+      recipient_id:   result.employee_id,
+      recipient_role: "employee",
+      type:           "incentive_paid",
+      title:          "Incentive Paid 💸",
+      message:        `₹${Number(payoutAmt).toLocaleString("en-IN")} has been credited to you.`,
+      link:           "/employee/my-incentive",
+    });
+
+    res.json({ success: true, message: "Entry marked as paid ✅", data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /api/incentive-results/:id/entries/:entryId/reject ──
+router.post("/:id/entries/:entryId/reject", async (req, res) => {
+  try {
+    const { remark } = req.body;
+    const result = await IncentiveResult.findById(req.params.id);
+    if (!result) return res.status(404).json({ success: false, message: "Result not found" });
+
+    const entry = result.sale_entries.id(req.params.entryId);
+    if (!entry) return res.status(404).json({ success: false, message: "Entry not found" });
+    if (entry.status === "paid")
+      return res.status(409).json({ success: false, message: "Already paid — cannot reject" });
+
+    entry.status     = "rejected";
+    entry.hr_remark  = remark || "";
+    await result.save();
+
+    await createNotification({
+      recipient_id:   result.employee_id,
+      recipient_role: "employee",
+      type:           "incentive_rejected",
+      title:          "Incentive Request Rejected ❌",
+      message:        `Your incentive request of ₹${Number(entry.amount).toLocaleString("en-IN")} was rejected.`
+                     + (remark ? ` HR note: ${remark}` : ""),
+      link:           "/employee/my-incentive",
+    });
+
+    res.json({ success: true, message: "Entry rejected", data: result });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -707,7 +887,7 @@ router.get("/:id/entries", async (req, res) => {
     const total = result.employee_submitted_value;
     const slabs = plan?.standalone_slabs || [];
 
-    // 🆕 Each entry gets its OWN matched slab + payout
+      // 🆕 Each entry gets its OWN matched slab + payout
     const entriesWithSlab = (result.sale_entries || []).map(e => {
       const amt = Number(e.amount) || 0;
       const matched = slabs.find(s => {
@@ -719,6 +899,10 @@ router.get("/:id/entries", async (req, res) => {
         _id: e._id, amount: e.amount, date: e.date, note: e.note, added_by: e.added_by,
         matched_slab: matched || null,
         payout,
+        status:       e.status || "pending",   // 🆕 daily-mode lifecycle
+        approved_at:  e.approved_at || null,
+        paid_at:      e.paid_at || null,
+        hr_remark:    e.hr_remark || "",
       };
     });
 
@@ -726,7 +910,7 @@ router.get("/:id/entries", async (req, res) => {
       ? result.calculated_amount
       : entriesWithSlab.reduce((s, e) => s + e.payout, 0);
 
-    res.json({
+        res.json({
       success: true,
       data: {
         entries:          entriesWithSlab,
@@ -734,6 +918,7 @@ router.get("/:id/entries", async (req, res) => {
         estimated_amount,
         period_locked:    result.period_locked,
         lock_date:        getPeriodLockDate(result.cycle_period),
+        payout_frequency: plan?.payout_frequency || "monthly",   // 🆕
       },
     });
   } catch (err) {

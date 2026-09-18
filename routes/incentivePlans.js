@@ -16,6 +16,15 @@ function buildPeriodFields(body) {
   };
 }
 
+// 🆕 Payout mode + validity window
+function buildPayoutFields(body) {
+  return {
+    payout_frequency: body.payout_frequency === "daily" ? "daily" : "monthly",
+    validity_start:   body.validity_start ? new Date(body.validity_start) : null,
+    validity_end:     body.validity_end   ? new Date(body.validity_end)   : null,
+  };
+}
+
 function sanitizeKpiConfigs(kpi_configs = []) {
   return kpi_configs.map(cfg => ({
     kpi_name:         cfg.kpi_name,
@@ -123,13 +132,14 @@ router.post("/", async (req, res) => {
     if (isKpi && (!req.body.kpi_configs || req.body.kpi_configs.length === 0))
       return res.status(400).json({ success: false, message: "At least one KPI must be configured" });
 
-    const plan = new IncentivePlan({
+        const plan = new IncentivePlan({
       name,
             description: description || "",
 
       department,
       plan_type: plan_type || "kpi_linked",
       ...buildPeriodFields(req.body),
+      ...buildPayoutFields(req.body),
       ...(isKpi  ? buildKpiFields(req.body)        : {}),
       ...(!isKpi ? buildStandaloneFields(req.body) : {}),
     });
@@ -149,13 +159,14 @@ router.put("/:id", async (req, res) => {
     const { name,  description, department, plan_type } = req.body;
     const isKpi = plan_type === "kpi_linked";
 
-    const updateData = {
+        const updateData = {
       name,
             description: description || "",
 
       department,
       plan_type: plan_type || "kpi_linked",
       ...buildPeriodFields(req.body),
+      ...buildPayoutFields(req.body),
       ...(isKpi ? buildKpiFields(req.body) : {
         kpi_template_id:         null,
         kpi_configs:             [],

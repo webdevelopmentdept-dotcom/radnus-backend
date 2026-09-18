@@ -77,6 +77,17 @@ const IncentivePlanSchema = new mongoose.Schema({
     default: "kpi_linked",
   },
 
+    // ── Payout Mode (🆕) ───────────────────────────────────────────────────────
+  payout_frequency: {
+    type:    String,
+    enum:    ["monthly", "daily"],
+    default: "monthly",
+  },
+
+  // ── Validity window (🆕) ───────────────────────────────────────────────────
+  validity_start: { type: Date, default: null },
+  validity_end:   { type: Date, default: null },
+
   // ── KPI-Linked fields ─────────────────────────────────────────────────────
   kpi_template_id: {
     type:    mongoose.Schema.Types.ObjectId,
