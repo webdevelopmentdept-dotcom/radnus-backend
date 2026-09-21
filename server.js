@@ -226,6 +226,8 @@ app.use("/api", attendanceRoutes);
 app.use("/", require("./routes/esslRoutes"));
 app.use("/api/shop-owner", shopOwnerRoutes);
 app.use("/api/technician", technicianRoutes);
+app.use("/api/internship", require("./routes/internshipApply"));
+app.use("/api/internship", require("./routes/internshipAdmin"));
 
 /* --------------------------------------------------
    HEALTH CHECK
