@@ -67,7 +67,7 @@ router.put("/mark-all-read/hr", async (req, res) => {
 // ══════════════════════════════════════════
 router.post("/send-hr-message", async (req, res) => {
   try {
-    const { employeeIds, title, message } = req.body;
+        const { employeeIds, title, message, hrId } = req.body;
 
     if (!employeeIds || !Array.isArray(employeeIds) || employeeIds.length === 0) {
       return res.status(400).json({ success: false, message: "employeeIds required" });
@@ -102,7 +102,25 @@ if (employeeIds.length === 1 && employeeIds[0] === "all") {
       isRead:         false
     }));
 
-    await Notification.insertMany(docs);
+        await Notification.insertMany(docs);
+
+    if (hrId) {
+      const recipientLabel =
+        employeeIds.length === 1 && employeeIds[0] === "all"
+          ? "All Employees"
+          : `${targetIds.length} employee${targetIds.length === 1 ? "" : "s"}`;
+
+      await Notification.create({
+        recipient_id:   String(hrId),
+        recipient_role: "hr",
+        type:           "hr_message_sent",
+        title:          notifTitle,
+        message:        `To ${recipientLabel}: ${message.trim()}`,
+        link:           "",
+        isRead:         true
+      });
+    }
+
     res.json({ success: true, sent: docs.length });
   
   } catch (err) {

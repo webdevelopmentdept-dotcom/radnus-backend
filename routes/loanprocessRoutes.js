@@ -616,10 +616,18 @@ router.get("/incentives/mine", auth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req, res) => {
   try {
-    const { amount, remark } = req.body;
+    const { amount, remark, paidAt } = req.body;
     const amt = Number(amount);
     if (!amt || amt <= 0) {
       return res.status(400).json({ success: false, message: "Enter a valid incentive amount" });
+    }
+
+    // ✅ Optional custom paid date (for backdating old payments that were
+    // already given before this module existed). Falls back to now.
+    let paidAtDate = new Date();
+    if (paidAt) {
+      const parsed = new Date(paidAt);
+      if (!isNaN(parsed.getTime())) paidAtDate = parsed;
     }
 
     const customer = await LoanCustomer.findById(req.params.id);
@@ -634,7 +642,7 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
 
     customer.incentive.eligibility = "Paid";
     customer.incentive.amount = amt;
-    customer.incentive.paidAt = new Date();
+    customer.incentive.paidAt = paidAtDate;
     customer.incentive.paidBy = mongoose.Types.ObjectId.isValid(req.user?.id)
       ? req.user.id
       : null;
