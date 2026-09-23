@@ -132,6 +132,7 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
       communicationAddress,
       unitAddress,
       businessType,
+      businessSubType,
       scheme,
       loanValue,
       contactNo,
@@ -166,6 +167,7 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
       communicationAddress,
       unitAddress,
       businessType,
+      businessSubType,
       scheme,
       loanValue: Number(loanValue) || 0,
       contactNo,
@@ -624,10 +626,13 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
 
     // ✅ Optional custom paid date (for backdating old payments that were
     // already given before this module existed). Falls back to now.
-    let paidAtDate = new Date();
+     let paidAtDate = new Date();
     if (paidAt) {
-      const parsed = new Date(paidAt);
-      if (!isNaN(parsed.getTime())) paidAtDate = parsed;
+      const [y, m, d] = paidAt.split("-").map(Number);
+      if (y && m && d) {
+        const now = new Date();
+        paidAtDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+      }
     }
 
     const customer = await LoanCustomer.findById(req.params.id);
@@ -662,9 +667,137 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
       link: "/employee/dashboard/loan-process",
     });
 
-    res.json({ success: true, customer });
+   res.json({ success: true, customer });
   } catch (err) {
     console.error("Incentive approve error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+//  LOAN INCENTIVE — Edit paid date (fix a wrong date after approval)
+//  PATCH /api/loan-process/:id/incentive/paid-date
+//  Body: { paidAt }  (required, "YYYY-MM-DD")
+// ══════════════════════════════════════════════════════
+router.patch("/:id/incentive/paid-date", auth, canApproveLoanIncentive, async (req, res) => {
+  try {
+    const { paidAt } = req.body;
+    if (!paidAt) return res.status(400).json({ success: false, message: "paidAt is required" });
+
+    const customer = await LoanCustomer.findById(req.params.id);
+    if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
+
+    if (customer.incentive.eligibility !== "Paid") {
+      return res.status(400).json({ success: false, message: "This loan hasn't been paid yet." });
+    }
+
+    const [y, m, d] = paidAt.split("-").map(Number);
+    if (!y || !m || !d) return res.status(400).json({ success: false, message: "Invalid date" });
+
+    const existing = customer.incentive.paidAt || new Date();
+    customer.incentive.paidAt = new Date(y, m - 1, d, existing.getHours(), existing.getMinutes(), existing.getSeconds());
+    await customer.save();
+
+    res.json({ success: true, customer });
+  } catch (err) {
+    console.error("Incentive paid-date edit error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+// ══════════════════════════════════════════════════════
+//  LOAN INCENTIVE — Reject (record stays, incentive marked Rejected)
+//  POST /api/loan-process/:id/incentive/reject
+//  Body: { remark }  (required)
+// ══════════════════════════════════════════════════════
+router.post("/:id/incentive/reject", auth, canApproveLoanIncentive, async (req, res) => {
+  try {
+    const { remark } = req.body;
+    if (!remark || !remark.trim()) {
+      return res.status(400).json({ success: false, message: "Remark is required to reject" });
+    }
+
+    const customer = await LoanCustomer.findById(req.params.id);
+    if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
+
+    if (customer.incentive.eligibility !== "Eligible for Processing") {
+      return res.status(400).json({
+        success: false,
+        message: "This loan isn't in 'Eligible for Processing' state.",
+      });
+    }
+
+    customer.incentive.eligibility = "Rejected";
+    customer.incentive.rejectedAt = new Date();
+    customer.incentive.rejectedBy = mongoose.Types.ObjectId.isValid(req.user?.id) ? req.user.id : null;
+    customer.incentive.rejectedByName =
+      req.user?.role === "hr" ? "HR" :
+        req.user?.role === "admin" ? "Admin" :
+          req.loanIncentiveEmployee?.name || req.user?.name || "Accounts";
+    customer.incentive.rejectedRemark = remark.trim();
+    await customer.save();
+
+    createNotification({
+      recipient_id: String(customer.staffId),
+      recipient_role: "employee",
+      type: "incentive_rejected",
+      title: "Loan incentive rejected",
+      message: `Incentive for ${customer.customerName}'s loan was rejected: ${remark.trim()}`,
+      link: "/employee/dashboard/loan-process",
+    });
+
+    res.json({ success: true, customer });
+  } catch (err) {
+    console.error("Incentive reject error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+//  LOAN INCENTIVE — Remove from queue (record + documents stay untouched)
+//  POST /api/loan-process/:id/incentive/remove
+//  Body: { remark }  (required)
+// ══════════════════════════════════════════════════════
+router.post("/:id/incentive/remove", auth, canApproveLoanIncentive, async (req, res) => {
+  try {
+    const { remark } = req.body;
+    if (!remark || !remark.trim()) {
+      return res.status(400).json({ success: false, message: "Remark is required to remove" });
+    }
+
+    const customer = await LoanCustomer.findById(req.params.id);
+    if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
+
+    if (customer.incentive.eligibility !== "Eligible for Processing") {
+      return res.status(400).json({
+        success: false,
+        message: "This loan isn't in 'Eligible for Processing' state.",
+      });
+    }
+
+    customer.incentive.eligibility = "Removed";
+    customer.incentive.removedAt = new Date();
+    customer.incentive.removedBy = mongoose.Types.ObjectId.isValid(req.user?.id) ? req.user.id : null;
+    customer.incentive.removedByName =
+      req.user?.role === "hr" ? "HR" :
+        req.user?.role === "admin" ? "Admin" :
+          req.loanIncentiveEmployee?.name || req.user?.name || "Accounts";
+    customer.incentive.removedRemark = remark.trim();
+    await customer.save();
+
+    createNotification({
+      recipient_id: String(customer.staffId),
+      recipient_role: "employee",
+      type: "incentive_removed",
+      title: "Loan incentive not available",
+      message: `Incentive for ${customer.customerName}'s loan is no longer available: ${remark.trim()}`,
+      link: "/employee/dashboard/loan-process",
+    });
+
+    res.json({ success: true, customer });
+  } catch (err) {
+    console.error("Incentive remove error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -710,6 +843,7 @@ router.put("/:id", auth, canManageLoanProcess, async (req, res) => {
       communicationAddress,
       unitAddress,
       businessType,
+      businessSubType,
       scheme,
       loanValue,
       contactNo,
@@ -727,6 +861,7 @@ router.put("/:id", auth, canManageLoanProcess, async (req, res) => {
         communicationAddress,
         unitAddress,
         businessType,
+        businessSubType,
         scheme,
         loanValue: Number(loanValue) || 0,
         contactNo,

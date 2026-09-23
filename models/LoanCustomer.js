@@ -15,6 +15,7 @@ const loanCustomerSchema = new mongoose.Schema(
     communicationAddress: { type: String, default: "" },
     unitAddress: { type: String, default: "" },
     businessType: { type: String, default: "" },
+     businessSubType: { type: String, default: "" },
     scheme: {
       type: String,
       enum: ["PMEGP", "UYEGP", "AABCS", ""],
@@ -100,10 +101,10 @@ const loanCustomerSchema = new mongoose.Schema(
     // "Online Loan Application" label re-uses checklist.applicationProcess,
     // "Projection Dispatch" label re-uses checklist.courier. Field names kept
     // as-is so existing saved records don't need a migration.
-    incentive: {
+        incentive: {
       eligibility: {
         type: String,
-        enum: ["Not Eligible", "Eligible for Processing", "Paid"],
+        enum: ["Not Eligible", "Eligible for Processing", "Paid", "Rejected", "Removed"],
         default: "Not Eligible",
       },
       eligibleAt: { type: Date, default: null },
@@ -112,6 +113,16 @@ const loanCustomerSchema = new mongoose.Schema(
       paidBy: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
       paidByName: { type: String, default: "" },
       paidRemark: { type: String, default: "" },
+
+      rejectedAt: { type: Date, default: null },
+      rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
+      rejectedByName: { type: String, default: "" },
+      rejectedRemark: { type: String, default: "" },
+
+      removedAt: { type: Date, default: null },
+      removedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
+      removedByName: { type: String, default: "" },
+      removedRemark: { type: String, default: "" },
     },
   },
   { timestamps: true }
@@ -127,8 +138,13 @@ loanCustomerSchema.pre("save", function (next) {
 
   // Auto-flip incentive eligibility based on the 2 mandatory activities.
   // Never downgrade automatically once it's "Paid" — manual/locked state.
-  if (this.incentive.eligibility !== "Paid") {
-    const bothDone = !!this.checklist.applicationProcess && !!this.checklist.courier;
+    // Never downgrade automatically once it's "Paid", "Rejected" or "Removed" — manual/locked state.
+  if (
+    this.incentive.eligibility !== "Paid" &&
+    this.incentive.eligibility !== "Rejected" &&
+    this.incentive.eligibility !== "Removed"
+  ) {
+  const bothDone = !!this.checklist.applicationProcess && !!this.checklist.courier;
     if (bothDone && this.incentive.eligibility !== "Eligible for Processing") {
       this.incentive.eligibility = "Eligible for Processing";
       this.incentive.eligibleAt = new Date();
