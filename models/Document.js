@@ -22,5 +22,6 @@ const documentSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+documentSchema.index({ employeeId: 1, docType: 1 }, { unique: true });
 
 module.exports = mongoose.model("Document", documentSchema);

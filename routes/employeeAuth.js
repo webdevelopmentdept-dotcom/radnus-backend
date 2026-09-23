@@ -286,6 +286,17 @@ router.delete('/delete-doc', async (req, res) => {
   }
 });
 
+router.delete('/document/:docId', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.docId);
+    if (!doc) return res.status(404).json({ message: 'DOCUMENT_NOT_FOUND' });
+    await Document.deleteOne({ _id: doc._id });
+    res.json({ message: 'Document deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Delete failed' });
+  }
+});
+
 // ================= REPLACE DOCUMENT =================
 router.post('/replace-doc', (req, res) => {
   upload.single('file')(req, res, async (err) => {
@@ -629,12 +640,11 @@ router.post('/save-link', async (req, res) => {
     if (!employeeId) return res.status(400).json({ message: 'EMPLOYEE_ID_MISSING' });
     if (!url) return res.status(400).json({ message: 'URL_MISSING' });
 
-    const existingDoc = await Document.findOne({ employeeId, docType });
-    if (existingDoc) {
-      await Document.findByIdAndUpdate(existingDoc._id, { fileUrl: url });
-    } else {
-      await Document.create({ employeeId, docType, fileUrl: url });
-    }
+    await Document.findOneAndUpdate(
+  { employeeId, docType },
+  { fileUrl: url },
+  { upsert: true, new: true }
+);
 
     await Employee.findByIdAndUpdate(employeeId, { status: 'pending' });
     res.json({ message: 'Link saved successfully' });
