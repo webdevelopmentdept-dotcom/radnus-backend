@@ -41,6 +41,28 @@ const createProgram = async (req, res) => {
       body.pdfName = pdfFile.originalname;
     }
     if (typeof body.modules === "string") body.modules = JSON.parse(body.modules); // FormData sends arrays as string
+
+    // ✅ NEW — multi-chapter course support. HR sends `chapters` as a
+    // JSON string; each chapter that has a newly-uploaded video carries
+    // a `fileIndex` pointing into the `chapterVideos[]` files array
+    // (chapters using a YouTube link or no video just keep their typed
+    // videoUrl, no fileIndex).
+    if (typeof body.chapters === "string") {
+      const chapters = JSON.parse(body.chapters);
+      const chapterVideoFiles = req.files?.chapterVideos || [];
+      body.chapters = chapters.map((ch) => {
+        if (ch.fileIndex !== undefined && ch.fileIndex !== null && chapterVideoFiles[ch.fileIndex]) {
+          const f = chapterVideoFiles[ch.fileIndex];
+          return { ...ch, videoSource: "upload", videoUrl: f.path, videoPublicId: f.filename };
+        }
+        const { fileIndex, ...rest } = ch;
+        return rest;
+      });
+    }
+    // Date range HR sets for the chapter course to be accessible
+    if (body.accessStartDate === "") body.accessStartDate = null;
+    if (body.accessEndDate === "")   body.accessEndDate   = null;
+
     const program = await TrainingProgram.create(body);
     res.status(201).json({ success: true, data: program, message: "Training program created" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -67,8 +89,59 @@ const updateProgram = async (req, res) => {
     }
     if (typeof body.modules === "string") body.modules = JSON.parse(body.modules);
 
+    // ✅ NEW — same chapters[] + chapterVideos[] handling as createProgram
+    // (HR editing an existing course: keep chapters whose video wasn't
+    // replaced, swap in a fresh Cloudinary URL for ones that were).
+    if (typeof body.chapters === "string") {
+      const chapters = JSON.parse(body.chapters);
+      const chapterVideoFiles = req.files?.chapterVideos || [];
+      body.chapters = chapters.map((ch) => {
+        if (ch.fileIndex !== undefined && ch.fileIndex !== null && chapterVideoFiles[ch.fileIndex]) {
+          const f = chapterVideoFiles[ch.fileIndex];
+          return { ...ch, videoSource: "upload", videoUrl: f.path, videoPublicId: f.filename };
+        }
+        const { fileIndex, ...rest } = ch;
+        return rest;
+      });
+    }
+    if (body.accessStartDate === "") body.accessStartDate = null;
+    if (body.accessEndDate === "")   body.accessEndDate   = null;
+
+    // ✅ Which chapters got a DIFFERENT video in this edit? (same chapterNo, new videoUrl)
+    // Their old watch-tracking (length + watched ranges) belongs to the old video.
+    let changedChapterNos = [];
+    if (Array.isArray(body.chapters)) {
+      const before = await TrainingProgram.findById(req.params.id).select("chapters");
+      const oldChapters = before?.chapters || [];
+      changedChapterNos = body.chapters
+        .filter(nc => {
+          const oc = oldChapters.find(c => Number(c.chapterNo) === Number(nc.chapterNo));
+          return oc && (oc.videoUrl || "") !== (nc.videoUrl || "");
+        })
+        .map(nc => Number(nc.chapterNo));
+    }
+
     const program = await TrainingProgram.findByIdAndUpdate(req.params.id, body, { new: true });
     if (!program) return res.status(404).json({ success: false, message: "Program not found" });
+
+    // ✅ Reset tracking for those chapters — only for employees who have NOT completed them.
+    // (Already-completed chapters stay completed; use "Retrain" if HR wants a redo.)
+    if (changedChapterNos.length) {
+      await EmployeeTraining.updateMany(
+        { programId: program._id },
+        {
+          $set: {
+            "chapterProgress.$[c].watchedRanges": [],
+            "chapterProgress.$[c].duration": 0,
+            "chapterProgress.$[c].lastPosition": 0,
+            "chapterProgress.$[c].playedSeconds": 0,
+            "chapterProgress.$[c].watchPercent": 0,
+          },
+          $unset: { "chapterProgress.$[c].startedAt": "", "chapterProgress.$[c].lastBeatAt": "" },
+        },
+        { arrayFilters: [{ "c.chapterNo": { $in: changedChapterNos }, "c.watched": { $ne: true } }] }
+      );
+    }
     res.json({ success: true, data: program, message: "Program updated" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -396,6 +469,447 @@ const markPdfRead = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+// ── Chapter watch verification (server-side) ─────────────────────
+// The browser sends a heartbeat every ~5s while a chapter video plays:
+// { position, duration, rate }. The server only credits the stretch
+// [lastPosition → position] as "watched" when it is physically possible
+// — i.e. the video advanced no faster than real time since the previous
+// heartbeat. Seeking/skipping, fast-forwarding, or sending fake numbers
+// earns nothing. Credited ranges are merged & stored, so:
+//   • watching in several sittings adds up,
+//   • re-watching / rewinding never hurts,
+//   • only the parts never really played stay "unwatched".
+const REQUIRED_WATCH_PERCENT = 90;  // % of the video that must be verified — keep in sync with the frontend
+const MAX_BEAT_GAP_SEC   = 40;      // ✅ raised from 25 — tolerate a throttled/backgrounded tab beat or two
+const BEAT_TOLERANCE     = 1.5;
+const BEAT_SLACK_SEC     = 4;   
+const BUDGET_FACTOR      = 1.1;     // … but total credit can never exceed real time x 1.1
+const BUDGET_SLACK_SEC   = 10;
+
+const mergeRanges = (ranges) => {
+  const sorted = ranges.map(r => [Number(r[0]), Number(r[1])]).filter(r => r[1] > r[0]).sort((a, b) => a[0] - b[0]);
+  const out = [];
+  for (const [s, e] of sorted) {
+    if (out.length && s <= out[out.length - 1][1] + 0.6) out[out.length - 1][1] = Math.max(out[out.length - 1][1], e);
+    else out.push([s, e]);
+  }
+  return out.map(([s, e]) => [Math.round(s * 10) / 10, Math.round(e * 10) / 10]);
+};
+const coveredSeconds = (ranges) => ranges.reduce((sum, [s, e]) => sum + (e - s), 0);
+const fmtVideoLen = (sec) => {
+  const mins = Math.max(1, Math.round(sec / 60));
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h ? `${h} hr${m ? ` ${m} min` : ""}` : `${m} min`;
+};
+
+// Shared checks for heartbeat + complete. Returns { record, prog, error }.
+const loadChapterRecord = async (recordId, chapterNo) => {
+  const record = await EmployeeTraining.findById(recordId).populate("programId");
+  if (!record) return { status: 404, error: "Record not found" };
+  const prog = record.programId;
+  if (!prog?.chapters?.length) return { status: 400, error: "This program has no chapters" };
+  if (!prog.chapters.some(c => Number(c.chapterNo) === chapterNo)) return { status: 404, error: "Chapter not found" };
+  const now = new Date();
+  if (prog.accessStartDate && now < new Date(prog.accessStartDate)) return { status: 403, error: "This course is not open yet" };
+  if (prog.accessEndDate && now > new Date(prog.accessEndDate)) return { status: 403, error: "This course's access window has ended" };
+  return { record, prog };
+};
+
+// ── PUT /api/training/my/:recordId/chapter/:chapterNo/heartbeat ──
+const markChapterHeartbeat = async (req, res) => {
+  try {
+    const num = Number(req.params.chapterNo);
+    { // ✅ NEW — heartbeats only make sense for video chapters; PDF chapters use "Mark as Read" instead
+      const { prog } = await loadChapterRecord(req.params.recordId, num);
+      const ch = prog?.chapters?.find(c => Number(c.chapterNo) === num);
+      if (ch?.contentType === "pdf") return res.status(400).json({ success: false, message: "This chapter is a PDF — use Mark as Read." });
+    }
+    const position = Number(req.body.position);
+    const reportedDuration = Number(req.body.duration);
+    if (!Number.isFinite(position) || !Number.isFinite(reportedDuration) || reportedDuration <= 0 || position < 0) {
+      return res.status(400).json({ success: false, message: "Invalid heartbeat" });
+    }
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { record, error, status } = await loadChapterRecord(req.params.recordId, num);
+      if (error) return res.status(status).json({ success: false, message: error });
+
+      const watchedCount = record.chapterProgress.filter(c => c.watched).length;
+      let cp = record.chapterProgress.find(c => c.chapterNo === num);
+      if (!cp && num > watchedCount + 1) {
+        return res.status(400).json({ success: false, message: "Previous chapter must be completed first" });
+      }
+      if (!cp) {
+        record.chapterProgress.push({ chapterNo: num, watched: false, watchPercent: 0 });
+        cp = record.chapterProgress[record.chapterProgress.length - 1];
+      }
+
+      const payload = (c) => ({
+        chapterNo: num, watched: !!c.watched, percent: c.watchPercent || 0,
+        ranges: c.watchedRanges || [], duration: c.duration || 0, lastPosition: c.lastPosition || 0,
+        ready: (c.watchPercent || 0) >= REQUIRED_WATCH_PERCENT, required: REQUIRED_WATCH_PERCENT,
+      });
+
+      // Already completed: nothing more to track.
+      if (cp.watched) return res.json({ success: true, data: payload(cp) });
+
+      const now = Date.now();
+      if (!cp.duration) cp.duration = reportedDuration;      // lock the length from the first beat
+      // Chapter length is never typed by HR: if the program's chapter has none yet
+      // (e.g. a YouTube link), fill it from the first play. Only fills an empty value.
+      if (!record.programId.chapters.find(c => Number(c.chapterNo) === num)?.duration) {
+        TrainingProgram.updateOne(
+          { _id: record.programId._id, chapters: { $elemMatch: { chapterNo: num, $or: [{ duration: "" }, { duration: { $exists: false } }] } } },
+          { $set: { "chapters.$.duration": fmtVideoLen(reportedDuration) } }
+        ).catch(() => {});
+      }
+      const duration = cp.duration;
+      const pos = Math.min(position, duration);
+      if (!cp.startedAt) cp.startedAt = new Date(now);
+
+      const prevPos = cp.lastPosition || 0;
+      const prevAt  = cp.lastBeatAt ? cp.lastBeatAt.getTime() : null;
+
+      if (prevAt !== null) {
+        const elapsed = (now - prevAt) / 1000;
+        const delta = pos - prevPos;
+        const realSinceStart = (now - cp.startedAt.getTime()) / 1000;
+        const plausibleStep = elapsed <= MAX_BEAT_GAP_SEC && delta > 0 && delta <= elapsed * BEAT_TOLERANCE + BEAT_SLACK_SEC;
+        const withinBudget  = (cp.playedSeconds || 0) + delta <= realSinceStart * BUDGET_FACTOR + BUDGET_SLACK_SEC;
+        if (plausibleStep && withinBudget) {
+          cp.watchedRanges = mergeRanges([...(cp.watchedRanges || []), [prevPos, pos]]);
+          cp.playedSeconds = (cp.playedSeconds || 0) + delta;
+        }
+      }
+
+      cp.lastPosition = pos;
+      cp.lastBeatAt = new Date(now);
+      cp.watchPercent = Math.min(100, Math.round((coveredSeconds(cp.watchedRanges || []) / duration) * 100));
+      record.markModified("chapterProgress");
+
+      try {
+        await record.save();
+        return res.json({ success: true, data: payload(cp) });
+      } catch (e) {
+        if (e.name === "VersionError" && attempt < 2) continue; // two beats raced — retry
+        throw e;
+      }
+    }
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── PUT /api/training/my/:recordId/chapter/:chapterNo/watched ────
+// Marks ONE chapter complete. Enforces:
+//  1. Idempotent — completing an already-completed chapter is a no-op success
+//     (fixes the duplicate "Previous chapter must be completed first" error).
+//  2. Sequential unlock — can't jump ahead by calling the API directly.
+//  3. Anti-skip — uses the SERVER-verified watch percent (from heartbeats),
+//     never a number sent by the browser.
+//  4. Access window (accessStartDate / accessEndDate).
+const markChapterWatched = async (req, res) => {
+  try {
+    const num = Number(req.params.chapterNo);
+    const { record, prog, error, status } = await loadChapterRecord(req.params.recordId, num);
+    if (error) return res.status(status).json({ success: false, message: error });
+
+    const existing = record.chapterProgress.find(c => c.chapterNo === num);
+    if (existing?.watched) {
+      return res.json({ success: true, data: record, message: `Chapter ${num} already completed` });
+    }
+
+    const watchedCount = record.chapterProgress.filter(c => c.watched).length;
+    if (num > watchedCount + 1) {
+      return res.status(400).json({ success: false, message: "Previous chapter must be completed first" });
+    }
+
+    const chapterDef = prog?.chapters?.find(c => Number(c.chapterNo) === num);
+    // ✅ NEW — a chapter with a quiz doesn't complete on this click.
+    const hasQuiz = (chapterDef?.quizQuestions?.length || 0) > 0;
+
+    // Already confirmed the content, just waiting on the quiz below — nothing to redo.
+    if (hasQuiz && existing?.contentDone) {
+      return res.json({ success: true, data: record, message: `Content already confirmed for chapter ${num} — take the quiz below to finish it.` });
+    }
+
+    // PDF chapters: "Mark as Read" is a direct click, no watch-percent to verify.
+    if (chapterDef?.contentType !== "pdf") {
+      const verified = existing?.watchPercent || 0;
+      if (verified < REQUIRED_WATCH_PERCENT) {
+        return res.status(400).json({
+          success: false,
+          message: `Only ${verified}% of this chapter is verified as watched (need ${REQUIRED_WATCH_PERCENT}%). Please watch the parts you skipped.`,
+        });
+      }
+    }
+
+    if (!existing) record.chapterProgress.push({ chapterNo: num, watched: false, watchPercent: 0 });
+    const cp = record.chapterProgress.find(c => c.chapterNo === num);
+
+    // ✅ NEW — a chapter with a quiz only reaches "content confirmed" here;
+    // it becomes watched (and unlocks the next chapter) only once the
+    // quiz is passed, via submitChapterQuiz below. No quiz = unchanged,
+    // exact old behaviour: this click completes the chapter outright.
+    if (hasQuiz) {
+      cp.contentDone = true;
+      cp.contentDoneAt = new Date();
+    } else {
+      cp.watched = true;
+      cp.watchedAt = new Date();
+    }
+    record.markModified("chapterProgress");
+
+    if (record.status === "pending" || record.status === "retrain") {
+      record.status = "in_progress";
+      if (!record.startedDate) record.startedDate = new Date();
+    }
+    await record.save();
+
+    // ✅ NEW — one milestone log entry when the LAST chapter is completed
+    // this way (no quiz on it), so HR's Compliance Log shows the course
+    // was finished without a per-chapter entry for every single chapter.
+    if (!hasQuiz && cp.watched) {
+      const doneCount = record.chapterProgress.filter(c => c.watched).length;
+      if (doneCount === prog.chapters.length) {
+        await ComplianceLog.create({
+          employeeId: record.employeeId,
+          programId:  prog._id,
+          programTitle: prog.title || "",
+          action: "score_updated",
+          note: `All ${prog.chapters.length} chapters completed — Final Test unlocked`,
+          addedBy: "Employee",
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: record,
+      message: hasQuiz ? `Content confirmed for chapter ${num} — take the quiz below to finish it.` : `Chapter ${num} completed`,
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── GET /api/training/my/:recordId/chapter/:chapterNo/quiz ───────
+// ✅ NEW — optional per-chapter "understanding check" quiz. Completely
+// separate from the program Final Test (getQuiz/submitQuiz above):
+// unlimited retries, only gates the NEXT chapter unlocking, never
+// blocked by MAX_ATTEMPTS, never touches certification/HR review.
+const getChapterQuiz = async (req, res) => {
+  try {
+    const num = Number(req.params.chapterNo);
+    const { record, prog, error, status } = await loadChapterRecord(req.params.recordId, num);
+    if (error) return res.status(status).json({ success: false, message: error });
+
+    const chapterDef = prog.chapters.find(c => Number(c.chapterNo) === num);
+    const questions = chapterDef?.quizQuestions || [];
+    if (!questions.length) {
+      return res.status(400).json({ success: false, message: "This chapter has no quiz" });
+    }
+
+    // ✅ NEW — quiz only unlocks AFTER the video/PDF is confirmed done
+    // (via markChapterWatched, which sets contentDone for a quizzed chapter).
+    const existing = record.chapterProgress.find(c => c.chapterNo === num);
+    if (!existing?.contentDone && !existing?.watched) {
+      return res.status(400).json({
+        success: false,
+        message: chapterDef.contentType === "pdf" ? 'Click "Mark as Read" first.' : 'Finish watching the video and click "Complete chapter" first.',
+      });
+    }
+
+    // Withhold correctOptionIndex from the employee. Each question's
+    // position in this array (its "index") is how the submit endpoint
+    // below identifies it — no separate _id needed for a sub-subdocument.
+    const safeQuestions = questions.map((q, i) => ({ index: i, questionText: q.questionText, options: q.options }));
+
+    res.json({ success: true, data: { questions: safeQuestions, passThreshold: PASS_THRESHOLD } });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── POST /api/training/my/:recordId/chapter/:chapterNo/quiz/submit ──
+// body: { answers: [{ index, selectedOptionIndex }] }
+// Unlike submitQuiz (Final Test), this allows UNLIMITED attempts — it's
+// a learning check, not a certification gate. Passing (score >=
+// PASS_THRESHOLD) marks the chapter watched exactly the way
+// markChapterWatched does, so the next chapter unlocks the same way in
+// both cases. The video's server-verified watch% (or, for a PDF
+// chapter, simply having reached this screen) is still required first —
+// the quiz sits AFTER finishing the content, it never replaces it.
+const submitChapterQuiz = async (req, res) => {
+  try {
+    const num = Number(req.params.chapterNo);
+    const { answers } = req.body;
+    if (!Array.isArray(answers) || !answers.length) {
+      return res.status(400).json({ success: false, message: "answers[] required" });
+    }
+
+    const { record, prog, error, status } = await loadChapterRecord(req.params.recordId, num);
+    if (error) return res.status(status).json({ success: false, message: error });
+
+    const existing = record.chapterProgress.find(c => c.chapterNo === num);
+    if (existing?.watched) {
+      // Idempotent, same as markChapterWatched — nothing left to do.
+      return res.json({ success: true, data: { record, score: existing.lastScore ?? 100, passed: true, alreadyCompleted: true } , message: `Chapter ${num} already completed` });
+    }
+
+    const watchedCount = record.chapterProgress.filter(c => c.watched).length;
+    if (num > watchedCount + 1) {
+      return res.status(400).json({ success: false, message: "Previous chapter must be completed first" });
+    }
+
+    const chapterDef = prog?.chapters?.find(c => Number(c.chapterNo) === num);
+    const questions = chapterDef?.quizQuestions || [];
+    if (!questions.length) {
+      return res.status(400).json({ success: false, message: "This chapter has no quiz" });
+    }
+
+    // ✅ NEW — quiz only submittable AFTER the video/PDF is confirmed done
+    // (contentDone, set by markChapterWatched) — same gate as getChapterQuiz above.
+    if (!existing?.contentDone) {
+      return res.status(400).json({
+        success: false,
+        message: chapterDef.contentType === "pdf" ? 'Click "Mark as Read" first.' : 'Finish watching the video and click "Complete chapter" first.',
+      });
+    }
+
+    let correctCount = 0;
+    answers.forEach(a => {
+      const q = questions[Number(a.index)];
+      if (q && q.correctOptionIndex === a.selectedOptionIndex) correctCount++;
+    });
+    const total = questions.length;
+    const score = Math.round((correctCount / total) * 100);
+    const passed = score >= PASS_THRESHOLD;
+
+    if (!existing) record.chapterProgress.push({ chapterNo: num, watched: false, watchPercent: 0 });
+    const cp = record.chapterProgress.find(c => c.chapterNo === num);
+    cp.quizAttempts = cp.quizAttempts || [];
+    cp.quizAttempts.push({ score, passed, attemptedAt: new Date() });
+    cp.lastScore = score;
+
+    if (passed) {
+      cp.watched = true;
+      cp.watchedAt = new Date();
+    }
+    record.markModified("chapterProgress");
+
+    if (record.status === "pending" || record.status === "retrain") {
+      record.status = "in_progress";
+      if (!record.startedDate) record.startedDate = new Date();
+    }
+    await record.save();
+
+    // ✅ NEW — log a failed chapter-quiz attempt (HR visibility that the
+    // employee is struggling on a specific chapter), and a single
+    // milestone entry once the LAST chapter is passed. Unlimited retries
+    // on this quiz mean we intentionally don't log every attempt — just
+    // fails (for visibility) and the final pass that finishes the course.
+    if (!passed) {
+      await ComplianceLog.create({
+        employeeId: record.employeeId,
+        programId:  prog._id,
+        programTitle: prog.title || "",
+        action: "score_updated",
+        note: `Chapter ${num} quiz attempt failed — scored ${score}% (needs ${PASS_THRESHOLD}%)`,
+        addedBy: "Employee",
+      });
+    } else {
+      const doneCount = record.chapterProgress.filter(c => c.watched).length;
+      if (doneCount === prog.chapters.length) {
+        await ComplianceLog.create({
+          employeeId: record.employeeId,
+          programId:  prog._id,
+          programTitle: prog.title || "",
+          action: "score_updated",
+          note: `All ${prog.chapters.length} chapters completed — Final Test unlocked`,
+          addedBy: "Employee",
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: { record, score, passed, correctCount, total },
+      message: passed ? `Chapter ${num} completed` : `You scored ${score}% — try again`,
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── PUT /api/training/my/:recordId/certificate/request ───────────
+// ✅ NEW — employee has finished every chapter + passed the quiz →
+// requests HR to issue a certificate. Nothing is auto-generated; this
+// just flips the record into "requested" so it shows up in HR's
+// Certificate Requests list.
+const requestCertificate = async (req, res) => {
+  try {
+    const record = await EmployeeTraining.findById(req.params.recordId).populate("programId").populate("employeeId", "name");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    const prog = record.programId;
+    if (prog?.chapters?.length) {
+      const watchedCount = record.chapterProgress.filter(c => c.watched).length;
+      if (watchedCount < prog.chapters.length) {
+        return res.status(400).json({ success: false, message: "Finish every chapter before requesting a certificate" });
+      }
+    }
+    const lastAttempt = record.quizAttempts?.[record.quizAttempts.length - 1];
+    if (!lastAttempt || !lastAttempt.passed) {
+      return res.status(400).json({ success: false, message: "Pass the quiz before requesting a certificate" });
+    }
+    if (record.certificateRequestStatus === "issued") {
+      return res.json({ success: true, data: record, message: "Certificate already issued" });
+    }
+
+    record.certificateRequestStatus = "requested";
+    record.certificateRequestedAt = new Date();
+    await record.save();
+
+    await createNotification({
+      recipient_id:   "hr_admin_001",
+      recipient_role: "hr",
+      type:           "employee",
+      title:          `Certificate Requested — ${record.employeeId?.name || "Employee"} 🎓`,
+      message:        `${record.employeeId?.name || "An employee"} completed "${prog?.title || "a training"}" and requested their certificate.`,
+      link:           "/hr/dashboard/training",
+    });
+
+    res.json({ success: true, data: record, message: "Certificate requested — HR will upload it shortly" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── PUT /api/training/records/:id/certificate ─────────────────────
+// ✅ NEW — HR uploads the actual certificate file for one employee's
+// record (multer field name "certificate"). Employee can then
+// download it from their side.
+const uploadCertificate = async (req, res) => {
+  try {
+    const file = req.files?.certificate?.[0] || req.file;
+    if (!file) return res.status(400).json({ success: false, message: "Certificate file required" });
+
+    const record = await EmployeeTraining.findById(req.params.id).populate("programId").populate("employeeId", "name");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    record.certificateUrl = file.path;
+    record.certificatePublicId = file.filename;
+    record.certificateFileName = file.originalname;
+    record.certificateRequestStatus = "issued";
+    record.certificateIssuedAt = new Date();
+    record.certificationIssued = true;
+    record.certificationDate = new Date();
+    await record.save();
+
+    await createNotification({
+      recipient_id:   String(record.employeeId?._id || record.employeeId),
+      recipient_role: "employee",
+      type:           "hr",
+      title:          "Certificate Ready 🎓",
+      message:        `Your certificate for "${record.programId?.title || "your training"}" is ready to download.`,
+      link:           "/employee/training",
+    });
+
+    res.json({ success: true, data: record, message: "Certificate uploaded" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
 // ── PUT /api/training/my/:recordId/complete ──────────────────────
 // For NON-equipment programs only (no quiz to unlock this) — e.g.
 // "Excel training". Employee clicks "Mark as Completed" once the video
@@ -712,7 +1226,19 @@ const updateRecord = async (req, res) => {
     if (status !== undefined) {
       updateFields.status = status;
       if (status === "in_progress" && !record.startedDate) updateFields.startedDate = new Date();
-      if (status === "completed") { updateFields.completedDate = new Date(); }
+      if (status === "completed") {
+        updateFields.completedDate = new Date();
+        // ✅ HR approving the record (marking it Completed) IS the review step —
+        // employee no longer clicks "Request Certificate" themselves. As soon as
+        // HR confirms completion, automatically push the record into the
+        // "requested" certificate state so it shows up in HR's own Certificate
+        // Requests tab, ready for them to upload the file. Only auto-request if
+        // nothing has been requested/issued yet (don't clobber an already-issued cert).
+        if (record.certificateRequestStatus === "none") {
+          updateFields.certificateRequestStatus = "requested";
+          updateFields.certificateRequestedAt = new Date();
+        }
+      }
       if (status === "overdue" && !record.startedDate) updateFields.startedDate = null;
 
       // "Retrain" resets the record so the employee has to re-study
@@ -725,6 +1251,16 @@ const updateRecord = async (req, res) => {
         updateFields.certificationIssued = false;
         updateFields.certificationDate = null;
         updateFields.completedDate = null;
+        // Clear any stale certificate request/issue state from a previous pass
+        // too, so a retrained employee goes through "waiting for HR review" →
+        // "HR will upload soon" → "Download" again, instead of jumping straight
+        // to an old (no-longer-valid) certificate.
+        updateFields.certificateRequestStatus = "none";
+        updateFields.certificateRequestedAt = null;
+        updateFields.certificateUrl = "";
+        updateFields.certificatePublicId = "";
+        updateFields.certificateFileName = "";
+        updateFields.certificateIssuedAt = null;
       }
     }
     if (assessmentScore !== undefined) updateFields.assessmentScore = assessmentScore;
@@ -993,10 +1529,6 @@ const updateCompetencyLevel = async (req, res) => {
     res.json({ success: true, data: record, message: `Competency set to ${competencyLevel}` });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
-
-
-
-
 // PUDHU CODE (replace pannu):
 module.exports = {
   getAllPrograms, createProgram, updateProgram, deleteProgram, deleteAllPrograms, seedDefaultPrograms,
@@ -1005,4 +1537,6 @@ module.exports = {
   markProductStudied, getQuiz, submitQuiz,
   assignTraining, assignBulk, getAllRecords, getStats, updateRecord, deleteRecord, markAllComplete, getComplianceLog,
   getMyTrainings, markStarted, updateCompetencyLevel,
+  markChapterWatched, markChapterHeartbeat, requestCertificate, uploadCertificate,
+  getChapterQuiz, submitChapterQuiz,
 };
