@@ -196,6 +196,17 @@ status:       { type: String, enum: ["pending","in_progress","completed","overdu
     default: null,
   },
 
+  // ✅ NEW — Lock/Unlock. HR can lock any time (manual), or it locks
+  // itself once dueDate passes (auto_due_date). Once HR unlocks a
+  // record, auto-lock will NOT re-trigger for it again — HR has to
+  // lock it again manually, or push the dueDate forward.
+  isLocked:    { type: Boolean, default: false },
+  lockReason:  { type: String, enum: ["manual", "auto_due_date", null], default: null },
+  lockedAt:    { type: Date },
+  lockedBy:    { type: String },
+  unlockedAt:  { type: Date },
+  unlockedBy:  { type: String },
+
   notes:   { type: String, default: "" },
   addedBy: { type: String, default: "HR" },
 

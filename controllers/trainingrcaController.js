@@ -4,6 +4,40 @@ const Product = require("../models/Product");
 const { createNotification } = require("../helpers/notificationHelper");
 
 // ═══════════════════════════════════════════════════════════════
+// LOCK / UNLOCK HELPERS
+// ═══════════════════════════════════════════════════════════════
+// A record can be locked two ways:
+//   - HR locks it manually, any time (lockReason: "manual")
+//   - It locks itself automatically once dueDate has passed (lockReason: "auto_due_date")
+// Once HR unlocks a record (unlockedAt gets set), auto-lock will NOT
+// re-trigger for that record again — HR has to lock it again manually,
+// or move the dueDate forward.
+const lockMessage = (record) => record.lockReason === "manual"
+  ? "This course has been locked by HR. Please contact HR to unlock it."
+  : "This course's due date has passed and it has been locked. Please contact HR to unlock it.";
+
+// Auto-locks a record the moment its dueDate has passed. Called lazily
+// wherever a record is read/touched (list views + every employee action)
+// so no separate cron/background process is needed.
+const autoLockIfOverdue = async (record) => {
+  if (!record) return record;
+  if (record.isLocked) return record;                                   // already locked
+  if (record.unlockedAt) return record;                                 // HR already unlocked once — don't re-lock automatically
+  if (!record.dueDate) return record;
+  if (["completed", "waived"].includes(record.status)) return record;   // finished — never lock
+  const end = new Date(record.dueDate);
+  end.setHours(23, 59, 59, 999);
+  if (end >= new Date()) return record;                                 // not overdue yet
+
+  record.isLocked   = true;
+  record.lockReason = "auto_due_date";
+  record.lockedAt   = new Date();
+  record.lockedBy   = "System (auto)";
+  await record.save();
+  return record;
+};
+
+// ═══════════════════════════════════════════════════════════════
 // TRAINING PROGRAM MASTER APIs (HR)
 // ═══════════════════════════════════════════════════════════════
 
@@ -403,6 +437,8 @@ const markProductStudied = async (req, res) => {
 
     const record = await EmployeeTraining.findById(req.params.recordId);
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+    await autoLockIfOverdue(record);                                                                  // ✅ NEW
+    if (record.isLocked) return res.status(423).json({ success: false, message: lockMessage(record) }); // ✅ NEW
 
     const existing = record.productProgress.find(p => String(p.productId) === String(productId));
     if (existing) {
@@ -430,6 +466,8 @@ const markVideoWatched = async (req, res) => {
   try {
     const record = await EmployeeTraining.findById(req.params.recordId);
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+    await autoLockIfOverdue(record);                                                                  // ✅ NEW
+    if (record.isLocked) return res.status(423).json({ success: false, message: lockMessage(record) }); // ✅ NEW
 
     if (!record.videoWatched) {
       record.videoWatched = true;
@@ -454,6 +492,8 @@ const markPdfRead = async (req, res) => {
   try {
     const record = await EmployeeTraining.findById(req.params.recordId);
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+    await autoLockIfOverdue(record);                                                                  // ✅ NEW
+    if (record.isLocked) return res.status(423).json({ success: false, message: lockMessage(record) }); // ✅ NEW
 
     if (!record.pdfRead) {
       record.pdfRead = true;
@@ -509,6 +549,11 @@ const loadChapterRecord = async (recordId, chapterNo) => {
   const prog = record.programId;
   if (!prog?.chapters?.length) return { status: 400, error: "This program has no chapters" };
   if (!prog.chapters.some(c => Number(c.chapterNo) === chapterNo)) return { status: 404, error: "Chapter not found" };
+
+  // ✅ NEW — lock check (manual HR lock, or auto-locked once dueDate passed)
+  await autoLockIfOverdue(record);
+  if (record.isLocked) return { status: 423, error: lockMessage(record) };
+
   const now = new Date();
   if (prog.accessStartDate && now < new Date(prog.accessStartDate)) return { status: 403, error: "This course is not open yet" };
   if (prog.accessEndDate && now > new Date(prog.accessEndDate)) return { status: 403, error: "This course's access window has ended" };
@@ -958,6 +1003,8 @@ const getQuiz = async (req, res) => {
   try {
     const record = await EmployeeTraining.findById(req.params.recordId).populate("programId");
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+    await autoLockIfOverdue(record);                                                                  // ✅ NEW
+    if (record.isLocked) return res.status(423).json({ success: false, message: lockMessage(record) }); // ✅ NEW
 
     const attemptsUsed = record.quizAttempts.length;
     if (attemptsUsed >= MAX_ATTEMPTS) {
@@ -1005,6 +1052,8 @@ const submitQuiz = async (req, res) => {
 
     const record = await EmployeeTraining.findById(req.params.recordId).populate("programId").populate("employeeId", "name");
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+    await autoLockIfOverdue(record);                                                                  // ✅ NEW
+    if (record.isLocked) return res.status(423).json({ success: false, message: lockMessage(record) }); // ✅ NEW
 
     if (record.quizAttempts.length >= MAX_ATTEMPTS) {
       return res.status(403).json({ success: false, message: "You have already submitted this test. Only one attempt is allowed." });
@@ -1174,6 +1223,8 @@ const getAllRecords = async (req, res) => {
     if (department) {
       records = records.filter(r => r.employeeId?.department === department);
     }
+
+    await Promise.all(records.map(r => autoLockIfOverdue(r))); // ✅ NEW — reflect due-date auto-lock before HR sees the list
 
     res.json({ success: true, data: records, total: records.length });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -1379,6 +1430,82 @@ const deleteRecord = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+// ── PUT /api/training/records/:id/lock ─────────────────────────
+// HR manually locks a course for one employee, any time (before or
+// after the due date — HR's call).
+const lockRecord = async (req, res) => {
+  try {
+    const { addedBy, reason } = req.body;
+    const record = await EmployeeTraining.findById(req.params.id).populate("employeeId", "name").populate("programId", "title");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    record.isLocked   = true;
+    record.lockReason = "manual";
+    record.lockedAt   = new Date();
+    record.lockedBy   = addedBy || "HR";
+    await record.save();
+
+    await ComplianceLog.create({
+      employeeId: record.employeeId?._id || record.employeeId,
+      programId:  record.programId?._id,
+      programTitle: record.programId?.title || "",
+      action: "overdue", // reuse existing enum value; note carries the real context
+      note: reason ? `Course locked by HR — ${reason}` : "Course locked by HR",
+      addedBy: addedBy || "HR",
+    });
+
+    await createNotification({
+      recipient_id:   record.employeeId?._id || record.employeeId,
+      recipient_role: "employee",
+      type:           "hr",
+      title:          "Training Locked 🔒",
+      message:        `HR has locked "${record.programId?.title || "your training"}". Contact HR to get it unlocked.`,
+      link:           "/employee/training",
+    });
+
+    res.json({ success: true, data: record, message: "Training locked" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── PUT /api/training/records/:id/unlock ────────────────────────
+// HR removes a lock (manual or auto due-date) so the employee can
+// continue. Once unlocked this way, auto-lock will not re-trigger for
+// this record again (see autoLockIfOverdue) — HR can lock it again
+// manually any time, or move the dueDate forward.
+const unlockRecord = async (req, res) => {
+  try {
+    const { addedBy } = req.body;
+    const record = await EmployeeTraining.findById(req.params.id).populate("employeeId", "name").populate("programId", "title");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found" });
+
+    record.isLocked   = false;
+    record.lockReason = null;
+    record.unlockedAt = new Date();
+    record.unlockedBy = addedBy || "HR";
+    await record.save();
+
+    await ComplianceLog.create({
+      employeeId: record.employeeId?._id || record.employeeId,
+      programId:  record.programId?._id,
+      programTitle: record.programId?.title || "",
+      action: "overdue",
+      note: "Course unlocked by HR",
+      addedBy: addedBy || "HR",
+    });
+
+    await createNotification({
+      recipient_id:   record.employeeId?._id || record.employeeId,
+      recipient_role: "employee",
+      type:           "hr",
+      title:          "Training Unlocked ✅",
+      message:        `HR has unlocked "${record.programId?.title || "your training"}". You can continue now.`,
+      link:           "/employee/training",
+    });
+
+    res.json({ success: true, data: record, message: "Training unlocked" });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
 // ── PUT /api/training/programs/:id/mark-all-complete ─────────
 // "Finish Training" — offline/instructor-led programs-ku. Assign panna
 // ella employees-um (already completed/waived illatha) "completed" ah
@@ -1460,6 +1587,8 @@ const getMyTrainings = async (req, res) => {
       .populate("programId")
       .sort({ assignedDate: -1 });
 
+    await Promise.all(records.map(r => autoLockIfOverdue(r))); // ✅ NEW — reflect due-date auto-lock before the employee sees it
+
     const stats = {
       total:     records.length,
       completed: records.filter(r => r.status === "completed").length,
@@ -1476,6 +1605,12 @@ const getMyTrainings = async (req, res) => {
 // ── PUT /api/training/my/:recordId/start ─────────────────────
 const markStarted = async (req, res) => {
   try {
+    // ✅ NEW — lock check before allowing "start"
+    const existing = await EmployeeTraining.findById(req.params.recordId);
+    if (!existing) return res.status(404).json({ success: false, message: "Record not found" });
+    await autoLockIfOverdue(existing);
+    if (existing.isLocked) return res.status(423).json({ success: false, message: lockMessage(existing) });
+
     const record = await EmployeeTraining.findByIdAndUpdate(
       req.params.recordId,
       { status: "in_progress", startedDate: new Date() },
@@ -1539,4 +1674,5 @@ module.exports = {
   getMyTrainings, markStarted, updateCompetencyLevel,
   markChapterWatched, markChapterHeartbeat, requestCertificate, uploadCertificate,
   getChapterQuiz, submitChapterQuiz,
+  lockRecord, unlockRecord, // ✅ NEW
 };

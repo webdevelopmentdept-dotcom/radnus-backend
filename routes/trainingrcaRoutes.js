@@ -7,6 +7,7 @@ const {
   markProductStudied, markVideoWatched, markPdfRead, markProgramComplete, getQuiz, submitQuiz,
   assignTraining, assignBulk, getAllRecords, getStats, updateRecord, deleteRecord, markAllComplete, getComplianceLog,
   getMyTrainings, markStarted, updateCompetencyLevel,
+  lockRecord, unlockRecord, // ✅ NEW
   markChapterWatched, markChapterHeartbeat, requestCertificate, uploadCertificate,
   getChapterQuiz, submitChapterQuiz,
 } = require("../controllers/trainingrcaController");
@@ -105,6 +106,8 @@ router.post  ("/training/assign-bulk",     assignBulk);
 router.get   ("/training/records",         getAllRecords);
 router.get   ("/training/stats",           getStats);
 router.put   ("/training/records/:id",     updateRecord);
+router.put   ("/training/records/:id/lock",   lockRecord);   // ✅ NEW
+router.put   ("/training/records/:id/unlock", unlockRecord); // ✅ NEW
 router.delete("/training/records/:id",     deleteRecord);
 router.put   ("/training/records/:id/competency", updateCompetencyLevel);
 router.get   ("/training/compliance-log",  getComplianceLog);
