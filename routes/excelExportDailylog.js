@@ -40,83 +40,20 @@ router.get("/all-employees", async (req, res) => {
     if (!assignments.length)
       return res.status(404).json({ message: "No active assignments found" });
 
-    const wb = new ExcelJS.Workbook();
-    wb.creator = "Radnus HRMS";
-
-    const ws = wb.addWorksheet("All Employees Daily Logs", {
-      views: [{ showGridLines: false }],
-    });
-
-    // ── Columns (23 total) ──
-    ws.columns = [
-      { key: "sno",           width: 6  },
-      { key: "emp",           width: 26 },
-      { key: "dept",          width: 22 },
-      { key: "period",        width: 14 },
-      { key: "date",          width: 14 },
-      { key: "kpi",           width: 28 },
-      { key: "invoice_no",    width: 14 },
-      { key: "customer",      width: 20 },
-      { key: "mobile",        width: 14 },
-      { key: "price_type",    width: 14 },
-      { key: "price",         width: 12 },
-      { key: "booking_no",    width: 14 },
-      { key: "booking_count", width: 14 },
-      { key: "model",         width: 16 },
-      { key: "fault",         width: 20 },
-      { key: "svc_charge",    width: 14 },
-      { key: "spare",         width: 12 },
-      { key: "status",        width: 14 },
-      { key: "target",        width: 12 },
-      { key: "value",         width: 14 },
-      { key: "unit",          width: 10 },
-      { key: "note",          width: 28 },
-      { key: "pct",           width: 14 },
-    ];
-
-    // ── Title (A1:W1 — 23 columns) ──
-    ws.mergeCells("A1:W1");
-    const titleCell = ws.getCell("A1");
-    const dateLabel = fromDate === toDate ? `Date: ${fromDate}` : `From: ${fromDate}  →  ${toDate}`;
-    titleCell.value     = `ALL EMPLOYEES — DAILY LOGS  |  ${dateLabel}`;
-    titleCell.font      = { name: "Calibri", bold: true, size: 14, color: { argb: "FFFFFFFF" } };
-    titleCell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
-    titleCell.alignment = { vertical: "middle", horizontal: "left", indent: 2 };
-    ws.getRow(1).height = 40;
-
-    // ── Headers (23 columns) ──
-    ws.getRow(2).height = 32;
-    [
-      "#", "Employee", "Department", "Period", "Date", "KPI Name",
-      "Invoice No.", "Customer Name", "Mobile", "Price Type", "Price",
-      "Booking No.", "Booking Count", "Model", "Fault",
-      "Service Charge", "Spare", "Status",
-      "Target", "Achieve (Value)", "Unit", "Note", "Achievement %",
-    ].forEach((h, i) => {
-      const cell = ws.getRow(2).getCell(i + 1);
-      cell.value     = h;
-      cell.font      = { name: "Calibri", bold: true, size: 10, color: { argb: "FF374151" } };
-      cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
-      cell.alignment = { vertical: "middle", horizontal: i <= 1 ? "left" : "center" };
-      cell.border    = {
-        bottom: { style: "medium", color: { argb: "FFCBD5E1" } },
-        top:    { style: "thin",   color: { argb: "FFE2E8F0" } },
-        left:   { style: "thin",   color: { argb: "FFE2E8F0" } },
-        right:  { style: "thin",   color: { argb: "FFE2E8F0" } },
-      };
-    });
-
-    let rowNum = 3, sno = 1, empIdx = 0, totalEntries = 0;
+    // ── 1. Collect all logs into flat rows (trimmed & clean) ──
+    const clean    = (v) => (typeof v === "string" ? v.trim() : v);
+    const isFilled = (v) => v !== undefined && v !== null && String(v).trim() !== "";
+    const rows = [];
 
     for (const assignment of assignments) {
-      const empName = assignment.employee_id?.name       || "Employee";
-      const dept    = assignment.employee_id?.department || "—";
-      const period  = assignment.period                  || "";
-      const empId   = assignment.employee_id?._id;
+      const empId = assignment.employee_id?._id;
+      if (!empId) continue;
+      const empName = clean(assignment.employee_id?.name) || "Employee";
+      const dept    = clean(assignment.employee_id?.department) || "";
 
       const kpiTargetMap = {};
       (assignment.template_id?.kpi_items || []).forEach(item => {
-        kpiTargetMap[item.kpi_name] = item.target || 0;
+        kpiTargetMap[clean(item.kpi_name)] = item.target || 0;
       });
 
       const logs = await DailyLog.find({
@@ -125,88 +62,163 @@ router.get("/all-employees", async (req, res) => {
         log_date:      { $gte: fromDate, $lte: toDate },
       }).sort({ log_date: 1, createdAt: 1 });
 
-      if (!logs.length) { empIdx++; continue; }
-
-      totalEntries += logs.length;
-
-      logs.forEach((log, idx) => {
-        const isEven = idx % 2 === 0;
-        const rowBg  = isEven ? "FFFFFFFF" : "FFF8FAFC";
-        const row    = ws.getRow(rowNum);
-        row.height   = 26;
-
-        const target   = kpiTargetMap[log.kpi_name] || 0;
-        const pct      = target > 0 ? Math.round((log.value / target) * 100) : 0;
-        const pctColor = pct >= 100 ? "16A34A" : pct >= 75 ? "2563EB" : pct >= 50 ? "D97706" : "DC2626";
-        const pctVal   = target > 0 ? `${pct}%` : "—";
-
-        const border = thinBorder("E2E8F0");
-
-        [
-          // 1 — #
-          { val: sno,                                        font: { name: "Calibri", size: 10, color: { argb: "FF9CA3AF" } },                           fill: rowBg, align: "center" },
-          // 2 — Employee
-          { val: empName,                                    font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF1E293B" } },                fill: rowBg, align: "left"   },
-          // 3 — Department
-          { val: dept,                                       font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 4 — Period
-          { val: period,                                     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 5 — Date
-          { val: log.log_date,                               font: { name: "Calibri", size: 10, color: { argb: "FF1E293B" } },                           fill: rowBg, align: "center" },
-          // 6 — KPI Name
-          { val: log.kpi_name,                               font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF1E293B" } },                fill: rowBg, align: "left"   },
-          // 7 — Invoice No.
-          { val: log.extra_fields?.invoice_no     || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 8 — Customer Name
-          { val: log.extra_fields?.customer_name  || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "left"   },
-          // 9 — Mobile
-          { val: log.extra_fields?.mobile_number  || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 10 — Price Type
-          { val: log.extra_fields?.price_type     || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 11 — Price
-          { val: log.extra_fields?.price          || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 12 — Booking No.
-          { val: log.extra_fields?.booking_no     || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 13 — Booking Count
-          { val: log.extra_fields?.booking_count  || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 14 — Model
-          { val: log.extra_fields?.model          || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "left"   },
-          // 15 — Fault
-          { val: log.extra_fields?.fault          || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "left"   },
-          // 16 — Service Charge
-          { val: log.extra_fields?.service_charge || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 17 — Spare
-          { val: log.extra_fields?.spare          || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 18 — Status
-          { val: log.extra_fields?.status         || "",     font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 19 — Target
-          { val: target || "—",                              font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 20 — Achieve (Value)
-          { val: log.value,                                  font: { name: "Calibri", bold: true, size: 11, color: { argb: "FF1E293B" } },                fill: rowBg, align: "center" },
-          // 21 — Unit
-          { val: log.unit,                                   font: { name: "Calibri", size: 10, color: { argb: "FF475569" } },                           fill: rowBg, align: "center" },
-          // 22 — Note
-          { val: log.note || "",                             font: { name: "Calibri", size: 10, color: { argb: "FF64748B" }, italic: true },              fill: rowBg, align: "left"   },
-          // 23 — Achievement %
-          { val: pctVal,                                     font: { name: "Calibri", bold: true, size: 10, color: { argb: "FF" + pctColor } },           fill: rowBg, align: "center" },
-        ].forEach((c, i) => {
-          const cell     = row.getCell(i + 1);
-          cell.value     = c.val;
-          cell.font      = c.font;
-          cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: c.fill } };
-          cell.alignment = { vertical: "middle", horizontal: c.align };
-          cell.border    = border;
+      logs.forEach((log) => {
+        const kpi = clean(log.kpi_name) || "";
+        rows.push({
+          emp:    empName,
+          dept,
+          date:   log.log_date,
+          kpi,
+          target: kpiTargetMap[kpi] || 0,
+          value:  Number(log.value) || 0,        // 0 is kept and shown
+          unit:   clean(log.unit) || "",
+          note:   clean(log.note) || "",
+          extra:  log.extra_fields || {},
+          created: log.createdAt ? new Date(log.createdAt).getTime() : 0,
         });
-
-        sno++;
-        rowNum++;
       });
-
-      empIdx++;
     }
 
-    if (totalEntries === 0)
+    if (!rows.length)
       return res.status(404).json({ message: `No logs found for: ${fromDate} to ${toDate}` });
+
+    // Sort: Employee (A-Z) → Date → time
+    rows.sort((a, b) =>
+      a.emp.toLowerCase().localeCompare(b.emp.toLowerCase()) ||
+      String(a.date).localeCompare(String(b.date)) ||
+      a.created - b.created
+    );
+
+    // ── 2. Decide which optional columns actually have data ──
+    const EXTRA_LABELS = {
+      invoice_no: "Invoice No.", customer_name: "Customer Name", mobile_number: "Mobile",
+      price_type: "Price Type", price: "Price", booking_no: "Booking No.",
+      booking_count: "Booking Count", model: "Model", fault: "Fault",
+      service_charge: "Service Charge", spare: "Spare", status: "Status",
+    };
+    const EXTRA_ORDER = Object.keys(EXTRA_LABELS);
+    const usedKeys = new Set();
+    rows.forEach(r => Object.entries(r.extra).forEach(([k, v]) => { if (isFilled(v)) usedKeys.add(k); }));
+    const extraKeys = [
+      ...EXTRA_ORDER.filter(k => usedKeys.has(k)),
+      ...[...usedKeys].filter(k => !EXTRA_ORDER.includes(k)),
+    ];
+    const prettify = (k) => EXTRA_LABELS[k] || k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    const LEFT_KEYS = ["customer_name", "model", "fault"];
+    const WIDE = { customer_name: 22, model: 18, fault: 28 };
+
+    // Employee & Department are NOT columns — shown once per employee as a banner row
+    const columns = [
+      { header: "Date",     width: 13, align: "center" },
+      { header: "Day",      width: 7,  align: "center" },
+      { header: "KPI Name", width: 30, align: "left"   },
+      { header: "Target",   width: 12, align: "center" },
+      { header: "Value",    width: 12, align: "center" },
+      { header: "Unit",     width: 9,  align: "center" },
+      { header: "%",        width: 10, align: "center" },
+      ...extraKeys.map(k => ({
+        header: prettify(k), width: WIDE[k] || 15,
+        align: LEFT_KEYS.includes(k) ? "left" : "center",
+      })),
+      { header: "Note",     width: 36, align: "left"   },
+    ];
+    const nCols = columns.length;
+    const IDX = { date: 0, day: 1, kpi: 2, target: 3, value: 4, unit: 5, pct: 6 };
+
+    // ── 3. Build the sheet ──
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Radnus HRMS";
+    const ws = wb.addWorksheet("Daily Logs", {
+      views: [{ state: "frozen", ySplit: 2, showGridLines: false }],   // header always visible
+    });
+    ws.columns = columns.map(c => ({ width: c.width }));
+
+    // Title
+    const empCount  = new Set(rows.map(r => r.emp)).size;
+    const dateLabel = fromDate === toDate ? fromDate : `${fromDate}  to  ${toDate}`;
+    ws.mergeCells(1, 1, 1, nCols);
+    const titleCell = ws.getCell(1, 1);
+    titleCell.value     = `ALL EMPLOYEES - DAILY LOGS   |   ${dateLabel}   |   ${rows.length} entries, ${empCount} employees`;
+    titleCell.font      = { name: "Calibri", bold: true, size: 14, color: { argb: "FFFFFFFF" } };
+    titleCell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
+    titleCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+    ws.getRow(1).height = 36;
+
+    // Header
+    ws.getRow(2).height = 28;
+    columns.forEach((c, i) => {
+      const cell = ws.getCell(2, i + 1);
+      cell.value     = c.header;
+      cell.font      = { name: "Calibri", bold: true, size: 10.5, color: { argb: "FFFFFFFF" } };
+      cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
+      cell.alignment = { vertical: "middle", horizontal: c.align === "left" ? "left" : "center" };
+      cell.border    = { bottom: { style: "medium", color: { argb: "FF1E40AF" } } };
+    });
+
+    const DAY  = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const thin = { style: "thin", color: { argb: "FFE2E8F0" } };
+    const pctColor = (p) => (p >= 100 ? "FF16A34A" : p >= 75 ? "FF2563EB" : p >= 50 ? "FFD97706" : "FFDC2626");
+
+    // Group rows by employee (already sorted)
+    const groups = [];
+    rows.forEach(r => {
+      const last = groups[groups.length - 1];
+      if (last && last.emp === r.emp && last.dept === r.dept) last.items.push(r);
+      else groups.push({ emp: r.emp, dept: r.dept, items: [r] });
+    });
+
+    let rowNo = 3;
+    groups.forEach((g) => {
+      // ── Employee banner (name + department shown ONCE) ──
+      ws.mergeCells(rowNo, 1, rowNo, nCols);
+      const b = ws.getCell(rowNo, 1);
+      b.value     = `${g.emp}   |   ${g.dept || "-"}   |   ${g.items.length} entries`;
+      b.font      = { name: "Calibri", bold: true, size: 11.5, color: { argb: "FF1E3A8A" } };
+      b.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+      b.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+      b.border    = { top: { style: "medium", color: { argb: "FF2563EB" } }, bottom: { style: "thin", color: { argb: "FF93C5FD" } } };
+      ws.getRow(rowNo).height = 24;
+      rowNo++;
+
+      // ── That employee's logs ──
+      g.items.forEach((r, i) => {
+        const bg = i % 2 === 0 ? "FFFFFFFF" : "FFF8FAFC";
+
+        const [y, m, d] = String(r.date).split("-").map(Number);
+        const dateObj   = new Date(Date.UTC(y, m - 1, d));
+        const pct       = r.target > 0 ? Math.round((r.value / r.target) * 100) : null;
+
+        const values = [
+          dateObj,
+          DAY[dateObj.getUTCDay()],
+          r.kpi,
+          r.target > 0 ? r.target : null,
+          r.value,
+          r.unit,
+          pct === null ? null : pct / 100,
+          ...extraKeys.map(k => (isFilled(r.extra[k]) ? clean(r.extra[k]) : null)),
+          r.note || null,
+        ];
+
+        const row = ws.getRow(rowNo);
+        values.forEach((val, ci) => {
+          const cell = row.getCell(ci + 1);
+          cell.value = val;
+          cell.font  = {
+            name: "Calibri", size: 10,
+            bold:   ci === IDX.kpi || ci === IDX.value || ci === IDX.pct,
+            italic: ci === nCols - 1,
+            color:  { argb: ci === nCols - 1 ? "FF64748B" : ci === IDX.pct && pct !== null ? pctColor(pct) : "FF1E293B" },
+          };
+          cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+          cell.alignment = { vertical: "middle", horizontal: columns[ci].align, wrapText: columns[ci].align === "left" };
+          cell.border    = { top: thin, bottom: thin, left: thin, right: thin };
+          if (ci === IDX.date) cell.numFmt = "dd-mmm-yyyy";
+          if (ci === IDX.pct)  cell.numFmt = "0%";
+        });
+        rowNo++;
+      });
+    });
 
     const filename = `All_Employees_DailyLogs_${fromDate}_to_${toDate}.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
