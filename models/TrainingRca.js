@@ -223,7 +223,7 @@ const complianceLogSchema = new mongoose.Schema({
   employeeId:  { type: mongoose.Schema.Types.ObjectId, ref: "Employee", required: true },
   programId:   { type: mongoose.Schema.Types.ObjectId, ref: "TrainingProgram" },
   programTitle:{ type: String },
-action:      { type: String, enum: ["assigned","started","completed","overdue","score_updated","cert_issued","waived","retrain","absent","bulk_completed"] },
+action:      { type: String, enum: ["assigned","started","completed","overdue","score_updated","cert_issued","waived","retrain","absent","bulk_completed","pending","failed_retake","needs_hr_review","pending_review"] },
   note:        { type: String, default: "" },
   addedBy:     { type: String, default: "HR" },
   date:        { type: Date, default: Date.now },

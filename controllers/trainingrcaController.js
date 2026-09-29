@@ -1268,7 +1268,7 @@ const getStats = async (req, res) => {
 // Update status, score, certification
 const updateRecord = async (req, res) => {
   try {
-    const { status, assessmentScore, certificationIssued, notes, addedBy, progressNote } = req.body;
+    const { status, assessmentScore, certificationIssued, notes, addedBy, progressNote, dueDate } = req.body;
 
     const record = await EmployeeTraining.findById(req.params.id).populate("programId");
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
@@ -1321,6 +1321,36 @@ const updateRecord = async (req, res) => {
     }
     if (notes) updateFields.notes = notes;
 
+    // ✅ NEW — HR can change the due date of an already-assigned record.
+    // Blank/null clears the deadline. Only acts when the date really changed.
+    let dueDateChanged = false;
+    if (dueDate !== undefined) {
+      const newDue = dueDate ? new Date(dueDate) : null;
+      if (newDue && isNaN(newDue.getTime())) {
+        return res.status(400).json({ success: false, message: "Invalid due date" });
+      }
+      const oldDay = record.dueDate ? new Date(record.dueDate).toISOString().slice(0, 10) : "";
+      const newDay = newDue ? newDue.toISOString().slice(0, 10) : "";
+      if (oldDay !== newDay) {
+        dueDateChanged = true;
+        updateFields.dueDate = newDue;
+
+        // New deadline is still in the future (or removed) → the old overdue
+        // situation no longer applies:
+        //  • if the course was AUTO-locked because of the old due date, unlock it
+        //    (a MANUAL HR lock is left untouched)
+        //  • clear unlockedAt/unlockedBy so auto-lock can work again for the new date
+        const stillFuture = !newDue || (() => { const e = new Date(newDue); e.setHours(23, 59, 59, 999); return e >= new Date(); })();
+        if (stillFuture) {
+          if (record.isLocked && record.lockReason === "auto_due_date") {
+            updateFields.isLocked   = false;
+            updateFields.lockReason = null;
+          }
+          updateFields.$unset = { unlockedAt: "", unlockedBy: "" };
+        }
+      }
+    }
+
     // Add progress note
     if (progressNote) {
       updateFields.$push = { progressLog: { note: progressNote, addedBy: addedBy || "HR" } };
@@ -1329,6 +1359,19 @@ const updateRecord = async (req, res) => {
     const updated = await EmployeeTraining.findByIdAndUpdate(req.params.id, updateFields, { new: true })
       .populate("employeeId", "name department designation")
       .populate("programId");
+
+    // ✅ NEW — audit entry for due date change
+    if (dueDateChanged) {
+      const fmt = (d) => d ? new Date(d).toLocaleDateString("en-IN") : "no deadline";
+      await ComplianceLog.create({
+        employeeId: record.employeeId,
+        programId:  record.programId?._id,
+        programTitle: record.programId?.title || "",
+        action: "assigned", // reuse existing enum value; note carries the real context
+        note: `Due date changed from ${fmt(record.dueDate)} to ${fmt(updateFields.dueDate)}`,
+        addedBy: addedBy || "HR",
+      });
+    }
 
     // Compliance log
     if (status) {
