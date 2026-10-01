@@ -227,6 +227,44 @@ router.patch('/:id/cancel', async (req, res) => {
 });
 
 // GET /api/kpi-assignments/:employeeId
+// router.get('/:employeeId', async (req, res) => {
+//   try {
+//     const SelfAssessment = require('../models/SelfAssessment');
+
+//     const assignments = await KpiAssignment.find({
+//       employee_id: req.params.employeeId,
+//       status: { $in: ['active', 'completed'] }
+//     })
+//       .populate('template_id')
+//       .populate('month_version_id', 'month month_status kpi_items')  // ✅ FIXED
+//       .sort({ createdAt: 1 });
+
+//     if (!assignments.length) {
+//       return res.json({ success: true, data: null });
+//     }
+
+//     for (const assignment of assignments) {
+//       const existing = await SelfAssessment.findOne({
+//         employee_id: req.params.employeeId,
+//         assignment_id: assignment._id
+//       });
+
+//       if (!existing || existing.status === 'draft') {
+//         // console.log("Returning pending:", assignment.period);
+//         return res.json({ success: true, data: assignment });
+//       }
+//     }
+
+//     const latest = assignments[assignments.length - 1];
+//     console.log("All submitted, returning latest:", latest.period);
+//     return res.json({ success: true, data: latest });
+
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+// GET /api/kpi-assignments/:employeeId
 router.get('/:employeeId', async (req, res) => {
   try {
     const SelfAssessment = require('../models/SelfAssessment');
@@ -236,12 +274,14 @@ router.get('/:employeeId', async (req, res) => {
       status: { $in: ['active', 'completed'] }
     })
       .populate('template_id')
-      .populate('month_version_id', 'month month_status kpi_items')  // ✅ FIXED
+      .populate('month_version_id', 'month month_status kpi_items')
       .sort({ createdAt: 1 });
 
     if (!assignments.length) {
       return res.json({ success: true, data: null });
     }
+
+    let awaitingReview = null;   // submitted but HR innum review pannala
 
     for (const assignment of assignments) {
       const existing = await SelfAssessment.findOne({
@@ -249,15 +289,30 @@ router.get('/:employeeId', async (req, res) => {
         assignment_id: assignment._id
       });
 
+      // 1) Innum submit pannala -> idhu dhaan current
       if (!existing || existing.status === 'draft') {
-        // console.log("Returning pending:", assignment.period);
         return res.json({ success: true, data: assignment });
+      }
+
+      // 2) Submit aachu, aana HR review pending -> ninaivula vechukko
+      if (existing.status !== 'reviewed') {
+        awaitingReview = assignment;
       }
     }
 
+    // Submitted, HR review pending -> employee resubmit panna allow
+    if (awaitingReview) {
+      return res.json({ success: true, data: awaitingReview });
+    }
+
+    // ✅ NEW: ellame HR reviewed (completed) -> next month assign aagura varaikkum
     const latest = assignments[assignments.length - 1];
-    console.log("All submitted, returning latest:", latest.period);
-    return res.json({ success: true, data: latest });
+    return res.json({
+      success: true,
+      data: latest,                         // other pages (Dashboard, Myperformance) break aagaadhu
+      all_completed: true,                  // ⭐ new flag
+      last_completed_period: latest.period  // e.g. "September 2026"
+    });
 
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

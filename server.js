@@ -194,6 +194,8 @@ app.use("/api/incentive-assignments", require("./routes/incentiveAssignments"));
 app.use("/api/incentive-results",     require("./routes/incentiveResults"));
 app.use("/api/policies", policyRoutes);
 app.use("/api/sops", sopRoutes);
+// app.use("/api/hr-induction", require("./routes/hrinductionRoutes"));
+app.use("/api/hr-induction", require("./routes/hrinductionroutes"));
 app.use("/api/policy-quiz", policyQuizRoutes);
 app.use('/api/announcements', announcementsRouter);
 app.use("/api/department-scoreboard", require("./routes/departmentScoreboardRoutes"));

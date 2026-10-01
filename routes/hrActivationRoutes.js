@@ -102,6 +102,7 @@ router.get("/docs/:employeeId", async (req, res) => {
     const hrDocTypes = [
       "Offer Letter", "Appointment Letter", "NDA Agreement",
       "Employment Contract", "Salary Structure Document", "HR Policy Document",
+    "Salary Revision Letter", "Promotion Letter",
     ];
     const docs = await Document.find({
       employeeId: req.params.employeeId,
