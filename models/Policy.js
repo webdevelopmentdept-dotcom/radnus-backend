@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const policyVersionSchema = new mongoose.Schema({
   version_number: { type: Number, required: true },
   file_url: { type: String, required: true },
-  uploaded_by: { type: mongoose.Schema.Types.ObjectId, ref: "Employee" },
+uploaded_by: { type: String, default: null },
   change_note: { type: String, default: "" },
   created_at: { type: Date, default: Date.now }
 });
@@ -21,7 +21,7 @@ const policySchema = new mongoose.Schema({
   is_active: { type: Boolean, default: true },
   applicable_to: { type: String, enum: ["all", "department"], default: "all" },
   department_id: { type: mongoose.Schema.Types.ObjectId, ref: "Department", default: null },
-  uploaded_by: { type: mongoose.Schema.Types.ObjectId, ref: "Employee" },
+  uploaded_by: { type: String, default: null },
   version_history: [policyVersionSchema]
 }, { timestamps: true });
 
