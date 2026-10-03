@@ -564,11 +564,6 @@ const loadChapterRecord = async (recordId, chapterNo) => {
 const markChapterHeartbeat = async (req, res) => {
   try {
     const num = Number(req.params.chapterNo);
-    { // ✅ NEW — heartbeats only make sense for video chapters; PDF chapters use "Mark as Read" instead
-      const { prog } = await loadChapterRecord(req.params.recordId, num);
-      const ch = prog?.chapters?.find(c => Number(c.chapterNo) === num);
-      if (ch?.contentType === "pdf") return res.status(400).json({ success: false, message: "This chapter is a PDF — use Mark as Read." });
-    }
     const position = Number(req.body.position);
     const reportedDuration = Number(req.body.duration);
     if (!Number.isFinite(position) || !Number.isFinite(reportedDuration) || reportedDuration <= 0 || position < 0) {
@@ -576,8 +571,12 @@ const markChapterHeartbeat = async (req, res) => {
     }
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      const { record, error, status } = await loadChapterRecord(req.params.recordId, num);
+      const { record, prog, error, status } = await loadChapterRecord(req.params.recordId, num);
       if (error) return res.status(status).json({ success: false, message: error });
+      // ✅ heartbeats only make sense for video chapters; PDF chapters use "Mark as Read" instead
+      if (prog?.chapters?.find(c => Number(c.chapterNo) === num)?.contentType === "pdf") {
+        return res.status(400).json({ success: false, message: "This chapter is a PDF — use Mark as Read." });
+      }
 
       const watchedCount = record.chapterProgress.filter(c => c.watched).length;
       let cp = record.chapterProgress.find(c => c.chapterNo === num);
@@ -651,7 +650,7 @@ const markChapterHeartbeat = async (req, res) => {
 //  3. Anti-skip — uses the SERVER-verified watch percent (from heartbeats),
 //     never a number sent by the browser.
 //  4. Access window (accessStartDate / accessEndDate).
-const markChapterWatched = async (req, res) => {
+const markChapterWatchedOnce = async (req, res) => {
   try {
     const num = Number(req.params.chapterNo);
     const { record, prog, error, status } = await loadChapterRecord(req.params.recordId, num);
@@ -731,7 +730,23 @@ const markChapterWatched = async (req, res) => {
       data: record,
       message: hasQuiz ? `Content confirmed for chapter ${num} — take the quiz below to finish it.` : `Chapter ${num} completed`,
     });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) {
+    if (err.name === "VersionError") throw err; // let the retry wrapper below handle it
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Retries when a heartbeat saved the same record at the same moment (VersionError).
+// The record is re-loaded on every attempt, so the latest heartbeat data is kept.
+const markChapterWatched = async (req, res) => {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return await markChapterWatchedOnce(req, res);
+    } catch (err) {
+      if (err.name === "VersionError" && attempt < 3) continue;
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
 };
 
 // ── GET /api/training/my/:recordId/chapter/:chapterNo/quiz ───────
