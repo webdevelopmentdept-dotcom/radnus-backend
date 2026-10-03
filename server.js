@@ -215,6 +215,7 @@ app.use("/api/updates", require("./routes/updateRoutes"));
 app.use("/api/hr", hrRejectedRoutes);
 app.use('/api/kpi-templates', kpiTemplateRoutes);
 app.use('/api/kpi-assignments', kpiAssignmentRoutes);
+app.use('/api/kpi-leader', require('./routes/kpiLeaderRoutes'));
 app.use('/api/self-assessment', selfAssessmentRoutes);
 app.use('/api/performance-reviews', performanceReviewRoutes);
 app.use('/api/daily-logs', dailyLogRoutes);
