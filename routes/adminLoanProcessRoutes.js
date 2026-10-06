@@ -3,7 +3,7 @@ const router = express.Router();
 const ExcelJS = require("exceljs");
 const LoanCustomer = require("../models/LoanCustomer");
 const Employee = require("../models/Employee");
-
+const { buildModeFilter } = require("../utils/loanMode");
 
 
 // NOTE: Admin routes in this app don't use JWT auth (see leadRoutes.js pattern) —
@@ -89,9 +89,10 @@ router.get("/metrics", async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.get("/all", async (req, res) => {
   try {
-    const filter = {};
-    if (req.query.staffId) filter.staffId = req.query.staffId;
-    if (req.query.status) filter.status = req.query.status;
+   const filter = {};
+if (req.query.staffId) filter.staffId = req.query.staffId;
+else Object.assign(filter, await buildModeFilter(req.query.mode));   // ← NEW
+if (req.query.status) filter.status = req.query.status;
     if (req.query.search) {
       filter.customerName = { $regex: req.query.search, $options: "i" };
     }
@@ -156,7 +157,9 @@ router.patch("/:id/checklist", async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.get("/meta/staff-list", async (req, res) => {
   try {
-    const staff = await LoanCustomer.distinct("staffId");
+   // OLD: const staff = await LoanCustomer.distinct("staffId");
+const modeFilter = await buildModeFilter(req.query.mode);
+const staff = await LoanCustomer.distinct("staffId", modeFilter);
     const Employee = require("../models/Employee");
     const list = await Employee.find({ _id: { $in: staff } }).select("name email");
     res.json({ success: true, data: list });
@@ -173,8 +176,9 @@ router.get("/meta/staff-list", async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.get("/export/excel", async (req, res) => {
   try {
-    const filter = {};
+        const filter = {};
     if (req.query.staffId) filter.staffId = req.query.staffId;
+    else Object.assign(filter, await buildModeFilter(req.query.mode));
     if (req.query.status) filter.status = req.query.status;
     if (req.query.scheme) filter.scheme = req.query.scheme;
     if (req.query.search) {

@@ -4,6 +4,7 @@ const express      = require('express');
 const router       = express.Router();
 const Announcement = require('../models/Announcement');
 const Employee     = require('../models/Employee');
+const { createNotification } = require('../helpers/notificationHelper');
 
 function canSee(ann, emp) {
   if (ann.target === 'all') return true;
@@ -30,6 +31,9 @@ async function getEmpInfo(id) {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/', async (req, res) => {
   try {
+    if (req.body.created_by && !/^[a-f\d]{24}$/i.test(req.body.created_by)) {
+  delete req.body.created_by;
+}
     const ann = new Announcement({
       ...req.body,
       target_departments: req.body.target_departments || [],
@@ -39,6 +43,27 @@ router.post('/', async (req, res) => {
       attachments:        req.body.attachments        || [],
     });
     await ann.save();
+
+    // 🔔 Notify targeted employees
+    try {
+      const emps = await Employee.find({ status: 'active' }).select('_id department designation');
+      const targets = emps.filter(e => canSee(ann, e));
+      await Promise.all(
+        targets.map(e =>
+          createNotification({
+            recipient_id:   String(e._id),
+            recipient_role: 'employee',
+            type:           'announcement',
+            title:          `📢 ${ann.title}`,
+            message:        (ann.content || '').slice(0, 120),
+            link:           '/employee/announcements'
+          })
+        )
+      );
+    } catch (nErr) {
+      console.error('Announcement notify error:', nErr.message);
+    }
+
     const pop = await Announcement.findById(ann._id).populate('created_by', 'name designation');
     res.status(201).json({ success: true, data: pop });
   } catch (err) { res.status(400).json({ success: false, message: err.message }); }
@@ -69,17 +94,33 @@ router.get('/all', async (req, res) => {
       .populate('created_by', 'name designation')
       .sort({ is_pinned: -1, createdAt: -1 });
 
-    const totalEmp = await Employee.countDocuments({ status: 'active' });
+    // Active employees (used to work out each announcement's real audience)
+    const activeEmps = await Employee.find({ status: 'active' }).select('_id department designation');
 
-    const data = list.map(a => ({
-      ...a.toJSON(),
-      read_count:      a.read_by?.length   || 0,
-      like_count:      a.likes?.length     || 0,
-      comment_count:   a.comments?.length  || 0,
-      total_employees: totalEmp,
-      read_percentage: totalEmp > 0 ? Math.round(((a.read_by?.length||0)/totalEmp)*100) : 0,
-      is_expired:      a.expires_at ? new Date(a.expires_at) < new Date() : false
-    }));
+    const data = list.map(a => {
+      // Only employees this announcement is actually targeted to
+      const audience    = activeEmps.filter(e => canSee(a, e));
+      const audienceIds = new Set(audience.map(e => String(e._id)));
+
+      // Unique readers who are inside the audience
+      const readers = new Set(
+        (a.read_by || [])
+          .map(r => String(r.employee_id))
+          .filter(id => audienceIds.has(id))
+      );
+
+      const totalTarget = audience.length;
+
+      return {
+        ...a.toJSON(),
+        read_count:      readers.size,
+        like_count:      a.likes?.length     || 0,
+        comment_count:   a.comments?.length  || 0,
+        total_employees: totalTarget,
+        read_percentage: totalTarget > 0 ? Math.round((readers.size / totalTarget) * 100) : 0,
+        is_expired:      a.expires_at ? new Date(a.expires_at) < new Date() : false
+      };
+    });
 
     res.json({ success: true, data });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }

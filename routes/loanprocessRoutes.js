@@ -311,7 +311,8 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
       { header: "Application Process", key: "applicationProcess", width: 16 },
       { header: "Quotation", key: "quotation", width: 12 },
       { header: "Auditor Reference", key: "auditorReference", width: 16 },
-      { header: "Document Payment", key: "documentPayment", width: 16 },
+            { header: "Document Payment", key: "documentPayment", width: 16 },
+      { header: "Document Payment Amount (₹)", key: "documentPaymentAmount", width: 22 },
       { header: "Finalisation & Verification", key: "finalisationVerification", width: 18 },
       { header: "Final Submission", key: "finalSubmission", width: 16 },
       { header: "Courier", key: "courier", width: 12 },
@@ -346,7 +347,8 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
         applicationProcess: c.checklist?.applicationProcess ? "Yes" : "No",
         quotation: c.checklist?.quotation ? "Yes" : "No",
         auditorReference: c.checklist?.auditorReference ? "Yes" : "No",
-        documentPayment: c.checklist?.documentPayment ? "Yes" : "No",
+                documentPayment: c.checklist?.documentPayment ? "Yes" : "No",
+        documentPaymentAmount: c.checklistAmounts?.documentPayment ?? "",
         finalisationVerification: c.checklist?.finalisationVerification ? "Yes" : "No",
         finalSubmission: c.checklist?.finalSubmission ? "Yes" : "No",
         courier: c.checklist?.courier ? "Yes" : "No",
@@ -433,7 +435,7 @@ router.get("/:id", auth, canManageLoanProcess, async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
   try {
-    const { field, value, reasonForPending, remark, date } = req.body;
+        const { field, value, reasonForPending, remark, date, amount } = req.body;
     const validFields = [
       "cibilVerification",
       "documentCollection",
@@ -493,9 +495,17 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       customer.checklistRemarks[field] = remark;
       customer.markModified("checklistRemarks");
     }
-    if (date !== undefined) {
+     if (date !== undefined) {
       customer.checklistDates[field] = date ? new Date(date) : null;
       customer.markModified("checklistDates");
+    }
+    if (amount !== undefined && field === "documentPayment") {
+      const amt = amount === "" || amount === null ? null : Number(amount);
+      if (amt !== null && (Number.isNaN(amt) || amt < 0)) {
+        return res.status(400).json({ success: false, message: "Enter a valid payment amount" });
+      }
+      customer.checklistAmounts.documentPayment = amt;
+      customer.markModified("checklistAmounts");
     }
 
     await customer.save(); // pre("save") hook flips customer.incentive.eligibility

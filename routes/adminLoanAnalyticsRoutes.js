@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const LoanCustomer = require("../models/LoanCustomer");
+const { buildModeFilter } = require("../utils/loanMode");
 
 // NOTE: Same pattern as adminLoanProcessRoutes.js — Admin-only, gated on the
 // frontend via localStorage "admin-role". No JWT here (consistent with rest
@@ -27,12 +28,13 @@ const STAGE_ORDER = [
 // ══════════════════════════════════════════════════════
 router.get("/overview", async (req, res) => {
   try {
-    const match = {};
+       const match = {};
     if (req.query.fromDate || req.query.toDate) {
       match.loanDate = {};
       if (req.query.fromDate) match.loanDate.$gte = new Date(req.query.fromDate);
       if (req.query.toDate) match.loanDate.$lte = new Date(`${req.query.toDate}T23:59:59`);
     }
+    Object.assign(match, await buildModeFilter(req.query.mode));
 
     // ── Overall summary ─────────────────────────────────────────────
     const [summary] = await LoanCustomer.aggregate([

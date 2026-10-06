@@ -46,7 +46,8 @@ const announcementSchema = new mongoose.Schema({
   target_roles:       [{ type: String }],
   target_employees:   [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
 
-  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
+  
+created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: false },
   is_active:  { type: Boolean, default: true },
   is_pinned:  { type: Boolean, default: false },
   expires_at: { type: Date },

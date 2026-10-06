@@ -85,7 +85,12 @@ const loanCustomerSchema = new mongoose.Schema(
       finalisationVerification: { type: Date, default: null },
       finalSubmission: { type: Date, default: null },
       courier: { type: Date, default: null },
-      completed: { type: Date, default: null },
+            completed: { type: Date, default: null },
+    },
+
+    // Document Payment stage-la customer kitta vaangina amount (₹)
+    checklistAmounts: {
+      documentPayment: { type: Number, default: null },
     },
 
        processPercent: { type: Number, default: 0 },
