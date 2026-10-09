@@ -445,6 +445,7 @@ router.get('/me/:id', async (req, res) => {
        isLoanProcessHead: user.isLoanProcessHead,
        loanProcessReportAccess: user.loanProcessReportAccess,
        canApproveLoanIncentive: user.canApproveLoanIncentive,
+       canManageLoanFollowup: user.canManageLoanFollowup,
        documents,
     });
   } catch {

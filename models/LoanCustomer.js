@@ -129,6 +129,30 @@ const loanCustomerSchema = new mongoose.Schema(
       removedByName: { type: String, default: "" },
       removedRemark: { type: String, default: "" },
     },
+  // ── Followup team (handoff after employee marks checklist.completed) ──
+    followup: {
+      status: { type: String, enum: ["NONE", "PENDING", "COMPLETED"], default: "NONE" },
+      handedOverAt: { type: Date, default: null },
+      completedAt: { type: Date, default: null },
+
+      dicOffice: {
+        state: { type: String, enum: ["", "COMPLETED", "NOT_COMPLETED"], default: "" },
+        reason: { type: String, default: "" },
+        updatedAt: { type: Date, default: null },
+        updatedByName: { type: String, default: "" },
+      },
+      bank: {
+        state: { type: String, enum: ["", "COMPLETED", "NOT_COMPLETED"], default: "" },
+        reason: { type: String, default: "" },
+        updatedAt: { type: Date, default: null },
+        updatedByName: { type: String, default: "" },
+      },
+      loanSanctioned: {
+        value: { type: String, enum: ["", "YES", "NO"], default: "" },
+        updatedAt: { type: Date, default: null },
+        updatedByName: { type: String, default: "" },
+      },
+    },
   },
   { timestamps: true }
 );
@@ -163,5 +187,6 @@ loanCustomerSchema.pre("save", function (next) {
 
 loanCustomerSchema.index({ staffId: 1 });
 loanCustomerSchema.index({ status: 1 });
+loanCustomerSchema.index({ "followup.status": 1 });
 
 module.exports = mongoose.model("LoanCustomer", loanCustomerSchema);

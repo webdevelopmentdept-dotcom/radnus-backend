@@ -311,7 +311,7 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
       { header: "Application Process", key: "applicationProcess", width: 16 },
       { header: "Quotation", key: "quotation", width: 12 },
       { header: "Auditor Reference", key: "auditorReference", width: 16 },
-            { header: "Document Payment", key: "documentPayment", width: 16 },
+      { header: "Document Payment", key: "documentPayment", width: 16 },
       { header: "Document Payment Amount (₹)", key: "documentPaymentAmount", width: 22 },
       { header: "Finalisation & Verification", key: "finalisationVerification", width: 18 },
       { header: "Final Submission", key: "finalSubmission", width: 16 },
@@ -347,7 +347,7 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
         applicationProcess: c.checklist?.applicationProcess ? "Yes" : "No",
         quotation: c.checklist?.quotation ? "Yes" : "No",
         auditorReference: c.checklist?.auditorReference ? "Yes" : "No",
-                documentPayment: c.checklist?.documentPayment ? "Yes" : "No",
+        documentPayment: c.checklist?.documentPayment ? "Yes" : "No",
         documentPaymentAmount: c.checklistAmounts?.documentPayment ?? "",
         finalisationVerification: c.checklist?.finalisationVerification ? "Yes" : "No",
         finalSubmission: c.checklist?.finalSubmission ? "Yes" : "No",
@@ -435,7 +435,7 @@ router.get("/:id", auth, canManageLoanProcess, async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
   try {
-        const { field, value, reasonForPending, remark, date, amount } = req.body;
+    const { field, value, reasonForPending, remark, date, amount } = req.body;
     const validFields = [
       "cibilVerification",
       "documentCollection",
@@ -472,6 +472,30 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       }
     }
 
+        // ── Handoff lock: once handed to Followup team, employee can't edit the checklist.
+    if (customer.followup?.status && customer.followup.status !== "NONE" && req.user?.role !== "admin") {
+      return res.status(400).json({
+        success: false,
+        message: "This customer is already with the Followup team — checklist is locked.",
+      });
+    }
+
+    // ── "Completed" can be ticked only after all other 9 stages are done.
+    if (field === "completed" && !!value) {
+      const OTHER_STAGES = [
+        "cibilVerification", "documentCollection", "applicationProcess", "quotation",
+        "auditorReference", "documentPayment", "finalisationVerification",
+        "finalSubmission", "courier",
+      ];
+      const pendingStages = OTHER_STAGES.filter((k) => !customer.checklist[k]);
+      if (pendingStages.length) {
+        return res.status(400).json({
+          success: false,
+          message: "Complete all the previous stages before marking Completed.",
+        });
+      }
+    }
+
     // ── Application Number / Courier Slip No is proof — can't tick the box without it.
     let finalValue = !!value;
     if (INCENTIVE_LINKED_FIELDS.includes(field)) {
@@ -495,7 +519,7 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       customer.checklistRemarks[field] = remark;
       customer.markModified("checklistRemarks");
     }
-     if (date !== undefined) {
+    if (date !== undefined) {
       customer.checklistDates[field] = date ? new Date(date) : null;
       customer.markModified("checklistDates");
     }
@@ -508,7 +532,33 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       customer.markModified("checklistAmounts");
     }
 
+        // ── Handoff to Followup team when "completed" is ticked
+    let justHandedOver = false;
+    if (field === "completed" && finalValue && (!customer.followup || customer.followup.status === "NONE")) {
+      customer.followup.status = "PENDING";
+      customer.followup.handedOverAt = new Date();
+      customer.markModified("followup");
+      justHandedOver = true;
+    }
+
     await customer.save(); // pre("save") hook flips customer.incentive.eligibility
+
+    if (justHandedOver) {
+      try {
+        const Employee = require("../models/Employee");
+        const team = await Employee.find({ canManageLoanFollowup: true }).select("_id");
+        team.forEach((m) =>
+          createNotification({
+            recipient_id: String(m._id),
+            recipient_role: "employee",
+            type: "loan_followup",
+            title: "New loan for followup",
+            message: `${customer.customerName}'s loan process is completed by ${customer.staffName} — followup needed.`,
+            link: "/employee/loan-followup",
+          })
+        );
+      } catch (e) { console.error("Followup notify error:", e.message); }
+    }
 
     const nowEligible = customer.incentive.eligibility === "Eligible for Processing";
 
@@ -636,7 +686,7 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
 
     // ✅ Optional custom paid date (for backdating old payments that were
     // already given before this module existed). Falls back to now.
-     let paidAtDate = new Date();
+    let paidAtDate = new Date();
     if (paidAt) {
       const [y, m, d] = paidAt.split("-").map(Number);
       if (y && m && d) {
@@ -677,7 +727,7 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
       link: "/employee/dashboard/loan-process",
     });
 
-   res.json({ success: true, customer });
+    res.json({ success: true, customer });
   } catch (err) {
     console.error("Incentive approve error:", err);
     res.status(500).json({ success: false, message: err.message });

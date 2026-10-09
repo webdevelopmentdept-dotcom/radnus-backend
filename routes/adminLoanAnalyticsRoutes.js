@@ -28,7 +28,7 @@ const STAGE_ORDER = [
 // ══════════════════════════════════════════════════════
 router.get("/overview", async (req, res) => {
   try {
-       const match = {};
+    const match = {};
     if (req.query.fromDate || req.query.toDate) {
       match.loanDate = {};
       if (req.query.fromDate) match.loanDate.$gte = new Date(req.query.fromDate);
@@ -56,6 +56,52 @@ router.get("/overview", async (req, res) => {
         },
       },
     ]);
+
+    // ── Followup summary (handoff → DIC → Bank → Sanction) ──────────
+    const [fu] = await LoanCustomer.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: null,
+          // handed over to the Followup team (telecaller finished the process)
+          handedOver: {
+            $sum: { $cond: [{ $in: ["$followup.status", ["PENDING", "COMPLETED"]] }, 1, 0] },
+          },
+          // still with Followup team (not sanctioned yet)
+          pending: { $sum: { $cond: [{ $eq: ["$followup.status", "PENDING"] }, 1, 0] } },
+          // Loan Sanctioned = Yes (moved to Completed tab)
+          sanctioned: { $sum: { $cond: [{ $eq: ["$followup.status", "COMPLETED"] }, 1, 0] } },
+          sanctionedRevenue: {
+            $sum: { $cond: [{ $eq: ["$followup.status", "COMPLETED"] }, "$loanValue", 0] },
+          },
+          // Loan Sanctioned = No (still sitting in Pending)
+          notSanctioned: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ["$followup.status", "PENDING"] }, { $eq: ["$followup.loanSanctioned.value", "NO"] }] },
+                1,
+                0,
+              ],
+            },
+          },
+          dicCompleted: { $sum: { $cond: [{ $eq: ["$followup.dicOffice.state", "COMPLETED"] }, 1, 0] } },
+          bankCompleted: { $sum: { $cond: [{ $eq: ["$followup.bank.state", "COMPLETED"] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    const handedOver = fu?.handedOver || 0;
+    const sanctioned = fu?.sanctioned || 0;
+    const followup = {
+      handedOver,
+      pending: fu?.pending || 0,
+      sanctioned,
+      notSanctioned: fu?.notSanctioned || 0,
+      sanctionedRevenue: fu?.sanctionedRevenue || 0,
+      dicCompleted: fu?.dicCompleted || 0,
+      bankCompleted: fu?.bankCompleted || 0,
+      sanctionRate: handedOver ? Math.round((sanctioned / handedOver) * 100) : 0,
+    };
 
     // ── Scheme-wise breakdown (PMEGP / UYEGP / AABCS) ───────────────
     const schemeBreakdown = await LoanCustomer.aggregate([
@@ -183,6 +229,7 @@ router.get("/overview", async (req, res) => {
           avgProgress: summary?.avgProgress ? Math.round(summary.avgProgress) : 0,
           pendingCount: summary?.pendingCount || 0,
         },
+        followup,
         schemeBreakdown,
         staffBreakdown,
         funnel,
