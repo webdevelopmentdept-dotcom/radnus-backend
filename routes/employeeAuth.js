@@ -10,6 +10,7 @@ const multer = require('multer');
 const Counter = require('../models/Counter');
 const axios = require('axios');
 const auth = require('../middleware/auth');
+const KpiAssignment = require('../models/KpiAssignment');
 
 
 
@@ -526,6 +527,12 @@ router.patch('/employees/:id/relieve', async (req, res) => {
       status: 'relieved',
     });
 
+    // Relieve aana employee-oda active KPI assignments-a cancel pannum
+    await KpiAssignment.updateMany(
+      { employee_id: req.params.id, status: 'active' },
+      { $set: { status: 'cancelled', notes: 'Auto-cancelled: employee relieved' } }
+    );
+
     res.json({ message: 'Employee marked as relieved' });
   } catch (err) {
     console.log(err);
@@ -544,6 +551,11 @@ router.patch('/employees/:id/fire', async (req, res) => {
       accessDeactivated: false,
       status: 'fired',
     });
+
+    await KpiAssignment.updateMany(
+      { employee_id: req.params.id, status: 'active' },
+      { $set: { status: 'cancelled', notes: 'Auto-cancelled: employee fired' } }
+    );
 
     res.json({ message: 'Employee marked as fired' });
   } catch (err) {
