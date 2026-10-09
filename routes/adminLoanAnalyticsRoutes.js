@@ -69,6 +69,21 @@ router.get("/overview", async (req, res) => {
           },
           // still with Followup team (not sanctioned yet)
           pending: { $sum: { $cond: [{ $eq: ["$followup.status", "PENDING"] }, 1, 0] } },
+          // pending leads that nobody has taken yet
+          unassigned: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$followup.status", "PENDING"] },
+                    { $eq: [{ $ifNull: ["$followup.assignedTo.employeeId", null] }, null] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
           // Loan Sanctioned = Yes (moved to Completed tab)
           sanctioned: { $sum: { $cond: [{ $eq: ["$followup.status", "COMPLETED"] }, 1, 0] } },
           sanctionedRevenue: {
@@ -95,6 +110,7 @@ router.get("/overview", async (req, res) => {
     const followup = {
       handedOver,
       pending: fu?.pending || 0,
+      unassigned: fu?.unassigned || 0,
       sanctioned,
       notSanctioned: fu?.notSanctioned || 0,
       sanctionedRevenue: fu?.sanctionedRevenue || 0,
@@ -102,6 +118,68 @@ router.get("/overview", async (req, res) => {
       bankCompleted: fu?.bankCompleted || 0,
       sanctionRate: handedOver ? Math.round((sanctioned / handedOver) * 100) : 0,
     };
+
+    // ── Followup employee-wise performance (who took how many leads) ──
+    const followupStaffRaw = await LoanCustomer.aggregate([
+      {
+        $match: {
+          ...match,
+          "followup.status": { $in: ["PENDING", "COMPLETED"] },
+          "followup.assignedTo.employeeId": { $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: "$followup.assignedTo.employeeId",
+          name: { $first: "$followup.assignedTo.name" },
+          taken: { $sum: 1 },
+          takenValue: { $sum: "$loanValue" },
+          pending: { $sum: { $cond: [{ $eq: ["$followup.status", "PENDING"] }, 1, 0] } },
+          sanctioned: { $sum: { $cond: [{ $eq: ["$followup.status", "COMPLETED"] }, 1, 0] } },
+          sanctionedRevenue: {
+            $sum: { $cond: [{ $eq: ["$followup.status", "COMPLETED"] }, "$loanValue", 0] },
+          },
+          notSanctioned: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ["$followup.status", "PENDING"] }, { $eq: ["$followup.loanSanctioned.value", "NO"] }] },
+                1,
+                0,
+              ],
+            },
+          },
+          dicCompleted: { $sum: { $cond: [{ $eq: ["$followup.dicOffice.state", "COMPLETED"] }, 1, 0] } },
+          bankCompleted: { $sum: { $cond: [{ $eq: ["$followup.bank.state", "COMPLETED"] }, 1, 0] } },
+          // average time (ms) from "taken" to "sanctioned" — only sanctioned leads contribute
+          avgMs: {
+            $avg: {
+              $cond: [
+                { $eq: ["$followup.status", "COMPLETED"] },
+                { $subtract: ["$followup.completedAt", "$followup.assignedTo.assignedAt"] },
+                null,
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { sanctioned: -1, taken: -1 } },
+    ]);
+
+    const followupStaff = followupStaffRaw.map((s) => ({
+      employeeId: String(s._id),
+      name: s.name || "Unknown",
+      taken: s.taken,
+      takenValue: s.takenValue || 0,
+      pending: s.pending,
+      sanctioned: s.sanctioned,
+      sanctionedRevenue: s.sanctionedRevenue || 0,
+      notSanctioned: s.notSanctioned,
+      dicCompleted: s.dicCompleted,
+      bankCompleted: s.bankCompleted,
+      sanctionRate: s.taken ? Math.round((s.sanctioned / s.taken) * 100) : 0,
+      avgDaysToSanction:
+        typeof s.avgMs === "number" ? Math.round((s.avgMs / 86400000) * 10) / 10 : null,
+    }));
 
     // ── Scheme-wise breakdown (PMEGP / UYEGP / AABCS) ───────────────
     const schemeBreakdown = await LoanCustomer.aggregate([
@@ -230,6 +308,7 @@ router.get("/overview", async (req, res) => {
           pendingCount: summary?.pendingCount || 0,
         },
         followup,
+        followupStaff,
         schemeBreakdown,
         staffBreakdown,
         funnel,

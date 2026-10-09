@@ -135,6 +135,13 @@ const loanCustomerSchema = new mongoose.Schema(
       handedOverAt: { type: Date, default: null },
       completedAt: { type: Date, default: null },
 
+       // Which Followup employee is handling this lead (claimed by employee, or set by admin)
+      assignedTo: {
+        employeeId: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
+        name: { type: String, default: "" },
+        assignedAt: { type: Date, default: null },
+      },
+
       dicOffice: {
         state: { type: String, enum: ["", "COMPLETED", "NOT_COMPLETED"], default: "" },
         reason: { type: String, default: "" },
@@ -188,5 +195,6 @@ loanCustomerSchema.pre("save", function (next) {
 loanCustomerSchema.index({ staffId: 1 });
 loanCustomerSchema.index({ status: 1 });
 loanCustomerSchema.index({ "followup.status": 1 });
+loanCustomerSchema.index({ "followup.assignedTo.employeeId": 1 });
 
 module.exports = mongoose.model("LoanCustomer", loanCustomerSchema);

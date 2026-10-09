@@ -428,4 +428,43 @@ router.patch("/access/:id/followup-access", async (req, res) => {
   }
 });
 
+// GET /api/admin-loan-process/meta/followup-staff — employees who have Followup access
+router.get("/meta/followup-staff", async (req, res) => {
+  try {
+    const data = await Employee.find({ canManageLoanFollowup: true })
+      .select("name email")
+      .sort({ name: 1 });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PATCH /api/admin-loan-process/:id/followup-assign   Body: { employeeId }  ("" / null = Unassigned)
+router.patch("/:id/followup-assign", async (req, res) => {
+  try {
+    const { employeeId } = req.body;
+    const c = await LoanCustomer.findById(req.params.id);
+    if (!c) return res.status(404).json({ success: false, message: "Customer not found" });
+    if (!c.followup || c.followup.status === "NONE") {
+      return res.status(400).json({ success: false, message: "This customer is not in Followup yet" });
+    }
+
+    if (!employeeId) {
+      c.followup.assignedTo = { employeeId: null, name: "", assignedAt: null };
+    } else {
+      const emp = await Employee.findById(employeeId).select("name canManageLoanFollowup");
+      if (!emp || !emp.canManageLoanFollowup) {
+        return res.status(400).json({ success: false, message: "That employee doesn't have Followup access" });
+      }
+      c.followup.assignedTo = { employeeId: emp._id, name: emp.name, assignedAt: new Date() };
+    }
+    c.markModified("followup");
+    await c.save();
+    res.json({ success: true, assignedTo: c.followup.assignedTo });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
