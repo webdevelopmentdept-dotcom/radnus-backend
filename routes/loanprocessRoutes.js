@@ -265,6 +265,47 @@ router.get("/report", auth, canViewLoanProcessReport, async (req, res) => {
   }
 });
 
+// ── Per-stage Excel columns: Status + Date + Remarks (+ Amount for Document Payment) ──
+const EXPORT_STAGES = [
+  { key: "cibilVerification", label: "CIBIL Verification" },
+  { key: "documentCollection", label: "Document Collection" },
+  { key: "applicationProcess", label: "Application Process" },
+  { key: "quotation", label: "Quotation" },
+  { key: "auditorReference", label: "Auditor Reference" },
+  { key: "documentPayment", label: "Document Payment" },
+  { key: "finalisationVerification", label: "Finalisation & Verification" },
+  { key: "finalSubmission", label: "Final Submission" },
+  { key: "courier", label: "Courier" },
+  { key: "completed", label: "Completed" },
+];
+
+const STAGE_COLUMNS = EXPORT_STAGES.flatMap((st) => {
+  const cols = [
+    { header: st.label, key: st.key, width: 16 },
+    { header: `${st.label} - Date`, key: `${st.key}_date`, width: 14 },
+    { header: `${st.label} - Remarks`, key: `${st.key}_remark`, width: 28 },
+  ];
+  if (st.key === "documentPayment") {
+    cols.push({ header: "Document Payment - Amount (₹)", key: "documentPayment_amount", width: 22 });
+  }
+  return cols;
+});
+
+const fmtExportDate = (d) =>
+  d ? new Date(d).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }) : "";
+
+const stageRowData = (c) => {
+  const out = {};
+  EXPORT_STAGES.forEach((st) => {
+    out[st.key] = c.checklist?.[st.key] ? "Yes" : "No";
+    out[`${st.key}_date`] = fmtExportDate(c.checklistDates?.[st.key]);
+    out[`${st.key}_remark`] = c.checklistRemarks?.[st.key] || "";
+  });
+  const amt = c.checklistAmounts?.documentPayment;
+  out.documentPayment_amount = amt != null ? Number(amt) : "";
+  return out;
+};
+
 router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) => {
   try {
     const filter = {};
@@ -306,17 +347,7 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
       { header: "Unit Address", key: "unitAddress", width: 30 },
       { header: "Status", key: "status", width: 14 },
       { header: "Progress %", key: "processPercent", width: 12 },
-      { header: "CIBIL Verification", key: "cibilVerification", width: 16 },
-      { header: "Document Collection", key: "documentCollection", width: 16 },
-      { header: "Application Process", key: "applicationProcess", width: 16 },
-      { header: "Quotation", key: "quotation", width: 12 },
-      { header: "Auditor Reference", key: "auditorReference", width: 16 },
-      { header: "Document Payment", key: "documentPayment", width: 16 },
-      { header: "Document Payment Amount (₹)", key: "documentPaymentAmount", width: 22 },
-      { header: "Finalisation & Verification", key: "finalisationVerification", width: 18 },
-      { header: "Final Submission", key: "finalSubmission", width: 16 },
-      { header: "Courier", key: "courier", width: 12 },
-      { header: "Completed", key: "completed", width: 12 },
+      ...STAGE_COLUMNS,
       { header: "Reason For Pending", key: "reasonForPending", width: 26 },
     ];
 
@@ -342,22 +373,13 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
         unitAddress: c.unitAddress || "",
         status: c.status === "COMPLETED" ? "Completed" : "In Progress",
         processPercent: c.processPercent ?? 0,
-        cibilVerification: c.checklist?.cibilVerification ? "Yes" : "No",
-        documentCollection: c.checklist?.documentCollection ? "Yes" : "No",
-        applicationProcess: c.checklist?.applicationProcess ? "Yes" : "No",
-        quotation: c.checklist?.quotation ? "Yes" : "No",
-        auditorReference: c.checklist?.auditorReference ? "Yes" : "No",
-        documentPayment: c.checklist?.documentPayment ? "Yes" : "No",
-        documentPaymentAmount: c.checklistAmounts?.documentPayment ?? "",
-        finalisationVerification: c.checklist?.finalisationVerification ? "Yes" : "No",
-        finalSubmission: c.checklist?.finalSubmission ? "Yes" : "No",
-        courier: c.checklist?.courier ? "Yes" : "No",
-        completed: c.checklist?.completed ? "Yes" : "No",
+        ...stageRowData(c),
         reasonForPending: c.reasonForPending || "",
       });
     });
 
     sheet.getColumn("loanValue").numFmt = "₹#,##0";
+    sheet.getColumn("documentPayment_amount").numFmt = "₹#,##0";
     sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheet.columns.length } };
 
     // ── Employee-wise Summary sheet ─────────────────────────────────────
