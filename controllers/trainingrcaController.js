@@ -16,6 +16,10 @@ const lockMessage = (record) => record.lockReason === "manual"
   ? "This course has been locked by HR. Please contact HR to unlock it."
   : "This course's due date has passed and it has been locked. Please contact HR to unlock it.";
 
+
+  // accessEndDate = picked day-oda END (11:59:59 PM IST), not UTC midnight
+const endOfDayIST = (d) => new Date(`${String(d).slice(0, 10)}T23:59:59.999+05:30`);
+
 // Auto-locks a record the moment its dueDate has passed. Called lazily
 // wherever a record is read/touched (list views + every employee action)
 // so no separate cron/background process is needed.
@@ -95,9 +99,10 @@ const createProgram = async (req, res) => {
     }
     // Date range HR sets for the chapter course to be accessible
     if (body.accessStartDate === "") body.accessStartDate = null;
-    if (body.accessEndDate === "")   body.accessEndDate   = null;
+if (body.accessEndDate === "")   body.accessEndDate   = null;
+else if (body.accessEndDate)     body.accessEndDate   = endOfDayIST(body.accessEndDate);
 
-    const program = await TrainingProgram.create(body);
+const program = await TrainingProgram.create(body);
     res.status(201).json({ success: true, data: program, message: "Training program created" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -139,7 +144,9 @@ const updateProgram = async (req, res) => {
       });
     }
     if (body.accessStartDate === "") body.accessStartDate = null;
-    if (body.accessEndDate === "")   body.accessEndDate   = null;
+if (body.accessEndDate === "")   body.accessEndDate   = null;
+else if (body.accessEndDate)     body.accessEndDate   = endOfDayIST(body.accessEndDate);
+
 
     // ✅ Which chapters got a DIFFERENT video in this edit? (same chapterNo, new videoUrl)
     // Their old watch-tracking (length + watched ranges) belongs to the old video.
