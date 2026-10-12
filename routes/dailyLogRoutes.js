@@ -1,31 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const DailyLog = require('../models/DailyLog');
-const mongoose = require('mongoose');  // ✅ ADD THIS
-
-
-// POST /api/daily-logs — Add a daily log entry
-// router.post('/', async (req, res) => {
-//   try {
-//     const { 
-//       employee_id, assignment_id, kpi_item_id, 
-//       kpi_name, unit, value, note, log_date, period,
-//       program_values , extra_fields
-//     } = req.body;
-
-//     const log = new DailyLog({
-//       employee_id, assignment_id, kpi_item_id,
-//       kpi_name, unit, value, note, log_date, period,
-//       program_values: program_values || {},
-//       extra_fields: extra_fields || {}  // ✅ ADD THIS
-//     });
-//     await log.save();
-
-//     res.status(201).json({ success: true, data: log });
-//   } catch (err) {
-//     res.status(400).json({ success: false, message: err.message });
-//   }
-// });
+const mongoose = require('mongoose'); 
+const { isDateInPeriod, isPeriodOpen, GRACE_DAYS } = require('../helpers/kpiPeriodRules');
 
 router.post('/', async (req, res) => {
   try {
@@ -34,6 +11,22 @@ router.post('/', async (req, res) => {
       kpi_name, unit, value, note, log_date, period,
       program_values, extra_fields
     } = req.body;
+
+        // 1) date must belong to the assignment's month
+    if (!isDateInPeriod(log_date, period)) {
+      return res.status(400).json({
+        success: false,
+        message: `Log date (${log_date}) is outside ${period}. Add logs only for dates in ${period}.`
+      });
+    }
+
+    // 2) previous month closes GRACE_DAYS days after month end
+    if (!isPeriodOpen(period)) {
+      return res.status(403).json({
+        success: false,
+        message: `${period} logging is closed (${GRACE_DAYS}-day grace period over). Please finalize your KPI.`
+      });
+    }
 
     // ✅ AUTO-FIX: If assignment_id missing, find active assignment
     let finalAssignmentId = assignment_id;
@@ -114,9 +107,12 @@ router.delete('/:id', async (req, res) => {
     if (!log) return res.status(404).json({ success: false, message: 'Log not found' });
 
     const diffHours = (new Date() - new Date(log.createdAt)) / (1000 * 60 * 60);
-    if (diffHours > 24 && !log.isUnlocked) {
+      if (diffHours > 24 && !log.isUnlocked) {
   return res.status(403).json({ success: false, message: 'Delete not allowed after 24 hours' });
 }
+    if (!isPeriodOpen(log.period) && !log.isUnlocked) {
+      return res.status(403).json({ success: false, message: `${log.period} is closed. Delete not allowed.` });
+    }
 
     await DailyLog.findByIdAndUpdate(req.params.id, {
       $set: {
@@ -142,6 +138,10 @@ router.put('/:id', async (req, res) => {
     if (diffHours > 24 && !log.isUnlocked) {
   return res.status(403).json({ success: false, message: 'Edit not allowed after 24 hours' });
 }
+
+ if (!isPeriodOpen(log.period) && !log.isUnlocked) {
+      return res.status(403).json({ success: false, message: `${log.period} is closed. Edit not allowed.` });
+    }
 
     const historyEntry = {
       oldValue: log.value,

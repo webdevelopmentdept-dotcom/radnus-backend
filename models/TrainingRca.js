@@ -81,9 +81,12 @@ videoPublicId: { type: String, default: "" },
   conductedBy: { type: String, default: "" },       // "HR & Culture"
   frequency:   { type: String, enum: ["once","monthly","quarterly","half_yearly","annual","on_joining","within_30_days"], default: "once" },
   responsible: { type: String, default: "" },       // "HR & L&D"
-  isMandatory: { type: Boolean, default: true },
+    isMandatory: { type: Boolean, default: true },
   isActive:    { type: Boolean, default: true },
-}, { timestamps: true });
+  // ✅ NEW — when true, employee does NOT take a Final Test. After finishing
+  // every chapter they just "Submit for Review", HR confirms, certificate follows.
+  noTest:      { type: Boolean, default: false },
+}, { timestamps: true }); 
 
 // ─── Employee Training Record ─────────────────────────────────
 const employeeTrainingSchema = new mongoose.Schema({

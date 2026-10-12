@@ -6,6 +6,7 @@ const KpiActual = require('../models/KpiActual');
 const KpiTemplate = require('../models/KpiTemplate');
 const KpiMonthlyVersion = require('../models/KpiMonthlyVersion');
 const { createNotification } = require('../helpers/notificationHelper');
+const { currentPeriod, getLogDeadline, isPeriodOpen } = require('../helpers/kpiPeriodRules');
 
 // POST /api/kpi-assignments
 router.post('/', async (req, res) => {
@@ -277,12 +278,48 @@ router.get('/:employeeId', async (req, res) => {
       .populate('month_version_id', 'month month_status kpi_items')
       .sort({ createdAt: 1 });
 
-    if (!assignments.length) {
+      if (!assignments.length) {
       return res.json({ success: true, data: null });
     }
 
-    let awaitingReview = null;   // submitted but HR innum review pannala
+    // explicit pick (employee opens an old month to finalize it)
+    if (req.query.assignment_id) {
+      const picked = assignments.find(a => String(a._id) === req.query.assignment_id);
+      if (picked) {
+        return res.json({
+          success: true, data: picked,
+          log_open: isPeriodOpen(picked.period),
+          log_deadline: getLogDeadline(picked.period)
+        });
+      }
+    }
 
+    // CURRENT MONTH assignment always wins
+    const cp = currentPeriod().toLowerCase();
+    const current = assignments.find(a => a.period?.trim().toLowerCase() === cp);
+    if (current) {
+      const pending_previous = [];
+      for (const a of assignments) {
+        if (String(a._id) === String(current._id)) continue;
+        const sa = await SelfAssessment.findOne({ employee_id: req.params.employeeId, assignment_id: a._id });
+        if (!sa || sa.status === 'draft') {
+          pending_previous.push({
+            _id: a._id, period: a.period,
+            log_open: isPeriodOpen(a.period),
+            log_deadline: getLogDeadline(a.period)
+          });
+        }
+      }
+      return res.json({
+        success: true, data: current,
+        log_open: isPeriodOpen(current.period),
+        log_deadline: getLogDeadline(current.period),
+        pending_previous
+      });
+    }
+
+    let awaitingReview = null;   // submitted but HR innum review pannala
+    
     for (const assignment of assignments) {
       const existing = await SelfAssessment.findOne({
         employee_id: req.params.employeeId,

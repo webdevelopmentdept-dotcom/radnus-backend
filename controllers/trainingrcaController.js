@@ -102,7 +102,8 @@ const createProgram = async (req, res) => {
 if (body.accessEndDate === "")   body.accessEndDate   = null;
 else if (body.accessEndDate)     body.accessEndDate   = endOfDayIST(body.accessEndDate);
 
-const program = await TrainingProgram.create(body);
+    body.noTest = body.noTest === true || body.noTest === "true";
+    const program = await TrainingProgram.create(body);
     res.status(201).json({ success: true, data: program, message: "Training program created" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -162,6 +163,7 @@ else if (body.accessEndDate)     body.accessEndDate   = endOfDayIST(body.accessE
         .map(nc => Number(nc.chapterNo));
     }
 
+       if (body.noTest !== undefined) body.noTest = body.noTest === true || body.noTest === "true";
     const program = await TrainingProgram.findByIdAndUpdate(req.params.id, body, { new: true });
     if (!program) return res.status(404).json({ success: false, message: "Program not found" });
 
@@ -987,9 +989,24 @@ const markProgramComplete = async (req, res) => {
   try {
     const record = await EmployeeTraining.findById(req.params.recordId).populate("programId").populate("employeeId", "name");
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
-
     if (record.programId?.type === "equipment") {
       return res.status(400).json({ success: false, message: "Equipment trainings must be completed via the quiz, not this action" });
+    }
+
+    await autoLockIfOverdue(record);
+    if (record.isLocked) return res.status(423).json({ success: false, message: lockMessage(record) });
+
+    // ✅ NEW — chapter courses: only allowed when HR switched "No Test" ON,
+    // and only after every chapter is watched (enforced server-side).
+    const progDoc = record.programId;
+    if (progDoc?.chapters?.length) {
+      if (!progDoc.noTest) {
+        return res.status(400).json({ success: false, message: "This course has a final test. Please take the test." });
+      }
+      const watchedCount = (record.chapterProgress || []).filter(c => c.watched).length;
+      if (watchedCount < progDoc.chapters.length) {
+        return res.status(400).json({ success: false, message: "Finish every chapter before submitting." });
+      }
     }
     if (!record.videoWatched && record.programId?.videoUrl) {
       return res.status(400).json({ success: false, message: "Watch the training video till the end before marking this complete" });
