@@ -1647,3 +1647,6 @@ exports.migrateOldRecords = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+exports.computeFromPunches = computeFromPunches;
+exports.parseShiftMins = parseShiftMins;

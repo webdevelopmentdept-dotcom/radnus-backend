@@ -115,7 +115,7 @@ router.post('/register', async (req, res) => {
     await employee.save();
 
     // ✅ NEW — HR notification on new employee registration
-       try {
+    try {
       await createNotification({
         recipient_id: "hr_admin_001",
         recipient_role: "hr",
@@ -139,36 +139,16 @@ router.post('/register', async (req, res) => {
 });
 
 // ================= LOGIN =================
-// router.post('/login', async (req, res) => {
-//   try {
-//     const { email, password } = req.body;
-
-//     const user = await Employee.findOne({ email });
-//     if (!user) return res.status(400).json({ message: 'Invalid email' });
-
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     if (!isMatch) return res.status(400).json({ message: 'Invalid password' });
-
-//     const token = jwt.sign({ id: user._id }, 'SECRETKEY', { expiresIn: '7d' });
-
-//     res.json({
-//       token,
-//       documentsCompleted: !!user.documentsCompleted,
-//       id: user._id,
-//       employeeId: user.employeeId,
-//     });
-//   } catch {
-//     res.status(500).json({ message: 'Server error' });
-//   }
-// });
-
-// ================= LOGIN =================
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
     const user = await Employee.findOne({ email });
     if (!user) return res.status(400).json({ message: 'Invalid email' });
+
+    if (user.staffType === 'machine_staff') {
+      return res.status(403).json({ message: 'NO_LOGIN_ACCESS' });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid password' });
@@ -225,10 +205,14 @@ router.post('/upload-doc', (req, res) => {
       const uploadedTypes = uploadedDocs.map(d => d.docType);
       const allUploaded = requiredDocs.every(doc => uploadedTypes.includes(doc));
 
-      const isHrUpload = req.body.isHrUpload === "true";
+      
+
+            const isHrUpload = req.body.isHrUpload === "true";
+      const emp0 = await Employee.findById(employeeId).select('staffType').lean();
+      const keepStatus = isHrUpload || emp0?.staffType === 'machine_staff';
 
       await Employee.findByIdAndUpdate(employeeId, {
-        ...(isHrUpload ? {} : { status: 'pending' }),
+        ...(keepStatus ? {} : { status: 'pending' }),
         documentsCompleted: allUploaded ? true : undefined,
       })
 
@@ -251,7 +235,7 @@ router.delete('/delete-doc', async (req, res) => {
     const { employeeId, docType } = req.body;
 
     if (!employeeId) return res.status(400).json({ message: 'EMPLOYEE_ID_MISSING' });
-    if (!docType)    return res.status(400).json({ message: 'DOC_TYPE_MISSING' });
+    if (!docType) return res.status(400).json({ message: 'DOC_TYPE_MISSING' });
 
     const doc = await Document.findOne({ employeeId, docType });
     if (!doc) return res.status(404).json({ message: 'DOCUMENT_NOT_FOUND' });
@@ -379,7 +363,7 @@ router.put('/complete-documents', async (req, res) => {
     if (!ok) return res.status(400).json({ message: 'UPLOAD_ALL_REQUIRED_DOCS_FIRST' });
 
     // ✅ Identity Proof — Ration Card (both sides) OR Gas Book must be present
-    const hasRation  = types.includes('Ration Card Front') && types.includes('Ration Card Back');
+    const hasRation = types.includes('Ration Card Front') && types.includes('Ration Card Back');
     const hasGasBook = types.includes('Gas Book');
     if (!hasRation && !hasGasBook) {
       return res.status(400).json({ message: 'IDENTITY_PROOF_REQUIRED' });
@@ -442,12 +426,12 @@ router.get('/me/:id', async (req, res) => {
       profileImage: user.profileImage,
       shift: user.shift,
       canManageProducts: user.canManageProducts,
-       canManageLoanProcess: user.canManageLoanProcess, 
-       isLoanProcessHead: user.isLoanProcessHead,
-       loanProcessReportAccess: user.loanProcessReportAccess,
-       canApproveLoanIncentive: user.canApproveLoanIncentive,
-       canManageLoanFollowup: user.canManageLoanFollowup,
-       documents,
+      canManageLoanProcess: user.canManageLoanProcess,
+      isLoanProcessHead: user.isLoanProcessHead,
+      loanProcessReportAccess: user.loanProcessReportAccess,
+      canApproveLoanIncentive: user.canApproveLoanIncentive,
+      canManageLoanFollowup: user.canManageLoanFollowup,
+      documents,
     });
   } catch {
     res.status(500).json({ message: 'Error fetching user' });
@@ -488,10 +472,10 @@ router.get('/employees', async (req, res) => {
     }
 
     let filter = {};
-if (status) {
-  const statuses = status.split(',').map(s => s.trim());
-  filter = { status: { $in: statuses } };
-}
+    if (status) {
+      const statuses = status.split(',').map(s => s.trim());
+      filter = { status: { $in: statuses } };
+    }
     const employees = await Employee.find(filter).select(
       "name email department designation employeeId empId essl_id status mobile profileImage exitType accessDeactivated"
     );
@@ -654,12 +638,16 @@ router.post('/save-link', async (req, res) => {
     if (!url) return res.status(400).json({ message: 'URL_MISSING' });
 
     await Document.findOneAndUpdate(
-  { employeeId, docType },
-  { fileUrl: url },
-  { upsert: true, new: true }
-);
+      { employeeId, docType },
+      { fileUrl: url },
+      { upsert: true, new: true }
+    );
 
-    await Employee.findByIdAndUpdate(employeeId, { status: 'pending' });
+        const e0 = await Employee.findById(employeeId).select('staffType').lean();
+    if (e0?.staffType !== 'machine_staff') {
+      await Employee.findByIdAndUpdate(employeeId, { status: 'pending' });
+    }
+
     res.json({ message: 'Link saved successfully' });
   } catch (err) {
     console.log(err);

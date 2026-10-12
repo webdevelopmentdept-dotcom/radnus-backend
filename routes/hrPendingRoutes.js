@@ -183,6 +183,7 @@ router.get("/approved", async (req, res) => {
           department: emp.department,
           designation: emp.designation,
           essl_id: emp.essl_id || null,
+          staffType: emp.staffType || "hrms",
           hrRemarks: emp.hrRemarks,
           mdRemarks: emp.mdRemarks,
           reuploaded: emp.reuploaded,   // 🔥 ADD THIS LINE

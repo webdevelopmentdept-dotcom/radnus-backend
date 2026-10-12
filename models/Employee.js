@@ -24,6 +24,12 @@ const employeeSchema = new mongoose.Schema({
     default: null,
   },
 
+   staffType: {
+    type: String,
+    enum: ["hrms", "machine_staff"],
+    default: "hrms",
+  },
+
   documentsCompleted: {
     type:    Boolean,
     default: false
