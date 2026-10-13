@@ -246,11 +246,29 @@ router.get("/report", auth, canViewLoanProcessReport, async (req, res) => {
           applications: { $sum: 1 },
           revenue: { $sum: "$loanValue" },
           completedCount: { $sum: { $cond: [{ $eq: ["$status", "COMPLETED"] }, 1, 0] } },
+          // Document Payment collected (stage ticked + amount entered)
+          docPaymentCount: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ["$checklist.documentPayment", true] }, { $gt: [{ $ifNull: ["$checklistAmounts.documentPayment", 0] }, 0] }] },
+                1, 0,
+              ],
+            },
+          },
+          docPaymentTotal: {
+            $sum: {
+              $cond: [
+                { $eq: ["$checklist.documentPayment", true] },
+                { $ifNull: ["$checklistAmounts.documentPayment", 0] },
+                0,
+              ],
+            },
+          },
         },
       },
       {
         $project: {
-          staffName: 1, applications: 1, revenue: 1, completedCount: 1,
+          staffName: 1, applications: 1, revenue: 1, completedCount: 1, docPaymentCount: 1, docPaymentTotal: 1,
           conversionRate: {
             $cond: [{ $eq: ["$applications", 0] }, 0, { $round: [{ $multiply: [{ $divide: ["$completedCount", "$applications"] }, 100] }, 0] }],
           },
@@ -387,10 +405,16 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
     customers.forEach((c) => {
       const key = c.staffId?._id?.toString() || c.staffId?.toString() || c.staffName || "unknown";
       const name = c.staffId?.name || c.staffName || "Unknown";
-      if (!staffMap[key]) staffMap[key] = { staffName: name, applications: 0, revenue: 0, completedCount: 0 };
+      if (!staffMap[key]) staffMap[key] = { staffName: name, applications: 0, revenue: 0, completedCount: 0, docPaymentCount: 0, docPaymentTotal: 0 };
       staffMap[key].applications += 1;
       staffMap[key].revenue += c.loanValue || 0;
       if (c.status === "COMPLETED") staffMap[key].completedCount += 1;
+      // Document Payment collected = stage ticked + amount entered
+      const docAmt = Number(c.checklistAmounts?.documentPayment) || 0;
+      if (c.checklist?.documentPayment && docAmt > 0) {
+        staffMap[key].docPaymentCount += 1;
+        staffMap[key].docPaymentTotal += docAmt;
+      }
     });
 
     const staffRows = Object.values(staffMap).sort((a, b) => b.revenue - a.revenue);
@@ -403,6 +427,8 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
       { header: "Revenue (₹)", key: "revenue", width: 16 },
       { header: "Completed", key: "completedCount", width: 12 },
       { header: "Conversion %", key: "conversionRate", width: 14 },
+      { header: "Doc Payments Received", key: "docPaymentCount", width: 22 },
+      { header: "Document Payment Total (₹)", key: "docPaymentTotal", width: 26 },
     ];
 
     const staffHeaderRow = staffSheet.getRow(1);
@@ -419,9 +445,12 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
         revenue: r.revenue,
         completedCount: r.completedCount,
         conversionRate: r.applications ? Math.round((r.completedCount / r.applications) * 100) : 0,
+        docPaymentCount: r.docPaymentCount,
+        docPaymentTotal: r.docPaymentTotal,
       });
     });
     staffSheet.getColumn("revenue").numFmt = "₹#,##0";
+    staffSheet.getColumn("docPaymentTotal").numFmt = "₹#,##0";
     staffSheet.getColumn("conversionRate").numFmt = '0"%"';
     staffSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: staffSheet.columns.length } };
 
