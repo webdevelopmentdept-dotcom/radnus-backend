@@ -17,7 +17,7 @@ const notificationSchema = new mongoose.Schema({
       "hr", "attendance", "salary", "announcement",
       // Common
       "general", "kpi_assigned", "review_done",
-      "leave_approved", "leave_rejected",
+      "leave_approved", "leave_rejected", "team_assigned",
       "employee_activated", "new_applicant", "new_internship",
       "hr_message", "incentive_assigned", "incentive_review", "incentive_approved", "incentive_rejected", "incentive_paid",
       "hr_message_sent", "leave_tl_review", "leave_tl_decision"

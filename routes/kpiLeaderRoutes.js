@@ -6,6 +6,7 @@ const KpiAssignment = require('../models/KpiAssignment');
 const Employee = require('../models/Employee');
 const LeaveRequest = require('../models/LeaveRequest');
 const DailyLog = require('../models/DailyLog');
+const { createNotification } = require('../helpers/notificationHelper');
 
 const hrOnly = (req, res, next) => {
   if (req.user && ['hr', 'admin'].includes(req.user.role)) return next();
@@ -40,6 +41,36 @@ async function forwardPendingToHr(leaderId, memberIds) {
   });
 }
 
+// Notify the new Team Lead (optional) + the newly added members
+async function notifyTeam({ leaderId, memberIds, teamSize, notifyLeader }) {
+  try {
+    const leader = await Employee.findById(leaderId).select('name');
+    const leaderName = leader?.name || 'Your Team Lead';
+    if (notifyLeader) {
+      await createNotification({
+        recipient_id:   String(leaderId),
+        recipient_role: 'employee',
+        type:           'team_assigned',
+        title:          'You are now a Team Lead 👥',
+        message:        `You are now Team Lead of ${teamSize} member${teamSize === 1 ? '' : 's'}.`,
+        link:           '/employee/dashboard',
+      });
+    }
+    for (const id of memberIds) {
+      await createNotification({
+        recipient_id:   String(id),
+        recipient_role: 'employee',
+        type:           'team_assigned',
+        title:          'Your Team Lead 👥',
+        message:        `${leaderName} is now your Team Lead.`,
+        link:           '/employee/dashboard',
+      });
+    }
+  } catch (e) {
+    console.error('notifyTeam failed:', e.message);
+  }
+}
+
 /* ───────────── LEADER SIDE (employee token) ───────────── */
 
 // GET /api/kpi-leader/me  -> sidebar: show "My Team KPI" menu?
@@ -52,6 +83,56 @@ router.get('/me', auth, async (req, res) => {
       kpiAccess:   !!m && m.permissions?.kpi_view !== false,
       leaveAccess: !!m && m.permissions?.leave_approval !== false,
       teamSize: m ? m.member_ids.length : 0,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/kpi-leader/my-team  -> dashboard "My Team" card (leader only)
+router.get('/my-team', auth, async (req, res) => {
+  try {
+    const m = await KpiLeaderMapping.findOne({ leader_id: req.user.id, isActive: true })
+      .populate('member_ids', 'name designation department profileImage status exitType accessDeactivated');
+    if (!m) return res.json({ success: true, isLeader: false });
+
+    const members = m.member_ids.filter(e =>
+      String(e._id) !== String(req.user.id) && !e.exitType && !e.accessDeactivated
+    );
+    const pendingLeaveCount = await LeaveRequest.countDocuments({
+      tl_approver_id: req.user.id, current_stage: 'team_lead', status: 'pending',
+    });
+
+    res.json({
+      success: true,
+      isLeader: true,
+      teamSize: members.length,
+      permissions: {
+        kpi_view:       m.permissions?.kpi_view !== false,
+        leave_approval: m.permissions?.leave_approval !== false,
+      },
+      members: members.map(e => ({
+        _id: e._id, name: e.name, designation: e.designation,
+        department: e.department, profileImage: e.profileImage,
+      })),
+      pendingLeaveCount,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/kpi-leader/my-leader  -> dashboard "Your Team Lead" card (team member)
+router.get('/my-leader', auth, async (req, res) => {
+  try {
+    const m = await KpiLeaderMapping.findOne({ isActive: true, member_ids: req.user.id })
+      .populate('leader_id', 'name designation department profileImage');
+    if (!m || !m.leader_id) return res.json({ success: true, hasLeader: false });
+    res.json({
+      success: true,
+      hasLeader: true,
+      leader: m.leader_id,
+      leaveApproval: m.permissions?.leave_approval !== false,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -168,6 +249,7 @@ router.post('/', auth, hrOnly, async (req, res) => {
       return res.status(409).json({ success: false, message: 'Some members are already under another leader' });
     }
     const doc = await KpiLeaderMapping.create({ leader_id, member_ids, permissions });
+    await notifyTeam({ leaderId: leader_id, memberIds: member_ids, teamSize: member_ids.length, notifyLeader: true });
     res.json({ success: true, data: doc });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
@@ -197,7 +279,9 @@ router.put('/:id', auth, hrOnly, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Select at least one access (KPI view / Leave approval)' });
     }
 
-    const removed = m.member_ids.map(String).filter(id => !member_ids.includes(id));
+    const oldIds  = m.member_ids.map(String);
+    const removed = oldIds.filter(id => !member_ids.includes(id));
+    const added   = member_ids.filter(id => !oldIds.includes(id));
 
     m.member_ids = member_ids;
     m.permissions = permissions;
@@ -205,6 +289,10 @@ router.put('/:id', auth, hrOnly, async (req, res) => {
 
     if (wasLeave && !permissions.leave_approval) await forwardPendingToHr(m.leader_id);
     else if (removed.length) await forwardPendingToHr(m.leader_id, removed);
+
+    if (added.length) {
+      await notifyTeam({ leaderId: m.leader_id, memberIds: added, teamSize: member_ids.length, notifyLeader: false });
+    }
 
     res.json({ success: true, data: m });
   } catch (err) {
