@@ -27,6 +27,15 @@ const LeaveRequestSchema = new mongoose.Schema({
   },
   hr_remark:   { type: String, default: "" },
   approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "HR" },
+  
+    // ── Team Lead approval flow ──
+  current_stage:  { type: String, enum: ["team_lead", "hr", "completed"], default: "hr" },
+  tl_approver_id: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
+  tl_status:      { type: String, enum: ["not_required", "pending", "approved", "rejected"], default: "not_required" },
+  tl_remark:      { type: String, default: "" },
+  tl_acted_at:    { type: Date, default: null },
+
+
 }, { timestamps: true });
 
 module.exports = mongoose.model("LeaveRequest", LeaveRequestSchema);

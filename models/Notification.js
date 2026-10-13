@@ -1,9 +1,9 @@
 const mongoose = require("mongoose");
 
 const notificationSchema = new mongoose.Schema({
-    recipient_id: { 
+  recipient_id: {
     type: String,  // ✅ ObjectId → String-ஆ மாத்து
-    required: false 
+    required: false
   },
   recipient_role: { type: String, enum: ["employee", "hr", "admin"], required: true },
 
@@ -19,16 +19,16 @@ const notificationSchema = new mongoose.Schema({
       "general", "kpi_assigned", "review_done",
       "leave_approved", "leave_rejected",
       "employee_activated", "new_applicant", "new_internship",
-       "hr_message" ,       "incentive_assigned", "incentive_review", "incentive_approved", "incentive_rejected", "incentive_paid",
-  "hr_message_sent"
+      "hr_message", "incentive_assigned", "incentive_review", "incentive_approved", "incentive_rejected", "incentive_paid",
+      "hr_message_sent", "leave_tl_review", "leave_tl_decision"
     ],
     default: "general"
   },
 
-  title:   { type: String, required: true },
+  title: { type: String, required: true },
   message: { type: String, required: true },
-  link:    { type: String, default: "" },
-  isRead:  { type: Boolean, default: false },
+  link: { type: String, default: "" },
+  isRead: { type: Boolean, default: false },
 
 }, { timestamps: true });
 
