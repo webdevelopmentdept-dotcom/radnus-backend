@@ -34,4 +34,21 @@ const notificationSchema = new mongoose.Schema({
 
 notificationSchema.index({ recipient_id: 1, isRead: 1 });
 
+// ── Web Push hook ─────────────────────────────────────────────
+// Every notification created anywhere in the app (Notification.create,
+// new Notification().save(), insertMany) automatically triggers a browser push.
+const { sendPushForNotification } = require("../services/pushService");
+
+notificationSchema.pre("save", function () {
+  this.$locals.wasNew = this.isNew;
+});
+
+notificationSchema.post("save", function (doc) {
+  if (doc.$locals && doc.$locals.wasNew) sendPushForNotification(doc);
+});
+
+notificationSchema.post("insertMany", function (docs) {
+  (docs || []).forEach((d) => sendPushForNotification(d));
+});
+
 module.exports = mongoose.model("Notification", notificationSchema);

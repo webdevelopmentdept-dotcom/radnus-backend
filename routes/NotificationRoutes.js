@@ -3,6 +3,65 @@ const router       = express.Router();
 const Notification = require("../models/Notification");
 const Employee = require("../models/Employee");
 
+
+
+// ══════════════════════════════════════════
+// ✅ WEB PUSH — must stay ABOVE the "/:recipientId" routes
+// ══════════════════════════════════════════
+const PushSubscription = require("../models/PushSubscription");
+const { VAPID_PUBLIC_KEY, pushEnabled } = require("../services/pushService");
+
+// GET /api/notifications/push/public-key
+router.get("/push/public-key", (req, res) => {
+  if (!pushEnabled) return res.status(503).json({ success: false, message: "Push not configured" });
+  res.json({ success: true, publicKey: VAPID_PUBLIC_KEY });
+});
+
+// POST /api/notifications/push/subscribe
+// Body: { subscription, recipient_id, recipient_role }
+router.post("/push/subscribe", async (req, res) => {
+  try {
+    const { subscription, recipient_id, recipient_role } = req.body;
+    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      return res.status(400).json({ success: false, message: "Invalid subscription" });
+    }
+    if (!recipient_id || !["employee", "hr", "admin"].includes(recipient_role)) {
+      return res.status(400).json({ success: false, message: "recipient_id & recipient_role required" });
+    }
+
+    // same browser + same identity = one record (a browser can hold an HR AND an employee identity)
+    await PushSubscription.findOneAndUpdate(
+      { endpoint: subscription.endpoint, recipient_id: String(recipient_id), recipient_role },
+      {
+        keys: subscription.keys,
+        userAgent: req.headers["user-agent"] || "",
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/notifications/push/unsubscribe
+// Body: { endpoint, recipient_id, recipient_role } — removes ONLY that identity on that device
+router.post("/push/unsubscribe", async (req, res) => {
+  try {
+    const { endpoint, recipient_id, recipient_role } = req.body;
+    if (!endpoint) return res.status(400).json({ success: false, message: "endpoint required" });
+
+    const filter = { endpoint };
+    if (recipient_id) filter.recipient_id = String(recipient_id);
+    if (recipient_role) filter.recipient_role = recipient_role;
+
+    await PushSubscription.deleteMany(filter);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ══════════════════════════════════════════
 // HR ROUTES — FIRST (important! conflict avoid)
 // ══════════════════════════════════════════
