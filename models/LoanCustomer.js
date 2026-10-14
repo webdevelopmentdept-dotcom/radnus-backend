@@ -18,7 +18,7 @@ const loanCustomerSchema = new mongoose.Schema(
      businessSubType: { type: String, default: "" },
     scheme: {
       type: String,
-      enum: ["PMEGP", "UYEGP", "AABCS", "NEEDS", "TABCEDCO", "TWEES"],
+      enum: ["PMEGP", "UYEGP", "AABCS", "NEEDS", "TABCEDCO", "TWEES", "PMFME"],
       default: "",
     },
     loanValue: { type: Number, default: 0 },
