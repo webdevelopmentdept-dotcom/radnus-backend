@@ -79,13 +79,24 @@ router.get("/hr/all", async (req, res) => {
   }
 });
 
+// ✅ Role-wide HR notifications (recipient_id null) are shown only from this date onwards.
+// Older role-wide ones stay in the database but are hidden from the HR page.
+const ROLE_WIDE_FROM = new Date("2026-10-15T00:00:00+05:30"); // 15 Oct 2026, IST
+
+const hrFilter = (hrId) => ({
+  recipient_role: "hr",
+  $or: [
+    { recipient_id: hrId },                                         // this HR's own notifications
+    { recipient_id: null, createdAt: { $gte: ROLE_WIDE_FROM } },   // role-wide, from today onwards
+  ],
+});
+
 // GET /api/notifications/hr/:hrId
 router.get("/hr/:hrId", async (req, res) => {
   try {
-    const notifications = await Notification.find({
-      recipient_id:   req.params.hrId,
-      recipient_role: "hr"
-    }).sort({ createdAt: -1 }).limit(50);
+    const notifications = await Notification.find(hrFilter(req.params.hrId))
+      .sort({ createdAt: -1 })
+      .limit(50);
     const unreadCount = notifications.filter(n => !n.isRead).length;
     res.json({ success: true, data: notifications, unreadCount });
   } catch (err) {
@@ -97,7 +108,7 @@ router.get("/hr/:hrId", async (req, res) => {
 router.put("/mark-all-read/hr/:hrId", async (req, res) => {
   try {
     await Notification.updateMany(
-      { recipient_id: req.params.hrId, recipient_role: "hr", isRead: false },
+      { ...hrFilter(req.params.hrId), isRead: false },
       { isRead: true }
     );
     res.json({ success: true });
