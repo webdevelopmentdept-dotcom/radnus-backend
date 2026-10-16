@@ -9,7 +9,9 @@ const ExcelJS = require("exceljs");
 const LoanCustomer = require("../models/LoanCustomer");
 const auth = require("../middleware/auth");
 const { createNotification } = require("../helpers/notificationHelper");
-
+// ── Document payment → incentive mapping (server is the source of truth) ──
+const DOC_PAYMENT_INCENTIVE_MAP = { 5000: 150, 10000: 400 };
+const DOC_PAYMENT_ALLOWED = Object.keys(DOC_PAYMENT_INCENTIVE_MAP).map(Number);
 
 // ── Loan Incentive approval — HR (fixed login) or Admin only ──
 // Deliberately separate from canManageLoanProcess: HR is blocked from the
@@ -523,7 +525,7 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       }
     }
 
-        // ── Handoff lock: once handed to Followup team, employee can't edit the checklist.
+    // ── Handoff lock: once handed to Followup team, employee can't edit the checklist.
     if (customer.followup?.status && customer.followup.status !== "NONE" && req.user?.role !== "admin") {
       return res.status(400).json({
         success: false,
@@ -561,6 +563,26 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       if (!finalRemark.trim()) finalValue = false; // safety net
     }
 
+    // ── Document Payment: amount must be 5000 / 10000, and mandatory to tick ──
+    if (field === "documentPayment") {
+      let finalAmount = customer.checklistAmounts?.documentPayment ?? null;
+      if (amount !== undefined) {
+        finalAmount = amount === "" || amount === null ? null : Number(amount);
+        if (finalAmount !== null && !DOC_PAYMENT_ALLOWED.includes(finalAmount)) {
+          return res.status(400).json({
+            success: false,
+            message: "Select document payment amount (₹5,000 or ₹10,000)",
+          });
+        }
+      }
+      if (finalValue && !DOC_PAYMENT_ALLOWED.includes(Number(finalAmount))) {
+        return res.status(400).json({
+          success: false,
+          message: "Select document payment amount (₹5,000 or ₹10,000) before ticking Document Payment.",
+        });
+      }
+    }
+
     const wasEligible = customer.incentive?.eligibility === "Eligible for Processing";
 
     customer.checklist[field] = finalValue;
@@ -575,15 +597,12 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       customer.markModified("checklistDates");
     }
     if (amount !== undefined && field === "documentPayment") {
-      const amt = amount === "" || amount === null ? null : Number(amount);
-      if (amt !== null && (Number.isNaN(amt) || amt < 0)) {
-        return res.status(400).json({ success: false, message: "Enter a valid payment amount" });
-      }
-      customer.checklistAmounts.documentPayment = amt;
+      customer.checklistAmounts.documentPayment =
+        amount === "" || amount === null ? null : Number(amount);
       customer.markModified("checklistAmounts");
     }
 
-        // ── Handoff to Followup team when "completed" is ticked
+    // ── Handoff to Followup team when "completed" is ticked
     let justHandedOver = false;
     if (field === "completed" && finalValue && (!customer.followup || customer.followup.status === "NONE")) {
       customer.followup.status = "PENDING";
@@ -680,7 +699,7 @@ router.get("/incentives/pending", auth, canApproveLoanIncentive, async (req, res
   try {
 
     const customers = await LoanCustomer.find({ "incentive.eligibility": "Eligible for Processing" })
-      .select("customerName loanValue staffId staffName incentive checklistDates checklistRemarks createdAt")
+      .select("customerName loanValue staffId staffName incentive checklist checklistAmounts checklistDates checklistRemarks createdAt")
       .sort({ "incentive.eligibleAt": 1 });
     res.json({ success: true, customers });
   } catch (err) {
@@ -729,11 +748,13 @@ router.get("/incentives/mine", auth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req, res) => {
   try {
-    const { amount, remark, paidAt } = req.body;
-    const amt = Number(amount);
-    if (!amt || amt <= 0) {
-      return res.status(400).json({ success: false, message: "Enter a valid incentive amount" });
-    }
+    // const { amount, remark, paidAt } = req.body;
+    // const amt = Number(amount);
+    // if (!amt || amt <= 0) {
+    //   return res.status(400).json({ success: false, message: "Enter a valid incentive amount" });
+    // }
+
+    const { remark, paidAt } = req.body; 
 
     // ✅ Optional custom paid date (for backdating old payments that were
     // already given before this module existed). Falls back to now.
@@ -753,6 +774,16 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
       return res.status(400).json({
         success: false,
         message: "This loan isn't in 'Eligible for Processing' state.",
+      });
+    }
+
+        // ── Incentive amount = based on Document Payment (server-side) ──
+    const docAmt = Number(customer.checklistAmounts?.documentPayment);
+    const amt = DOC_PAYMENT_INCENTIVE_MAP[docAmt];
+    if (!customer.checklist?.documentPayment || !amt) {
+      return res.status(400).json({
+        success: false,
+        message: "Document Payment is not ticked or amount is not ₹5,000 / ₹10,000. Ask the employee to update it first.",
       });
     }
 
