@@ -208,6 +208,8 @@ app.use("/api/loan-process",  loanProcessRoutes);
 app.use("/api/loan-followup", require("./routes/loanFollowupRoutes"));
 app.use("/api/admin-loan-process", require("./routes/adminLoanProcessRoutes"));
 app.use("/api/admin-loan-analytics", require("./routes/adminLoanAnalyticsRoutes"));
+app.use("/api/admin-dashboard", require("./routes/adminDashboardRoutes"));
+app.use("/api/admin-hr-dashboard", require("./routes/adminHrDashboardRoutes"));
 
 // Applicants & Admin
 app.use("/api/applicants", applicantRoutes);
