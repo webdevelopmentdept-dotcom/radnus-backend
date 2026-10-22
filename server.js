@@ -136,6 +136,7 @@ const loanProcessRoutes = require('./routes/loanprocessRoutes')
 app.use("/api/export-excel", excelExportDailyLog);
 app.use('/api/kpi-monthly-versions', kpiMonthlyVersionsRouter);
 app.use("/api/partners", partnerRoutes);
+app.use("/api/life-growth", require("./routes/Lifegrowthroutes"));
 app.use("/api/payments", paymentRoutes);
 app.use("/api/employee", employeeAuth);
 app.use("/api", employeeAuth);  
