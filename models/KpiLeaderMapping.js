@@ -9,6 +9,10 @@ const kpiLeaderMappingSchema = new mongoose.Schema({
     kpi_view:       { type: Boolean, default: true },
     leave_approval: { type: Boolean, default: true },
   },
+  // Life Growth: when true, members of this team may share a goal with this leader.
+  // Default FALSE (private by default). Kept outside `permissions` on purpose, so the
+  // existing HR team-edit code (which rewrites `permissions`) can never overwrite it.
+  growth_review_enabled: { type: Boolean, default: false },
   created_by: { type: String, default: 'hr' },
 }, { timestamps: true });
 
