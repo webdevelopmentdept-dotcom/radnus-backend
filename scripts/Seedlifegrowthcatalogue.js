@@ -4,7 +4,7 @@
 // Run from the backend folder:   node scripts/seedLifeGrowthCatalogue.js
 require('dotenv').config();
 const mongoose = require('mongoose');
-const LifeGoalCatalogue = require('../models/LifeGoalCatalogue');
+const LifeGoalCatalogue = require('../models/Lifegoalcatalogue');
 const { STAGES } = require('../helpers/lifeGrowthValidators');
 
 const OPTIONS = {
