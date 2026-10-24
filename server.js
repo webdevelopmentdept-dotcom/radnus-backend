@@ -1,6 +1,5 @@
 require("dotenv").config();
 const express = require("express");
-console.log("JWT_SECRET:", process.env.JWT_SECRET);
 const mongoose = require("mongoose");
 const cors = require("cors");
 const prerender = require("prerender-node");
@@ -34,15 +33,17 @@ const allowedOrigins = [
   "https://www.radnus.in",
   "https://radnus-frontend-3xb7.vercel.app",
   "http://localhost:5173",
-   "http://localhost:5174"
+  "http://localhost:5174"
 ];
 
+// Vercel preview URLs of this project only (radnus-frontend-3xb7-xxxx.vercel.app)
+const previewPattern = /^https:\/\/radnus-frontend-3xb7-[a-z0-9-]+\.vercel\.app$/;
 
 // CORS Middleware
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.includes(origin) || previewPattern.test(origin)) {
         return callback(null, true);
       }
       return callback(new Error("Not allowed by CORS"));
