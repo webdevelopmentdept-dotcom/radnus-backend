@@ -3,7 +3,8 @@ const router = express.Router();
 const EmployeeAward = require('../models/EmployeeAward');
 const { createNotification } = require('../helpers/notificationHelper');
 const { computeRecognitionScore } = require('../helpers/recognitionScoreHelper');
-
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 // Award config per type
 const AWARD_CONFIG = {
   spot: {
@@ -27,13 +28,13 @@ const AWARD_CONFIG = {
 };
 
 // GET all awards
-router.get('/', async (req, res) => {
+router.get('/', auth, hrOnly, async (req, res) => {
   try {
     const { award_type, status, period } = req.query;
     const filter = {};
     if (award_type) filter.award_type = award_type;
-    if (status)     filter.status     = status;
-    if (period)     filter.period     = period;
+    if (status) filter.status = status;
+    if (period) filter.period = period;
 
     const awards = await EmployeeAward.find(filter)
       .populate('employee_id', 'name email department designation')
@@ -47,7 +48,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET summary stats
-router.get('/summary', async (req, res) => {
+router.get('/summary', auth, hrOnly, async (req, res) => {
   try {
     const [total, spot, monthly, innovation, announced] = await Promise.all([
       EmployeeAward.countDocuments(),
@@ -77,7 +78,7 @@ router.get('/summary', async (req, res) => {
 
 // GET recognition score for one employee (used by PMS/Appraisal module)
 // Query: ?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD (optional — filters by announced_at)
-router.get('/recognition-score/:employeeId', async (req, res) => {
+router.get('/recognition-score/:employeeId', auth, hrOnly, async (req, res) => {
   try {
     const { fromDate, toDate } = req.query;
     const result = await computeRecognitionScore(req.params.employeeId, fromDate, toDate);
@@ -88,7 +89,7 @@ router.get('/recognition-score/:employeeId', async (req, res) => {
 });
 
 // POST nominate
-router.post('/', async (req, res) => {
+router.post('/', auth, hrOnly, async (req, res) => {
   try {
     const {
       award_type, category, employee_id, nominated_by,
@@ -113,12 +114,12 @@ router.post('/', async (req, res) => {
 
     // Notify employee
     await createNotification({
-      recipient_id:   employee_id,
+      recipient_id: employee_id,
       recipient_role: 'employee',
-      type:           'hr',
-      title:          `🏆 You've been nominated for ${AWARD_CONFIG[award_type]?.label}!`,
-      message:        `Your nomination is under review. Reason: ${reason}`,
-      link:           '/employee/dashboard'
+      type: 'hr',
+      title: `🏆 You've been nominated for ${AWARD_CONFIG[award_type]?.label}!`,
+      message: `Your nomination is under review. Reason: ${reason}`,
+      link: '/employee/dashboard'
     });
 
     res.status(201).json({ success: true, data: award });
@@ -128,7 +129,7 @@ router.post('/', async (req, res) => {
 });
 
 // PATCH — Update status
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', auth, hrOnly, async (req, res) => {
   try {
     const { status, hr_comment, dept_head_comment, cash_amount, wall_of_fame } = req.body;
 
@@ -137,23 +138,23 @@ router.patch('/:id/status', async (req, res) => {
     if (!award) return res.status(404).json({ success: false, message: 'Award not found' });
 
     award.status = status;
-    if (hr_comment)         award.hr_comment         = hr_comment;
-    if (dept_head_comment)  award.dept_head_comment  = dept_head_comment;
-    if (cash_amount)        award.cash_amount         = cash_amount;
+    if (hr_comment) award.hr_comment = hr_comment;
+    if (dept_head_comment) award.dept_head_comment = dept_head_comment;
+    if (cash_amount) award.cash_amount = cash_amount;
     if (wall_of_fame !== undefined) award.wall_of_fame = wall_of_fame;
 
     if (status === 'announced') {
-      award.announced_at       = new Date();
+      award.announced_at = new Date();
       award.certificate_issued = true;
 
       // Notify employee of win
       await createNotification({
-        recipient_id:   award.employee_id._id,
+        recipient_id: award.employee_id._id,
         recipient_role: 'employee',
-        type:           'hr',
-        title:          `🎉 Congratulations! You've won the ${AWARD_CONFIG[award.award_type]?.label}!`,
-        message:        `Cash reward: ₹${award.cash_amount}. Keep up the great work!`,
-        link:           '/employee/dashboard'
+        type: 'hr',
+        title: `🎉 Congratulations! You've won the ${AWARD_CONFIG[award.award_type]?.label}!`,
+        message: `Cash reward: ₹${award.cash_amount}. Keep up the great work!`,
+        link: '/employee/dashboard'
       });
     }
 
@@ -165,7 +166,7 @@ router.patch('/:id/status', async (req, res) => {
 });
 
 // DELETE
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     await EmployeeAward.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Deleted' });

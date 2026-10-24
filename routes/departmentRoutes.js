@@ -2,6 +2,8 @@ const express    = require("express");
 const router     = express.Router();
 const Department = require("../models/Department");
 const Employee   = require("../models/Employee");
+ const auth = require("../middleware/auth"); 
+ const hrOnly = require("../middleware/hrOnly");
 
 // ── GET all ──
 router.get("/", async (req, res) => {
@@ -83,7 +85,7 @@ router.get("/:id/employee-count", async (req, res) => {
 
 
 // ── POST — create department ──
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const { name, code, head, description, status, designations } = req.body;
     if (!name || !code)
@@ -108,7 +110,7 @@ router.post("/", async (req, res) => {
 });
 
 // ── PUT /:id — update department ──
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, hrOnly, async (req, res) => {
   try {
     const { name, code, head, description, status } = req.body;
     const orConds = [];
@@ -136,7 +138,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // ── PATCH /:id/status ──
-router.patch("/:id/status", async (req, res) => {
+router.patch("/:id/status", auth, hrOnly, async (req, res) => {
   try {
     const { status } = req.body;
     if (!["active", "inactive"].includes(status))
@@ -153,7 +155,7 @@ router.patch("/:id/status", async (req, res) => {
 });
 
 // ── DELETE /:id ──
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const dept = await Department.findByIdAndDelete(req.params.id);
     if (!dept) return res.status(404).json({ success: false, message: "Not found" });
@@ -168,7 +170,7 @@ router.delete("/:id", async (req, res) => {
 // ══════════════════════════════════════════════════════
 
 // ── POST /:id/designations — add designation ──
-router.post("/:id/designations", async (req, res) => {
+router.post("/:id/designations", auth, hrOnly, async (req, res) => {
   try {
     const { title, level, status } = req.body;
     if (!title)
@@ -194,7 +196,7 @@ router.post("/:id/designations", async (req, res) => {
 });
 
 // ── PUT /:id/designations/replace-all — used when editing dept from modal ──
-router.put("/:id/designations/replace-all", async (req, res) => {
+router.put("/:id/designations/replace-all", auth, hrOnly, async (req, res) => {
   try {
     const { designations } = req.body;
     const dept = await Department.findByIdAndUpdate(
@@ -210,7 +212,7 @@ router.put("/:id/designations/replace-all", async (req, res) => {
 });
 
 // ── PUT /:id/designations/:desigId — update designation ──
-router.put("/:id/designations/:desigId", async (req, res) => {
+router.put("/:id/designations/:desigId", auth, hrOnly, async (req, res) => {
   try {
     const { title, level, status } = req.body;
     const dept = await Department.findById(req.params.id);
@@ -240,7 +242,7 @@ router.put("/:id/designations/:desigId", async (req, res) => {
 });
 
 // ── DELETE /:id/designations/:desigId ──
-router.delete("/:id/designations/:desigId", async (req, res) => {
+router.delete("/:id/designations/:desigId", auth, hrOnly, async (req, res) => {
   try {
     const dept = await Department.findById(req.params.id);
     if (!dept) return res.status(404).json({ success: false, message: "Department not found" });

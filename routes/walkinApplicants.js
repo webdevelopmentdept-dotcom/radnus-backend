@@ -1,9 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const WalkinApplicant = require("../models/WalkinApplicant");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ✅ Add new walk-in applicant
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const { mobile } = req.body;
     if (!mobile || !/^\d{10}$/.test(String(mobile).trim())) {
@@ -23,7 +25,7 @@ router.post("/", async (req, res) => {
 });
 
 // ✅ Get all walk-in applicants (sorted by newest)
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const applicants = await WalkinApplicant.find().sort({ createdAt: -1 });
     res.json({ success: true, applicants });
@@ -34,7 +36,7 @@ router.get("/", async (req, res) => {
 });
 
 // ✅ Get one walk-in applicant by ID
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, hrOnly, async (req, res) => {
   try {
     const applicant = await WalkinApplicant.findById(req.params.id);
     if (!applicant) {
@@ -48,7 +50,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // ✅ Update full applicant details
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, hrOnly, async (req, res) => {
   try {
     const updated = await WalkinApplicant.findByIdAndUpdate(
       req.params.id,
@@ -66,7 +68,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // ✅ Update status only (New / Shortlisted / Interview / Hired / Rejected)
-router.put("/:id/status", async (req, res) => {
+router.put("/:id/status", auth, hrOnly, async (req, res) => {
   try {
     const { status, rejectionReason } = req.body;
     const update = { status };
@@ -86,7 +88,7 @@ router.put("/:id/status", async (req, res) => {
 });
 
 // ✅ Delete walk-in applicant
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const deleted = await WalkinApplicant.findByIdAndDelete(req.params.id);
     if (!deleted) {

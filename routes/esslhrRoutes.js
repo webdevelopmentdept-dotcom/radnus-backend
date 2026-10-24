@@ -1,12 +1,14 @@
-const express  = require('express');
-const router   = express.Router();
-const axios    = require('axios');
-const moment   = require('moment');
+const express = require('express');
+const router = express.Router();
+const axios = require('axios');
+const moment = require('moment');
 const Employee = require('../models/Employee');
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ─── Config ──────────────────────────────────────────────────
-const ESSL_SERVER  = process.env.ESSL_SERVER_URL  || 'http://localhost:5000';
-const MACHINE_IP   = process.env.ESSL_MACHINE_IP  || '192.168.0.111';
+const ESSL_SERVER = process.env.ESSL_SERVER_URL || 'http://localhost:5000';
+const MACHINE_IP = process.env.ESSL_MACHINE_IP || '192.168.0.111';
 const MACHINE_PORT = process.env.ESSL_MACHINE_PORT || '80';
 const MACHINE_BASE = `http://${MACHINE_IP}:${MACHINE_PORT}`;
 
@@ -17,18 +19,18 @@ try {
 } catch {
   const mongoose = require('mongoose');
   const s = new mongoose.Schema({
-    employee_id:   { type: mongoose.Schema.Types.ObjectId, ref: 'Employee' },
-    date:          String,
-    punches:       { type: Array, default: [] },
-    first_in:      Date,
-    last_out:      Date,
-    work_hours:    { type: Number, default: 0 },
-    checkIn:       Date,
-    checkOut:      Date,
-    status:        { type: String, default: 'present' },
-    shift:         { type: String, default: 'General (9:45 AM – 7:00 PM)' },
-    method:        { type: String, default: 'auto' },
-    remark:        { type: String, default: '' },
+    employee_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee' },
+    date: String,
+    punches: { type: Array, default: [] },
+    first_in: Date,
+    last_out: Date,
+    work_hours: { type: Number, default: 0 },
+    checkIn: Date,
+    checkOut: Date,
+    status: { type: String, default: 'present' },
+    shift: { type: String, default: 'General (9:45 AM – 7:00 PM)' },
+    method: { type: String, default: 'auto' },
+    remark: { type: String, default: '' },
     break_minutes: { type: Number, default: 0 },
   }, { timestamps: true });
   s.index({ employee_id: 1, date: 1 }, { unique: true });
@@ -104,11 +106,11 @@ function parseUserList(raw) {
       if (parts.PIN) {
         users.push({
           essl_id: parts.PIN,
-          name:    parts.Name || parts.name || '—',
-          card:    parts.Card || '',
-          group:   parts.Grp  || '1',
-          verify:  parts.Verify || '0',
-          pri:     parts.Pri  || '0',
+          name: parts.Name || parts.name || '—',
+          card: parts.Card || '',
+          group: parts.Grp || '1',
+          verify: parts.Verify || '0',
+          pri: parts.Pri || '0',
         });
       }
     }
@@ -118,7 +120,7 @@ function parseUserList(raw) {
 
 // ─── Parse attendance log ─────────────────────────────────────
 function parseAttLog(raw) {
-  const logs  = [];
+  const logs = [];
   const lines = (raw || '').split('\n');
   for (const line of lines) {
     const t = line.trim();
@@ -128,10 +130,10 @@ function parseAttLog(raw) {
       const parts = clean.split('\t');
       if (parts.length >= 2) {
         logs.push({
-          essl_id:  parts[0]?.trim(),
+          essl_id: parts[0]?.trim(),
           datetime: parts[1]?.trim(),
-          status:   parts[2]?.trim() || '0',
-          verify:   parts[3]?.trim() || '0',
+          status: parts[2]?.trim() || '0',
+          verify: parts[3]?.trim() || '0',
         });
       }
     }
@@ -142,18 +144,18 @@ function parseAttLog(raw) {
 // ─── Parse enroll (OPERLOG) ───────────────────────────────────
 function parseEnrollLog(raw) {
   const enroll = {};
-  const lines  = (raw || '').split('\n');
+  const lines = (raw || '').split('\n');
   for (const line of lines) {
     const t = line.trim();
     if (!t) continue;
     if (t.includes('ENROLL_FP') || t.includes('ENROLL_FACE')) {
-      const isFace   = t.includes('ENROLL_FACE');
+      const isFace = t.includes('ENROLL_FACE');
       const isFinger = t.includes('ENROLL_FP');
       const pinMatch = t.match(/PIN=(\d+)/);
       const pin = pinMatch?.[1];
       if (pin) {
         if (!enroll[pin]) enroll[pin] = { face: false, finger: false, fingerCount: 0 };
-        if (isFace)   enroll[pin].face = true;
+        if (isFace) enroll[pin].face = true;
         if (isFinger) { enroll[pin].finger = true; enroll[pin].fingerCount++; }
       }
     }
@@ -183,7 +185,7 @@ router.get('/essl/ping', async (req, res) => {
 //  ── MACHINE: GET ALL USERS ──
 // ═══════════════════════════════════════════════════════════════
 // GET /api/essl/machine/users
-router.get('/essl/machine/users', async (req, res) => {
+router.get('/essl/machine/users', auth, hrOnly, async (req, res) => {
   try {
     const result = await machineGet('/iclock/cdata?table=employee&Stamp=9999');
 
@@ -198,30 +200,30 @@ router.get('/essl/machine/users', async (req, res) => {
     const machineUsers = parseUserList(result.data);
 
     const hrmsEmps = await Employee.find({ essl_id: { $ne: null } });
-    const hrmsMap  = {};
+    const hrmsMap = {};
     hrmsEmps.forEach(e => { hrmsMap[String(e.essl_id)] = e; });
 
     const enriched = machineUsers.map(u => {
       const hrms = hrmsMap[String(u.essl_id)];
       return {
         ...u,
-        in_hrms:      !!hrms,
-        hrms_id:      hrms?._id        || null,
-        hrms_name:    hrms?.name       || null,
-        hrms_dept:    hrms?.department || null,
-        hrms_status:  hrms?.status     || null,
-        hrms_empId:   hrms?.employeeId || null,
-        name_match:   hrms ? hrms.name === u.name : null,
+        in_hrms: !!hrms,
+        hrms_id: hrms?._id || null,
+        hrms_name: hrms?.name || null,
+        hrms_dept: hrms?.department || null,
+        hrms_status: hrms?.status || null,
+        hrms_empId: hrms?.employeeId || null,
+        name_match: hrms ? hrms.name === u.name : null,
       };
     });
 
     res.json({
-      success:       true,
-      total:         enriched.length,
-      hrms_linked:   enriched.filter(u => u.in_hrms).length,
-      not_in_hrms:   enriched.filter(u => !u.in_hrms).length,
+      success: true,
+      total: enriched.length,
+      hrms_linked: enriched.filter(u => u.in_hrms).length,
+      not_in_hrms: enriched.filter(u => !u.in_hrms).length,
       name_mismatch: enriched.filter(u => u.in_hrms && !u.name_match).length,
-      users:         enriched,
+      users: enriched,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -232,11 +234,11 @@ router.get('/essl/machine/users', async (req, res) => {
 //  ── MACHINE: GET ATTENDANCE LOGS ──
 // ═══════════════════════════════════════════════════════════════
 // GET /api/essl/machine/attendance?date=YYYY-MM-DD
-router.get('/essl/machine/attendance', async (req, res) => {
+router.get('/essl/machine/attendance', auth, hrOnly, async (req, res) => {
   try {
-    const date      = req.query.date  || moment().format('YYYY-MM-DD');
+    const date = req.query.date || moment().format('YYYY-MM-DD');
     const startDate = req.query.start || date;
-    const endDate   = req.query.end   || date;
+    const endDate = req.query.end || date;
 
     const result = await machineGet(
       `/iclock/cdata?table=ATTLOG&Stamp=9999&StartDate=${startDate}&EndDate=${endDate}`
@@ -252,7 +254,7 @@ router.get('/essl/machine/attendance', async (req, res) => {
     const logs = parseAttLog(result.data);
 
     const hrmsEmps = await Employee.find({ essl_id: { $ne: null } });
-    const hrmsMap  = {};
+    const hrmsMap = {};
     hrmsEmps.forEach(e => { hrmsMap[String(e.essl_id)] = e; });
 
     const enriched = logs.map(log => {
@@ -264,10 +266,10 @@ router.get('/essl/machine/attendance', async (req, res) => {
 
       return {
         ...log,
-        name:         hrms?.name       || 'Unknown',
-        department:   hrms?.department || '—',
-        employeeId:   hrms?.employeeId || '—',
-        in_hrms:      !!hrms,
+        name: hrms?.name || 'Unknown',
+        department: hrms?.department || '—',
+        employeeId: hrms?.employeeId || '—',
+        in_hrms: !!hrms,
         verify_label: verifyLabel,
       };
     });
@@ -278,28 +280,28 @@ router.get('/essl/machine/attendance', async (req, res) => {
       const id = log.essl_id;
       if (!grouped[id]) {
         grouped[id] = {
-          essl_id:    id,
-          name:       log.name,
+          essl_id: id,
+          name: log.name,
           department: log.department,
           employeeId: log.employeeId,
-          in_hrms:    log.in_hrms,
-          punches:    [],
+          in_hrms: log.in_hrms,
+          punches: [],
         };
       }
       grouped[id].punches.push({
-        datetime:     log.datetime,
-        verify:       log.verify,
+        datetime: log.datetime,
+        verify: log.verify,
         verify_label: log.verify_label,
-        status:       log.status,
+        status: log.status,
       });
     });
 
     res.json({
-      success:    true,
+      success: true,
       date_range: { start: startDate, end: endDate },
       total_logs: logs.length,
-      employees:  Object.values(grouped),
-      raw_logs:   enriched,
+      employees: Object.values(grouped),
+      raw_logs: enriched,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -365,7 +367,7 @@ router.get('/essl/machine/attendance', async (req, res) => {
 //     res.status(500).json({ success: false, message: err.message });
 //   }
 // });
-router.get('/essl/machine/enroll-status', async (req, res) => {
+router.get('/essl/machine/enroll-status', auth, hrOnly, async (req, res) => {
   try {
     const [usersResult, enrollResult] = await Promise.all([
       machineGet('/iclock/cdata?table=employee&Stamp=9999'),
@@ -378,18 +380,18 @@ router.get('/essl/machine/enroll-status', async (req, res) => {
       const hrmsEmps = await Employee.find({ status: { $ne: 'inactive' } }).sort({ name: 1 });
 
       // ✅ Last 30 days punch activity from MongoDB
-     const since = moment().subtract(30, 'days').format('YYYY-MM-DD');
-const recentAtt = await Attendance.find({
-  date: { $gte: since },
-}).populate('employee_id', 'essl_id name');
+      const since = moment().subtract(30, 'days').format('YYYY-MM-DD');
+      const recentAtt = await Attendance.find({
+        date: { $gte: since },
+      }).populate('employee_id', 'essl_id name');
 
-// ✅ Attendance-ல் punch இருந்த eSSL IDs எடு
-const esslFromAtt = new Set();
-recentAtt.forEach(rec => {
-  if (rec.employee_id?.essl_id) {
-    esslFromAtt.add(String(rec.employee_id.essl_id));
-  }
-});
+      // ✅ Attendance-ல் punch இருந்த eSSL IDs எடு
+      const esslFromAtt = new Set();
+      recentAtt.forEach(rec => {
+        if (rec.employee_id?.essl_id) {
+          esslFromAtt.add(String(rec.employee_id.essl_id));
+        }
+      });
 
       const punchMap = {};
       recentAtt.forEach(rec => {
@@ -403,7 +405,7 @@ recentAtt.forEach(rec => {
       // ✅ Last seen per employee
       const lastAtt = await Attendance.aggregate([
         { $match: { method: 'auto' } },
-        { $sort:  { date: -1 } },
+        { $sort: { date: -1 } },
         { $group: { _id: '$employee_id', lastDate: { $first: '$date' } } },
       ]);
       const lastSeenMap = {};
@@ -411,99 +413,99 @@ recentAtt.forEach(rec => {
 
       const fallback = hrmsEmps.map(e => {
         const hasEssl = !!(e.essl_id !== null && e.essl_id !== undefined && String(e.essl_id).trim() !== '');
-        const punch   = hasEssl
+        const punch = hasEssl
           ? (punchMap[e.essl_id] || { days: 0, totalPunches: 0 })
           : { days: 0, totalPunches: 0 };
         return {
-          essl_id:          e.essl_id || null,
-          name:             e.name,
-          hrms_name:        e.name,
-          department:       e.department  || '—',
-          employeeId:       e.employeeId  || '—',
-          designation:      e.designation || '—',
-          in_hrms:          true,
-          has_essl_id:      hasEssl,
-          face_enrolled:    false,
-          finger_enrolled:  false,
-          finger_count:     0,
-          card:             '—',
-          verify_mode:      '0',
-          punch_days_30:    punch.days,
-          total_punches:    punch.totalPunches,
-          last_seen:        lastSeenMap[e._id.toString()] || null,
+          essl_id: e.essl_id || null,
+          name: e.name,
+          hrms_name: e.name,
+          department: e.department || '—',
+          employeeId: e.employeeId || '—',
+          designation: e.designation || '—',
+          in_hrms: true,
+          has_essl_id: hasEssl,
+          face_enrolled: false,
+          finger_enrolled: false,
+          finger_count: 0,
+          card: '—',
+          verify_mode: '0',
+          punch_days_30: punch.days,
+          total_punches: punch.totalPunches,
+          last_seen: lastSeenMap[e._id.toString()] || null,
           active_in_system: punch.days >= 1 || esslFromAtt.has(String(e.essl_id)),
         };
       });
 
-      const withEssl       = fallback.filter(e => e.has_essl_id).length;
-      const noEssl         = fallback.filter(e => !e.has_essl_id).length;
+      const withEssl = fallback.filter(e => e.has_essl_id).length;
+      const noEssl = fallback.filter(e => !e.has_essl_id).length;
       const activePunchers = fallback.filter(e => e.active_in_system).length;
 
       return res.status(200).json({
-        success:          true,
-        machine_online:   false,
-        machine_warning:  `Machine unreachable (${usersResult.error}). Showing HRMS data only — enroll status unavailable.`,
-        total:            fallback.length,
-        with_essl_id:     withEssl,
-        no_essl_id:       noEssl,
-        face_enrolled:    0,
-        finger_enrolled:  0,
-        not_enrolled:     noEssl,
-        active_punchers:  activePunchers,
-        users:            fallback,
+        success: true,
+        machine_online: false,
+        machine_warning: `Machine unreachable (${usersResult.error}). Showing HRMS data only — enroll status unavailable.`,
+        total: fallback.length,
+        with_essl_id: withEssl,
+        no_essl_id: noEssl,
+        face_enrolled: 0,
+        finger_enrolled: 0,
+        not_enrolled: noEssl,
+        active_punchers: activePunchers,
+        users: fallback,
       });
     }
 
     // ✅ Machine IS online — fetch live data
-    const users      = parseUserList(usersResult.data);
+    const users = parseUserList(usersResult.data);
     const enrollData = enrollResult.ok ? parseEnrollLog(enrollResult.data) : {};
 
     const hrmsEmps = await Employee.find({ essl_id: { $ne: null } });
-    const hrmsMap  = {};
+    const hrmsMap = {};
     hrmsEmps.forEach(e => { hrmsMap[String(e.essl_id)] = e; });
 
     const enriched = users.map(u => {
-      const hrms      = hrmsMap[String(u.essl_id)];
-      const enroll    = enrollData[u.essl_id] || { face: false, finger: false, fingerCount: 0 };
+      const hrms = hrmsMap[String(u.essl_id)];
+      const enroll = enrollData[u.essl_id] || { face: false, finger: false, fingerCount: 0 };
       const verifyNum = parseInt(u.verify || '0');
-      const hasFace   = enroll.face   || verifyNum === 3 || verifyNum === 4;
+      const hasFace = enroll.face || verifyNum === 3 || verifyNum === 4;
       const hasFinger = enroll.finger || verifyNum === 1;
 
       return {
-        essl_id:         u.essl_id,
-        name:            u.name,
-        hrms_name:       hrms?.name       || null,
-        department:      hrms?.department || '—',
-        employeeId:      hrms?.employeeId || '—',
-        designation:     hrms?.designation || '—',
-        in_hrms:         !!hrms,
-        has_essl_id:     true,
-        face_enrolled:   hasFace,
+        essl_id: u.essl_id,
+        name: u.name,
+        hrms_name: hrms?.name || null,
+        department: hrms?.department || '—',
+        employeeId: hrms?.employeeId || '—',
+        designation: hrms?.designation || '—',
+        in_hrms: !!hrms,
+        has_essl_id: true,
+        face_enrolled: hasFace,
         finger_enrolled: hasFinger,
-        finger_count:    enroll.fingerCount || 0,
-        card:            u.card || '—',
-        verify_mode:     u.verify,
-        punch_days_30:   0,
-        total_punches:   0,
-        last_seen:       null,
+        finger_count: enroll.fingerCount || 0,
+        card: u.card || '—',
+        verify_mode: u.verify,
+        punch_days_30: 0,
+        total_punches: 0,
+        last_seen: null,
         active_in_system: false,
       };
     });
 
     const withEssl = enriched.filter(u => u.has_essl_id).length;
-    const noEssl   = enriched.filter(u => !u.has_essl_id).length;
+    const noEssl = enriched.filter(u => !u.has_essl_id).length;
 
     res.json({
-      success:          true,
-      machine_online:   true,
-      total:            enriched.length,
-      with_essl_id:     withEssl,
-      no_essl_id:       noEssl,
-      face_enrolled:    enriched.filter(u => u.face_enrolled).length,
-      finger_enrolled:  enriched.filter(u => u.finger_enrolled).length,
-      not_enrolled:     enriched.filter(u => !u.face_enrolled && !u.finger_enrolled).length,
-      active_punchers:  0,
-      users:            enriched,
+      success: true,
+      machine_online: true,
+      total: enriched.length,
+      with_essl_id: withEssl,
+      no_essl_id: noEssl,
+      face_enrolled: enriched.filter(u => u.face_enrolled).length,
+      finger_enrolled: enriched.filter(u => u.finger_enrolled).length,
+      not_enrolled: enriched.filter(u => !u.face_enrolled && !u.finger_enrolled).length,
+      active_punchers: 0,
+      users: enriched,
     });
 
   } catch (err) {
@@ -514,14 +516,14 @@ recentAtt.forEach(rec => {
 //  ── MACHINE: EDIT USER NAME ──
 // ═══════════════════════════════════════════════════════════════
 // PUT /api/essl/machine/user/:essl_id
-router.put('/essl/machine/user/:essl_id', async (req, res) => {
+router.put('/essl/machine/user/:essl_id', auth, hrOnly, async (req, res) => {
   try {
     const { essl_id } = req.params;
     const { name, pri, group, verify } = req.body;
 
     if (!name) return res.status(400).json({ success: false, message: 'Name required' });
 
-    const cmd    = `USER PIN=${essl_id}\tName=${name}\tPri=${pri || '0'}\tPassword=\tCard=\tGrp=${group || '1'}\tTZ=1\tVerify=${verify || '0'}\n`;
+    const cmd = `USER PIN=${essl_id}\tName=${name}\tPri=${pri || '0'}\tPassword=\tCard=\tGrp=${group || '1'}\tTZ=1\tVerify=${verify || '0'}\n`;
     const result = await machinePost('/iclock/cdata?table=employee', cmd);
 
     if (!result.ok) {
@@ -538,9 +540,9 @@ router.put('/essl/machine/user/:essl_id', async (req, res) => {
     }
 
     res.json({
-      success:          true,
-      message:          `User #${essl_id} updated on machine`,
-      hrms_updated:     !!hrmsEmp,
+      success: true,
+      message: `User #${essl_id} updated on machine`,
+      hrms_updated: !!hrmsEmp,
       machine_response: result.data,
     });
   } catch (err) {
@@ -552,12 +554,12 @@ router.put('/essl/machine/user/:essl_id', async (req, res) => {
 //  ── MACHINE: DELETE USER ──
 // ═══════════════════════════════════════════════════════════════
 // DELETE /api/essl/machine/user/:essl_id
-router.delete('/essl/machine/user/:essl_id', async (req, res) => {
+router.delete('/essl/machine/user/:essl_id', auth, hrOnly, async (req, res) => {
   try {
-    const { essl_id }   = req.params;
+    const { essl_id } = req.params;
     const { delete_hrms } = req.query; // ?delete_hrms=true
 
-    const cmd    = `DATA DELETE USERINFO PIN=${essl_id}\n`;
+    const cmd = `DATA DELETE USERINFO PIN=${essl_id}\n`;
     const result = await machinePost('/iclock/devicecmd', cmd);
 
     let hrmsDeleted = false;
@@ -573,12 +575,12 @@ router.delete('/essl/machine/user/:essl_id', async (req, res) => {
     }
 
     res.json({
-      success:          result.ok,
-      message:          result.ok
+      success: result.ok,
+      message: result.ok
         ? `User #${essl_id} deleted from machine`
         : `Machine delete failed: ${result.error}`,
-      hrms_deleted:     hrmsDeleted,
-      hrms_cleared:     !hrmsDeleted,
+      hrms_deleted: hrmsDeleted,
+      hrms_cleared: !hrmsDeleted,
       machine_response: result.data,
     });
   } catch (err) {
@@ -591,12 +593,12 @@ router.delete('/essl/machine/user/:essl_id', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // POST /api/essl/machine/enroll-trigger
 // Body: { essl_id, type: 'face' | 'finger', finger_index: 0-9 }
-router.post('/essl/machine/enroll-trigger', async (req, res) => {
+router.post('/essl/machine/enroll-trigger', auth, hrOnly, async (req, res) => {
   try {
     const { essl_id, type, finger_index } = req.body;
 
     if (!essl_id) return res.status(400).json({ success: false, message: 'essl_id required' });
-    if (!type)    return res.status(400).json({ success: false, message: 'type required (face/finger)' });
+    if (!type) return res.status(400).json({ success: false, message: 'type required (face/finger)' });
 
     let cmd;
     if (type === 'face') {
@@ -626,7 +628,7 @@ router.post('/essl/machine/enroll-trigger', async (req, res) => {
 //  ── MACHINE: ADD USER (push to machine) ──
 // ═══════════════════════════════════════════════════════════════
 // POST /api/essl/machine/user/add
-router.post('/essl/machine/user/add', async (req, res) => {
+router.post('/essl/machine/user/add', auth, hrOnly, async (req, res) => {
   try {
     const { essl_id, name, pri, group, verify } = req.body;
 
@@ -634,7 +636,7 @@ router.post('/essl/machine/user/add', async (req, res) => {
       return res.status(400).json({ success: false, message: 'essl_id and name required' });
     }
 
-    const cmd    = `USER PIN=${essl_id}\tName=${name}\tPri=${pri || '0'}\tPassword=\tCard=\tGrp=${group || '1'}\tTZ=1\tVerify=${verify || '0'}\n`;
+    const cmd = `USER PIN=${essl_id}\tName=${name}\tPri=${pri || '0'}\tPassword=\tCard=\tGrp=${group || '1'}\tTZ=1\tVerify=${verify || '0'}\n`;
     const result = await machinePost('/iclock/cdata?table=employee', cmd);
 
     res.json({
@@ -654,7 +656,7 @@ router.post('/essl/machine/user/add', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // POST /api/essl/employees/add
-router.post('/essl/employees/add', async (req, res) => {
+router.post('/essl/employees/add', auth, hrOnly, async (req, res) => {
   try {
     const { name, employeeId, essl_id, department, designation, mobile, email, status } = req.body;
 
@@ -671,10 +673,10 @@ router.post('/essl/employees/add', async (req, res) => {
     const emp = await Employee.create({
       name,
       employeeId: employeeId || await generateEmployeeId(),
-      essl_id:    essl_id || null,
+      essl_id: essl_id || null,
       department, designation, mobile, email,
-      status:     status || 'active',
-      essl_sync:  false,
+      status: status || 'active',
+      essl_sync: false,
     });
 
     let esslResult = { ok: false, error: 'No eSSL ID — skipped' };
@@ -687,11 +689,11 @@ router.post('/essl/employees/add', async (req, res) => {
     res.json({
       success: true,
       message: 'Employee added successfully',
-      data:    updatedEmp,
+      data: updatedEmp,
       essl_sync: {
         attempted: !!essl_id,
-        success:   esslResult.ok,
-        message:   esslResult.message || esslResult.error || '',
+        success: esslResult.ok,
+        message: esslResult.message || esslResult.error || '',
       },
     });
   } catch (err) {
@@ -700,7 +702,7 @@ router.post('/essl/employees/add', async (req, res) => {
 });
 
 // PUT /api/essl/employees/:id
-router.put('/essl/employees/:id', async (req, res) => {
+router.put('/essl/employees/:id', auth, hrOnly, async (req, res) => {
   try {
     const { name, employeeId, essl_id, department, designation, mobile, email, status } = req.body;
 
@@ -721,7 +723,7 @@ router.put('/essl/employees/:id', async (req, res) => {
       req.params.id,
       {
         name, employeeId,
-        essl_id:   essl_id || null,
+        essl_id: essl_id || null,
         department, designation, mobile, email, status,
         ...(esslIdChanged ? { essl_sync: false } : {}),
       },
@@ -743,11 +745,11 @@ router.put('/essl/employees/:id', async (req, res) => {
     res.json({
       success: true,
       message: 'Employee updated successfully',
-      data:    finalEmp,
+      data: finalEmp,
       essl_sync: {
         attempted: !!(oldEmp.essl_id || essl_id),
-        success:   esslResult.ok,
-        message:   esslResult.message || esslResult.error || '',
+        success: esslResult.ok,
+        message: esslResult.message || esslResult.error || '',
       },
     });
   } catch (err) {
@@ -756,7 +758,7 @@ router.put('/essl/employees/:id', async (req, res) => {
 });
 
 // POST /api/essl/employees/:id/sync
-router.post('/essl/employees/:id/sync', async (req, res) => {
+router.post('/essl/employees/:id/sync', auth, hrOnly, async (req, res) => {
   try {
     const emp = await Employee.findById(req.params.id);
     if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
@@ -780,11 +782,11 @@ router.post('/essl/employees/:id/sync', async (req, res) => {
 });
 
 // POST /api/essl/employees/sync-all
-router.post('/essl/employees/sync-all', async (req, res) => {
+router.post('/essl/employees/sync-all', auth, hrOnly, async (req, res) => {
   try {
     const employees = await Employee.find({
       essl_id: { $ne: null, $exists: true },
-      status:  { $ne: 'inactive' },
+      status: { $ne: 'inactive' },
     });
 
     const results = [];
@@ -797,9 +799,9 @@ router.post('/essl/employees/sync-all', async (req, res) => {
     const synced = results.filter(r => r.success).length;
     res.json({
       success: true,
-      total:   results.length,
+      total: results.length,
       synced,
-      failed:  results.length - synced,
+      failed: results.length - synced,
       results,
     });
   } catch (err) {
@@ -808,31 +810,31 @@ router.post('/essl/employees/sync-all', async (req, res) => {
 });
 
 // GET /api/essl/machine-list
-router.get('/essl/machine-list', async (req, res) => {
+router.get('/essl/machine-list', auth, hrOnly, async (req, res) => {
   try {
     const resp = await axios.get(`${ESSL_SERVER}/essl-bridge/employees`, { timeout: 7000 });
-    const machineData   = resp.data;
+    const machineData = resp.data;
     const hrmsEmployees = await Employee.find({ essl_id: { $ne: null } });
-    const hrmsMap       = {};
+    const hrmsMap = {};
     hrmsEmployees.forEach(e => { hrmsMap[e.essl_id] = e; });
 
     const enriched = (machineData.employees || []).map(e => ({
       ...e,
       in_hrms: !!hrmsMap[e.essl_id],
       hrms_record: hrmsMap[e.essl_id] ? {
-        _id:        hrmsMap[e.essl_id]._id,
-        name:       hrmsMap[e.essl_id].name,
+        _id: hrmsMap[e.essl_id]._id,
+        name: hrmsMap[e.essl_id].name,
         employeeId: hrmsMap[e.essl_id].employeeId,
         department: hrmsMap[e.essl_id].department,
       } : null,
     }));
 
     res.json({
-      success:       true,
+      success: true,
       machine_count: machineData.count || 0,
-      hrms_linked:   enriched.filter(e => e.in_hrms).length,
-      not_in_hrms:   enriched.filter(e => !e.in_hrms).length,
-      employees:     enriched,
+      hrms_linked: enriched.filter(e => e.in_hrms).length,
+      not_in_hrms: enriched.filter(e => !e.in_hrms).length,
+      employees: enriched,
     });
   } catch (err) {
     res.status(503).json({
@@ -846,7 +848,7 @@ router.get('/essl/machine-list', async (req, res) => {
 //  ── ATTENDANCE CORRECTION ──
 // ═══════════════════════════════════════════════════════════════
 // POST /api/essl/attendance/correct
-router.post('/essl/attendance/correct', async (req, res) => {
+router.post('/essl/attendance/correct', auth, hrOnly, async (req, res) => {
   try {
     const { employee_id, date, checkIn, checkOut, status, shift, remark } = req.body;
 
@@ -857,31 +859,31 @@ router.post('/essl/attendance/correct', async (req, res) => {
     const emp = await Employee.findById(employee_id);
     if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
 
-    const checkInDate  = checkIn  ? new Date(checkIn)  : null;
+    const checkInDate = checkIn ? new Date(checkIn) : null;
     const checkOutDate = checkOut ? new Date(checkOut) : null;
 
     const punches = [];
-    if (checkInDate)  punches.push({ type: 'in',  time: checkInDate,  method: 'hr-correction' });
+    if (checkInDate) punches.push({ type: 'in', time: checkInDate, method: 'hr-correction' });
     if (checkOutDate) punches.push({ type: 'out', time: checkOutDate, method: 'hr-correction' });
 
     let work_hours = 0;
     if (checkInDate && checkOutDate) {
-      const diffMs  = checkOutDate - checkInDate;
+      const diffMs = checkOutDate - checkInDate;
       const breakMs = 60 * 60000; // 1hr lunch
       work_hours = Math.max(parseFloat(((diffMs - breakMs) / 3600000).toFixed(2)), 0);
     }
 
     const updateData = {
       punches,
-      first_in:   checkInDate  || null,
-      last_out:   checkOutDate || null,
-      checkIn:    checkInDate  || null,
-      checkOut:   checkOutDate || null,
+      first_in: checkInDate || null,
+      last_out: checkOutDate || null,
+      checkIn: checkInDate || null,
+      checkOut: checkOutDate || null,
       work_hours,
-      status:     status || 'present',
-      shift:      shift  || 'General (9:45 AM – 7:00 PM)',
-      remark:     remark || 'HR Corrected',
-      method:     'hr-correction',
+      status: status || 'present',
+      shift: shift || 'General (9:45 AM – 7:00 PM)',
+      remark: remark || 'HR Corrected',
+      method: 'hr-correction',
     };
 
     const rec = await Attendance.findOneAndUpdate(
@@ -896,10 +898,10 @@ router.post('/essl/attendance/correct', async (req, res) => {
     console.log(`✏️  Attendance corrected: ${emp.name} | ${date} | ${h}h ${m}m`);
 
     res.json({
-      success:    true,
-      message:    `Attendance corrected for ${emp.name} on ${date}`,
+      success: true,
+      message: `Attendance corrected for ${emp.name} on ${date}`,
       work_hours: `${h}h ${String(m).padStart(2, '0')}m`,
-      record:     rec,
+      record: rec,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -910,7 +912,7 @@ router.post('/essl/attendance/correct', async (req, res) => {
 //  ── GET ATTENDANCE FOR CORRECTION FORM ──
 // ═══════════════════════════════════════════════════════════════
 // GET /api/essl/attendance/record?employee_id=xxx&date=YYYY-MM-DD
-router.get('/essl/attendance/record', async (req, res) => {
+router.get('/essl/attendance/record', auth, hrOnly, async (req, res) => {
   try {
     const { employee_id, date } = req.query;
     if (!employee_id || !date) {

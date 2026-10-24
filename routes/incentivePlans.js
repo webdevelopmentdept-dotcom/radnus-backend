@@ -1,18 +1,20 @@
 // routes/incentivePlans.js
-const express       = require("express");
-const router        = express.Router();
+const express = require("express");
+const router = express.Router();
 const IncentivePlan = require("../models/IncentivePlan");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildPeriodFields(body) {
   const { period_type, period_month, period_quarter, period_half, period_year } = body;
   return {
-    period_type:    period_type    || "Monthly",
-    period_month:   period_month   || null,
+    period_type: period_type || "Monthly",
+    period_month: period_month || null,
     period_quarter: period_quarter || null,
-    period_half:    period_half    || null,
-    period_year:    period_year    || new Date().getFullYear(),
+    period_half: period_half || null,
+    period_year: period_year || new Date().getFullYear(),
   };
 }
 
@@ -20,43 +22,43 @@ function buildPeriodFields(body) {
 function buildPayoutFields(body) {
   return {
     payout_frequency: body.payout_frequency === "daily" ? "daily" : "monthly",
-    validity_start:   body.validity_start ? new Date(body.validity_start) : null,
-    validity_end:     body.validity_end   ? new Date(body.validity_end)   : null,
+    validity_start: body.validity_start ? new Date(body.validity_start) : null,
+    validity_end: body.validity_end ? new Date(body.validity_end) : null,
   };
 }
 
 function sanitizeKpiConfigs(kpi_configs = []) {
   return kpi_configs.map(cfg => ({
-    kpi_name:         cfg.kpi_name,
-    weight:           cfg.weight           || 0,
-    target:           cfg.target           || "",
-    value_type:       cfg.value_type       || "count",
-    operator:         cfg.operator         || ">=",
-    rule_label:       cfg.rule_label       || "",
+    kpi_name: cfg.kpi_name,
+    weight: cfg.weight || 0,
+    target: cfg.target || "",
+    value_type: cfg.value_type || "count",
+    operator: cfg.operator || ">=",
+    rule_label: cfg.rule_label || "",
     is_admission_kpi: cfg.is_admission_kpi || false,
-    slabs:            cfg.slabs            || [],
-    program_targets:  cfg.program_targets  || [],
-    program_slabs:    cfg.program_slabs    || [],
+    slabs: cfg.slabs || [],
+    program_targets: cfg.program_targets || [],
+    program_slabs: cfg.program_slabs || [],
   }));
 }
 
 // ── NEW: sanitize standalone slabs ───────────────────────────────────────────
 function sanitizeStandaloneSlabs(slabs = []) {
   return slabs
-     .filter(s => Number(s.payout_value) > 0) // skip empty/zero slabs
+    .filter(s => Number(s.payout_value) > 0) // skip empty/zero slabs
     .map(s => ({
-      min_target:   Number(s.min_target)   || 0,
-      max_target:   Number(s.max_target)   || 0,   // 0 = no limit
-      payout_type:  s.payout_type          || "fixed",
+      min_target: Number(s.min_target) || 0,
+      max_target: Number(s.max_target) || 0,   // 0 = no limit
+      payout_type: s.payout_type || "fixed",
       payout_value: Number(s.payout_value) || 0,
     }));
 }
 
 function buildKpiFields(body) {
   return {
-    kpi_template_id:         body.kpi_template_id         || null,
-    kpi_configs:             sanitizeKpiConfigs(body.kpi_configs),
-    completion_reward_type:  body.completion_reward_type  || "none",
+    kpi_template_id: body.kpi_template_id || null,
+    kpi_configs: sanitizeKpiConfigs(body.kpi_configs),
+    completion_reward_type: body.completion_reward_type || "none",
     completion_reward_value: body.completion_reward_value || 0,
     completion_reward_label: body.completion_reward_label || "",
   };
@@ -64,14 +66,14 @@ function buildKpiFields(body) {
 
 function buildStandaloneFields(body) {
   return {
-    standalone_metric:        body.standalone_metric        || "manual",
-    standalone_metric_label:  body.standalone_metric_label  || "",
-    standalone_payout_type:   body.standalone_payout_type   || "fixed",
-    standalone_payout_value:  body.standalone_payout_value  || 0,
-    standalone_target_type:   body.standalone_target_type   || "revenue",
-    standalone_slabs:         sanitizeStandaloneSlabs(body.standalone_slabs),
+    standalone_metric: body.standalone_metric || "manual",
+    standalone_metric_label: body.standalone_metric_label || "",
+    standalone_payout_type: body.standalone_payout_type || "fixed",
+    standalone_payout_value: body.standalone_payout_value || 0,
+    standalone_target_type: body.standalone_target_type || "revenue",
+    standalone_slabs: sanitizeStandaloneSlabs(body.standalone_slabs),
     // slabs:                    body.slabs                    || [],
-    standalone_slabs:         sanitizeStandaloneSlabs(body.standalone_slabs),
+    standalone_slabs: sanitizeStandaloneSlabs(body.standalone_slabs),
   };
 }
 
@@ -79,7 +81,7 @@ function buildStandaloneFields(body) {
 router.get("/", async (req, res) => {
   try {
     const filter = {};
-    if (req.query.department)  filter.department  = req.query.department;
+    if (req.query.department) filter.department = req.query.department;
     if (req.query.period_type) filter.period_type = req.query.period_type;
     if (req.query.period_year) filter.period_year = Number(req.query.period_year);
 
@@ -93,7 +95,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ── GET /api/incentive-plans/department/:dept ─────────────────────────────────
+
 // Used by employee portal to auto-fetch their dept's active plans
 router.get("/department/:dept", async (req, res) => {
   try {
@@ -120,9 +122,9 @@ router.get("/:id", async (req, res) => {
 });
 
 // ── POST /api/incentive-plans ─────────────────────────────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
-    const { name,  description, department, plan_type } = req.body;
+    const { name, description, department, plan_type } = req.body;
 
     if (!name || !department)
       return res.status(400).json({ success: false, message: "name & department are required" });
@@ -132,16 +134,16 @@ router.post("/", async (req, res) => {
     if (isKpi && (!req.body.kpi_configs || req.body.kpi_configs.length === 0))
       return res.status(400).json({ success: false, message: "At least one KPI must be configured" });
 
-        const plan = new IncentivePlan({
+    const plan = new IncentivePlan({
       name,
-            description: description || "",
-
+      description: description || "",
       department,
       plan_type: plan_type || "kpi_linked",
       ...buildPeriodFields(req.body),
       ...buildPayoutFields(req.body),
-      ...(isKpi  ? buildKpiFields(req.body)        : {}),
+      ...(isKpi ? buildKpiFields(req.body) : {}),
       ...(!isKpi ? buildStandaloneFields(req.body) : {}),
+      created_by_name: req.actor?.name || "",
     });
 
     await plan.save();
@@ -153,54 +155,51 @@ router.post("/", async (req, res) => {
 });
 
 // ── PUT /api/incentive-plans/:id ──────────────────────────────────────────────
-// ── PUT /api/incentive-plans/:id ──────────────────────────────────────────────
-router.put("/:id", async (req, res) => {
+router.put("/:id",auth, hrOnly, async (req, res) => {
   try {
-    const { name,  description, department, plan_type } = req.body;
+    const { name, description, department, plan_type } = req.body;
     const isKpi = plan_type === "kpi_linked";
 
-        const updateData = {
+    const updateData = {
       name,
-            description: description || "",
+      description: description || "",
 
       department,
       plan_type: plan_type || "kpi_linked",
       ...buildPeriodFields(req.body),
       ...buildPayoutFields(req.body),
       ...(isKpi ? buildKpiFields(req.body) : {
-        kpi_template_id:         null,
-        kpi_configs:             [],
-        completion_reward_type:  "none",
+        kpi_template_id: null,
+        kpi_configs: [],
+        completion_reward_type: "none",
         completion_reward_value: 0,
         completion_reward_label: "",
       }),
       ...(!isKpi ? buildStandaloneFields(req.body) : {
-        standalone_metric:        "manual",
-        standalone_metric_label:  "",
-        standalone_payout_type:   "fixed",
-        standalone_payout_value:  0,
-        standalone_target_type:   "revenue",
-        standalone_slabs:         [],
-        slabs:                    [],
+        standalone_metric: "manual",
+        standalone_metric_label: "",
+        standalone_payout_type: "fixed",
+        standalone_payout_value: 0,
+        standalone_target_type: "revenue",
+        standalone_slabs: [],
+        slabs: [],
       }),
+      updated_by_name: req.actor?.name || "",
     };
 
-    // 🆕 findByIdAndUpdate பண்ணாம — find பண்ணி history push பண்ணு
     const existing = await IncentivePlan.findById(req.params.id);
     if (!existing)
       return res.status(404).json({ success: false, message: "Plan not found" });
 
-    // 🆕 பழைய version history-ல save பண்ணு
     existing.version_history.push({
-      version:          (existing.version_history.length || 0) + 1,
-      saved_at:         new Date(),
-      period_month:     existing.period_month,
-      period_year:      existing.period_year,
+      version: (existing.version_history.length || 0) + 1,
+      saved_at: new Date(),
+      period_month: existing.period_month,
+      period_year: existing.period_year,
       standalone_slabs: existing.standalone_slabs || [],
-      kpi_configs:      existing.kpi_configs      || [],
+      kpi_configs: existing.kpi_configs || [],
     });
 
-    // 🆕 புதுசு data assign பண்ணு
     Object.assign(existing, updateData);
     await existing.save();
 
@@ -213,7 +212,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // ── DELETE /api/incentive-plans/:id ──────────────────────────────────────────
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const plan = await IncentivePlan.findByIdAndDelete(req.params.id);
     if (!plan) return res.status(404).json({ success: false, message: "Plan not found" });
@@ -224,7 +223,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 // ── POST /api/incentive-plans/:id/duplicate ──────────────────────
-router.post("/:id/duplicate", async (req, res) => {
+router.post("/:id/duplicate", auth, hrOnly, async (req, res) => {
   try {
     const original = await IncentivePlan.findById(req.params.id).lean();
     if (!original) return res.status(404).json({ success: false, message: "Plan not found" });
@@ -240,6 +239,7 @@ router.post("/:id/duplicate", async (req, res) => {
       name: `${original.name} (Copy)`,
       department: req.body.department || "",   // frontend-la puthu dept select panna vidum
       version_history: [],
+      created_by_name: req.actor?.name || "",
     });
 
     await duplicate.save();

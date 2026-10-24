@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const KpiMonthlyVersion = require('../models/KpiMonthlyVersion');
 const KpiTemplate = require('../models/KpiTemplate');
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 
 // GET /api/kpi-monthly-versions?template_id=xxx
-router.get('/', async (req, res) => {
+router.get('/', auth, hrOnly, async (req, res) => {
   try {
     const { template_id } = req.query;
     if (!template_id) {
@@ -19,29 +21,29 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/kpi-monthly-versions - Create new month version
-router.post('/', async (req, res) => {
+router.post('/', auth, hrOnly, async (req, res) => {
   try {
     const { template_id, month, copy_from_month } = req.body;
-    
+
     if (!template_id || !month) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'template_id and month are required' 
+      return res.status(400).json({
+        success: false,
+        message: 'template_id and month are required'
       });
     }
-    
+
     // Check if exists
     const existing = await KpiMonthlyVersion.findOne({ template_id, month });
     if (existing) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Version already exists for this month' 
+      return res.status(400).json({
+        success: false,
+        message: 'Version already exists for this month'
       });
     }
-    
+
     let kpiItems = [];
     let totalWeight = 0;
-    
+
     if (copy_from_month) {
       // Copy from previous month version
       const prev = await KpiMonthlyVersion.findOne({ template_id, month: copy_from_month });
@@ -50,7 +52,7 @@ router.post('/', async (req, res) => {
         totalWeight = prev.total_weight || 0;
       }
     }
-    
+
     // If no copy_from or previous not found, copy from template default
     if (kpiItems.length === 0) {
       const template = await KpiTemplate.findById(template_id);
@@ -59,7 +61,7 @@ router.post('/', async (req, res) => {
         totalWeight = kpiItems.reduce((s, i) => s + (parseFloat(i.weight) || 0), 0);
       }
     }
-    
+
     const version = new KpiMonthlyVersion({
       template_id,
       month,
@@ -67,7 +69,7 @@ router.post('/', async (req, res) => {
       kpi_items: kpiItems,
       total_weight: totalWeight
     });
-    
+
     await version.save();
     res.status(201).json({ success: true, data: version });
   } catch (err) {
@@ -76,21 +78,20 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/kpi-monthly-versions/:id - Edit month version
-// PUT /api/kpi-monthly-versions/:id - Edit month version
-router.put('/:id', async (req, res) => {
+router.put('/:id', auth, hrOnly, async (req, res) => {
   try {
     const version = await KpiMonthlyVersion.findById(req.params.id);
     if (!version) {
       return res.status(404).json({ success: false, message: 'Not found' });
     }
-    
+
     if (version.month_status === 'locked') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'This month is locked and cannot be edited' 
+      return res.status(400).json({
+        success: false,
+        message: 'This month is locked and cannot be edited'
       });
     }
-    
+
     // ✅ NEW: Validate total weight if kpi_items provided
     if (req.body.kpi_items) {
       const totalWeight = req.body.kpi_items.reduce((s, i) => s + (parseFloat(i.weight) || 0), 0);
@@ -102,13 +103,13 @@ router.put('/:id', async (req, res) => {
       }
       req.body.total_weight = totalWeight;
     }
-    
+
     const updated = await KpiMonthlyVersion.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true }
     );
-    
+
     res.json({ success: true, data: updated });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
@@ -116,20 +117,20 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/kpi-monthly-versions/:id
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     const version = await KpiMonthlyVersion.findById(req.params.id);
     if (!version) {
       return res.status(404).json({ success: false, message: 'Not found' });
     }
-    
+
     if (version.month_status === 'locked') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Locked versions cannot be deleted' 
+      return res.status(400).json({
+        success: false,
+        message: 'Locked versions cannot be deleted'
       });
     }
-    
+
     await KpiMonthlyVersion.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Deleted' });
   } catch (err) {
@@ -138,7 +139,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // POST /api/kpi-monthly-versions/:id/lock
-router.post('/:id/lock', async (req, res) => {
+router.post('/:id/lock', auth, hrOnly, async (req, res) => {
   try {
     const updated = await KpiMonthlyVersion.findByIdAndUpdate(
       req.params.id,

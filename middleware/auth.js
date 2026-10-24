@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const Employee = require('../models/Employee');
+const HrStaff = require('../models/HrStaff');
 
 module.exports = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -9,7 +10,15 @@ module.exports = async (req, res, next) => {
 
     // Admin/HR tokens use fixed ids (e.g. "hr_admin_001"), not real Employee
     // documents — nothing to re-check for them, skip straight through.
-    if (decoded.role === 'admin' || decoded.role === 'hr') {
+       if (decoded.role === 'admin' || decoded.role === 'hr') {
+      // NEW: HR accounts created by Admin can be deactivated instantly.
+      // Old tokens (no staffId) skip this check → behave exactly as before.
+      if (decoded.staffId) {
+        const s = await HrStaff.findById(decoded.staffId).select('status');
+        if (!s || s.status !== 'active') {
+          return res.status(403).json({ message: 'ACCESS_DEACTIVATED' });
+        }
+      }
       req.user = decoded;
       return next();
     }

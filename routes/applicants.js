@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const Applicant = require("../models/Applicant");
+const auth = require("../middleware/auth");  
+const hrOnly = require("../middleware/hrOnly"); 
 
 // ✅ Add new academy applicant
 router.post("/", async (req, res) => {
@@ -15,8 +17,8 @@ router.post("/", async (req, res) => {
 });
 
 // ✅ Get all academy applicants (sorted by newest)
-router.get("/", async (req, res) => {
-  try {
+router.get("/", auth, hrOnly, async (req, res) => {
+  try { 
     const applicants = await Applicant.find().sort({ createdAt: -1 });
     res.json({ success: true, applicants });
   } catch (err) {
@@ -26,7 +28,7 @@ router.get("/", async (req, res) => {
 });
 
 // ✅ Get one applicant by ID
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, hrOnly, async (req, res) => {
   try {
     const applicant = await Applicant.findById(req.params.id);
     if (!applicant) {
@@ -40,7 +42,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // ✅ Update applicant (for future use)
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, hrOnly, async (req, res) => {
   try {
     const updatedApplicant = await Applicant.findByIdAndUpdate(
       req.params.id,
@@ -58,7 +60,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // ✅ Delete applicant
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const deletedApplicant = await Applicant.findByIdAndDelete(req.params.id);
     if (!deletedApplicant) {

@@ -7,9 +7,10 @@ const KpiTemplate = require('../models/KpiTemplate');
 const KpiMonthlyVersion = require('../models/KpiMonthlyVersion');
 const { createNotification } = require('../helpers/notificationHelper');
 const { currentPeriod, getLogDeadline, isPeriodOpen } = require('../helpers/kpiPeriodRules');
-
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 // POST /api/kpi-assignments
-router.post('/', async (req, res) => {
+router.post('/', auth, hrOnly, async (req, res) => {
   try {
     const { employee_id, template_id, period, period_type, notes, assigned_by } = req.body;
 
@@ -90,7 +91,7 @@ router.post('/', async (req, res) => {
 });
 
 // GET /api/kpi-assignments/top-performers
-router.get('/top-performers', async (req, res) => {
+router.get('/top-performers', auth, hrOnly, async (req, res) => {
   try {
     const assignments = await KpiAssignment.find({ status: { $in: ['active', 'completed'] } })
       .populate('employee_id', 'name email department designation')
@@ -99,12 +100,12 @@ router.get('/top-performers', async (req, res) => {
       .sort({ createdAt: -1 });
 
     const topPerformers = assignments.map(a => ({
-      name:        a.employee_id?.name        || '—',
+      name: a.employee_id?.name || '—',
       designation: a.employee_id?.designation || '—',
-      department:  a.employee_id?.department  || '—',
-      kpiScore:    Math.floor(Math.random() * 40) + 60,
+      department: a.employee_id?.department || '—',
+      kpiScore: Math.floor(Math.random() * 40) + 60,
       okrProgress: Math.floor(Math.random() * 40) + 60,
-      status:      'Active',
+      status: 'Active',
     }));
 
     res.json({ success: true, data: topPerformers });
@@ -114,7 +115,7 @@ router.get('/top-performers', async (req, res) => {
 });
 
 // GET /api/kpi-assignments/actuals/:assignmentId
-router.get('/actuals/:assignmentId', async (req, res) => {
+router.get('/actuals/:assignmentId', auth, hrOnly, async (req, res) => {
   try {
     const actuals = await KpiActual.find({ assignment_id: req.params.assignmentId });
     res.json({ success: true, data: actuals });
@@ -124,7 +125,7 @@ router.get('/actuals/:assignmentId', async (req, res) => {
 });
 
 // POST /api/kpi-assignments/actuals
-router.post('/actuals', async (req, res) => {
+router.post('/actuals', auth, hrOnly, async (req, res) => {
   try {
     const { assignment_id, actuals, entered_by } = req.body;
 
@@ -145,7 +146,7 @@ router.post('/actuals', async (req, res) => {
 });
 
 // GET /api/kpi-assignments — All assignments (HR panel)
-router.get('/', async (req, res) => {
+router.get('/', auth, hrOnly, async (req, res) => {
   try {
     const assignments = await KpiAssignment.find()
       .populate('employee_id', 'name email department designation')
@@ -160,7 +161,7 @@ router.get('/', async (req, res) => {
 });
 
 // PUT /api/kpi-assignments/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', auth, hrOnly, async (req, res) => {
   try {
     console.log("PUT hit — id:", req.params.id);
     console.log("Body:", req.body);
@@ -207,16 +208,16 @@ router.put('/:id', async (req, res) => {
 });
 
 // PATCH /api/kpi-assignments/:id/cancel
-router.patch('/:id/cancel', async (req, res) => {
+router.patch('/:id/cancel', auth, hrOnly, async (req, res) => {
   try {
     const updated = await KpiAssignment.findByIdAndUpdate(
       req.params.id,
       { status: 'cancelled' },
       { new: true }
     )
-    .populate('employee_id', 'name email department designation')
-    .populate('template_id', 'template_name role department kpi_items')
-    .populate('month_version_id', 'month month_status kpi_items');
+      .populate('employee_id', 'name email department designation')
+      .populate('template_id', 'template_name role department kpi_items')
+      .populate('month_version_id', 'month month_status kpi_items');
 
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Assignment not found' });
@@ -226,44 +227,6 @@ router.patch('/:id/cancel', async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// GET /api/kpi-assignments/:employeeId
-// router.get('/:employeeId', async (req, res) => {
-//   try {
-//     const SelfAssessment = require('../models/SelfAssessment');
-
-//     const assignments = await KpiAssignment.find({
-//       employee_id: req.params.employeeId,
-//       status: { $in: ['active', 'completed'] }
-//     })
-//       .populate('template_id')
-//       .populate('month_version_id', 'month month_status kpi_items')  // ✅ FIXED
-//       .sort({ createdAt: 1 });
-
-//     if (!assignments.length) {
-//       return res.json({ success: true, data: null });
-//     }
-
-//     for (const assignment of assignments) {
-//       const existing = await SelfAssessment.findOne({
-//         employee_id: req.params.employeeId,
-//         assignment_id: assignment._id
-//       });
-
-//       if (!existing || existing.status === 'draft') {
-//         // console.log("Returning pending:", assignment.period);
-//         return res.json({ success: true, data: assignment });
-//       }
-//     }
-
-//     const latest = assignments[assignments.length - 1];
-//     console.log("All submitted, returning latest:", latest.period);
-//     return res.json({ success: true, data: latest });
-
-//   } catch (err) {
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// });
 
 // GET /api/kpi-assignments/:employeeId
 router.get('/:employeeId', async (req, res) => {
@@ -278,7 +241,7 @@ router.get('/:employeeId', async (req, res) => {
       .populate('month_version_id', 'month month_status kpi_items')
       .sort({ createdAt: 1 });
 
-      if (!assignments.length) {
+    if (!assignments.length) {
       return res.json({ success: true, data: null });
     }
 
@@ -319,7 +282,7 @@ router.get('/:employeeId', async (req, res) => {
     }
 
     let awaitingReview = null;   // submitted but HR innum review pannala
-    
+
     for (const assignment of assignments) {
       const existing = await SelfAssessment.findOne({
         employee_id: req.params.employeeId,
@@ -357,7 +320,7 @@ router.get('/:employeeId', async (req, res) => {
 });
 
 // DELETE /api/kpi-assignments/:id
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     const deleted = await KpiAssignment.findByIdAndDelete(req.params.id);
     if (!deleted) {

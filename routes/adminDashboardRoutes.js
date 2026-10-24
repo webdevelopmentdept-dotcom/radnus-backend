@@ -1,16 +1,8 @@
-// routes/adminDashboardRoutes.js
-// NEW FILE – read-only stats for the Admin Dashboard (Overview tab).
-// It does NOT modify any data and does not touch any existing route.
-//
-// FILTER RULES (?range=7d|30d|90d|year|all)
-//  - "Business" numbers (applicants, leads, partners, loan totals, doc payment
-//    collected, technicians, shop owners, advance) follow the selected range.
-//  - "Pending / to-do" numbers (doc payment pending, follow-up pending,
-//    pending approvals, stale leads, incentive to pay) are ALWAYS live (all-time),
-//    because they show what is pending right now.
 
 const express = require("express");
 const router = express.Router();
+const auth = require("../middleware/auth"); 
+const adminOnly = require("../middleware/adminOnly"); 
 
 const Applicant    = require("../models/Applicant");
 const Partner      = require("../models/Partner");
@@ -53,7 +45,7 @@ async function safe(name, fn, fallback) {
 }
 
 /* ================= GET /api/admin-dashboard/stats ================= */
-router.get("/stats", async (req, res) => {
+router.get("/stats", auth, adminOnly, async (req, res) => {
   try {
     const range = ["7d", "30d", "90d", "year", "all"].includes(req.query.range)
       ? req.query.range

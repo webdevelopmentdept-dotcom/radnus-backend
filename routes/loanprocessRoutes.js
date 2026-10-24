@@ -36,6 +36,12 @@ const hrOrAdminOnly = (req, res, next) => {
   return res.status(403).json({ success: false, message: "You don't have access to this" });
 };
 
+const actorNameFor = (req) =>
+  req.actor?.name ||
+  (req.user?.role === "hr" ? "HR" :
+    req.user?.role === "admin" ? "Admin" :
+      req.loanIncentiveEmployee?.name || req.user?.name || "Accounts");
+
 // ── Auth check — only employees with canManageLoanProcess OR hr role ───────
 const canManageLoanProcess = async (req, res, next) => {
   try {
@@ -754,7 +760,7 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
     //   return res.status(400).json({ success: false, message: "Enter a valid incentive amount" });
     // }
 
-    const { remark, paidAt } = req.body; 
+    const { remark, paidAt } = req.body;
 
     // ✅ Optional custom paid date (for backdating old payments that were
     // already given before this module existed). Falls back to now.
@@ -777,7 +783,7 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
       });
     }
 
-        // ── Incentive amount = based on Document Payment (server-side) ──
+    // ── Incentive amount = based on Document Payment (server-side) ──
     const docAmt = Number(customer.checklistAmounts?.documentPayment);
     const amt = DOC_PAYMENT_INCENTIVE_MAP[docAmt];
     if (!customer.checklist?.documentPayment || !amt) {
@@ -793,10 +799,10 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
     customer.incentive.paidBy = mongoose.Types.ObjectId.isValid(req.user?.id)
       ? req.user.id
       : null;
-    customer.incentive.paidByName =
-      req.user?.role === "hr" ? "HR" :
-        req.user?.role === "admin" ? "Admin" :
-          req.loanIncentiveEmployee?.name || req.user?.name || "Accounts";
+    customer.incentive.paidByName = actorNameFor(req);
+    req.user?.role === "hr" ? "HR" :
+      req.user?.role === "admin" ? "Admin" :
+        req.loanIncentiveEmployee?.name || req.user?.name || "Accounts";
     customer.incentive.paidRemark = remark || "";
     await customer.save();
 
@@ -873,10 +879,10 @@ router.post("/:id/incentive/reject", auth, canApproveLoanIncentive, async (req, 
     customer.incentive.eligibility = "Rejected";
     customer.incentive.rejectedAt = new Date();
     customer.incentive.rejectedBy = mongoose.Types.ObjectId.isValid(req.user?.id) ? req.user.id : null;
-    customer.incentive.rejectedByName =
-      req.user?.role === "hr" ? "HR" :
-        req.user?.role === "admin" ? "Admin" :
-          req.loanIncentiveEmployee?.name || req.user?.name || "Accounts";
+    customer.incentive.rejectedByName = actorNameFor(req);
+    req.user?.role === "hr" ? "HR" :
+      req.user?.role === "admin" ? "Admin" :
+        req.loanIncentiveEmployee?.name || req.user?.name || "Accounts";
     customer.incentive.rejectedRemark = remark.trim();
     await customer.save();
 
@@ -921,10 +927,10 @@ router.post("/:id/incentive/remove", auth, canApproveLoanIncentive, async (req, 
     customer.incentive.eligibility = "Removed";
     customer.incentive.removedAt = new Date();
     customer.incentive.removedBy = mongoose.Types.ObjectId.isValid(req.user?.id) ? req.user.id : null;
-    customer.incentive.removedByName =
-      req.user?.role === "hr" ? "HR" :
-        req.user?.role === "admin" ? "Admin" :
-          req.loanIncentiveEmployee?.name || req.user?.name || "Accounts";
+    customer.incentive.removedByName = actorNameFor(req);
+    req.user?.role === "hr" ? "HR" :
+      req.user?.role === "admin" ? "Admin" :
+        req.loanIncentiveEmployee?.name || req.user?.name || "Accounts";
     customer.incentive.removedRemark = remark.trim();
     await customer.save();
 

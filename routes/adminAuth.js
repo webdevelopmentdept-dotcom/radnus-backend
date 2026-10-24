@@ -1,6 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const router = express.Router();
+const jwt = require("jsonwebtoken");
 
 router.post("/login", (req, res) => {
   const { email, password } = req.body;
@@ -17,7 +18,12 @@ router.post("/login", (req, res) => {
 
   // ✅ Admin check
   if (email === adminEmail && bcrypt.compareSync(password, adminHash)) {
-    return res.json({ success: true, role: "admin", msg: "Admin login successful!" });
+    const token = jwt.sign(
+  { id: "admin_001", role: "admin", email: adminEmail },
+  process.env.JWT_SECRET,
+  { expiresIn: "7d" }
+);
+return res.json({ success: true, role: "admin", token, msg: "Admin login successful!" });
   }
 
   // ✅ Employee check

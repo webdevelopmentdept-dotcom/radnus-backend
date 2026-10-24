@@ -1,5 +1,5 @@
-const express    = require("express");
-const router     = express.Router();
+const express = require("express");
+const router = express.Router();
 const {
   enrollEmployee,
   getAllTracks,
@@ -7,11 +7,13 @@ const {
   updateTrack,
   withdrawTrack,
 } = require("../controllers/leadershipController");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
-router.get("/",                    getAllTracks);
-router.post("/",                   enrollEmployee);
-router.get("/employee/:employeeId", getTrackByEmployee);
-router.put("/:id",                 updateTrack);
-router.delete("/:id",              withdrawTrack);
+router.get("/", auth, hrOnly, getAllTracks);
+router.post("/", auth, hrOnly, enrollEmployee);
+router.get("/employee/:employeeId", auth, hrOnly, getTrackByEmployee);
+router.put("/:id", auth, hrOnly, updateTrack);
+router.delete("/:id", auth, hrOnly, withdrawTrack);
 
 module.exports = router;

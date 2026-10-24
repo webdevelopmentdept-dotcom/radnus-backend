@@ -2,6 +2,8 @@ const express    = require("express");
 const router     = express.Router();
 const Attendance = require("../models/Attendance");
 const Employee   = require("../models/Employee");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 const {
   checkIn, checkOut, breakStart, breakEnd,
@@ -18,7 +20,7 @@ const {
 
 
 // ── HR Dashboard today stats ──────────────────────────────────
-router.get("/attendance/today", async (req, res) => {
+router.get("/attendance/today", auth, hrOnly, async (req, res) => {
   try {
     const today     = new Date().toISOString().split("T")[0];
     const records   = await Attendance.find({ date: today });
@@ -45,21 +47,21 @@ router.get ("/attendance/summary/:employeeId", getSummary);
 router.get ("/attendance/monthly/:employeeId", getMonthlyRecords);
 
 // ── HR routes ─────────────────────────────────────────────────
-router.get ("/attendance/daily",          getDailyReport);
-router.get ("/attendance/monthly-report", getMonthlyReport);
-router.post("/attendance/hr-mark",        hrMarkAttendance);
-router.get ("/attendance/export",         exportExcel);
+router.get ("/attendance/daily", auth, hrOnly,          getDailyReport);
+router.get ("/attendance/monthly-report", auth, hrOnly, getMonthlyReport);
+router.post("/attendance/hr-mark", auth, hrOnly,        hrMarkAttendance);
+router.get ("/attendance/export", auth, hrOnly,        exportExcel);
 
 // ── NEW: HR punch management ──────────────────────────────────
 // Add a single punch to an existing record
-router.post("/attendance/hr-punch/add",    hrAddPunch);
+router.post("/attendance/hr-punch/add", auth, hrOnly,   hrAddPunch);
 // Delete a specific punch by punch _id
-router.post("/attendance/hr-punch/delete", hrDeletePunch);
+router.post("/attendance/hr-punch/delete", auth, hrOnly, hrDeletePunch);
 
 // ── Migration (run once!) ─────────────────────────────────────
 // Call POST /api/attendance/migrate to convert old records
 // Remove or protect this route after migration is done
-router.post("/attendance/migrate", migrateOldRecords);
+router.post("/attendance/migrate", auth, hrOnly, migrateOldRecords);
 
 // ── Leave routes ──────────────────────────────────────────────
 router.post("/leave-requests",                      createLeaveRequest);

@@ -3,6 +3,8 @@ const router = express.Router();
 const VariablePay = require('../models/VariablePay');
 const KpiAssignment = require('../models/KpiAssignment');
 const PerformanceReview = require('../models/PerformanceReview');
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // Score calculation (policy 3.24 weightage)
 const calcPerformanceScore = (okr, kpi, feedback, innovation) => {
@@ -12,7 +14,7 @@ const calcPerformanceScore = (okr, kpi, feedback, innovation) => {
 };
 
 // GET all variable pay records (HR view)
-router.get('/', async (req, res) => {
+router.get('/', auth, hrOnly, async (req, res) => {
   try {
     const records = await VariablePay.find()
       .populate('employee_id', 'name email department designation')
@@ -24,7 +26,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET single employee variable pay
-router.get('/employee/:employeeId', async (req, res) => {
+router.get('/employee/:employeeId', auth, hrOnly, async (req, res) => {
   try {
     const records = await VariablePay.find({ 
       employee_id: req.params.employeeId 
@@ -36,7 +38,7 @@ router.get('/employee/:employeeId', async (req, res) => {
 });
 
 // POST — Calculate & save variable pay
-router.post('/calculate', async (req, res) => {
+router.post('/calculate', auth, hrOnly, async (req, res) => {
   try {
     const {
       employee_id, assignment_id, period,
@@ -83,11 +85,11 @@ router.post('/calculate', async (req, res) => {
 });
 
 // PATCH — Approve variable pay
-router.patch('/:id/approve', async (req, res) => {
+router.patch('/:id/approve', auth, hrOnly, async (req, res) => {
   try {
     const record = await VariablePay.findByIdAndUpdate(
       req.params.id,
-      { status: 'approved', approved_by: req.body.approved_by },
+            { status: 'approved', approved_by: req.actor?.name || req.body.approved_by },
       { new: true }
     );
     res.json({ success: true, data: record });
@@ -97,7 +99,7 @@ router.patch('/:id/approve', async (req, res) => {
 });
 
 // PATCH — Mark as paid
-router.patch('/:id/paid', async (req, res) => {
+router.patch('/:id/paid', auth, hrOnly, async (req, res) => {
   try {
     const record = await VariablePay.findByIdAndUpdate(
       req.params.id,
@@ -111,7 +113,7 @@ router.patch('/:id/paid', async (req, res) => {
 });
 
 // DELETE
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     await VariablePay.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Deleted' });

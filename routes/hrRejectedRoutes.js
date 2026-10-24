@@ -3,54 +3,22 @@ const router = express.Router();
 
 const Employee = require("../models/Employee");
 const Document = require("../models/Document");
+const logAction = require("../helpers/logAction");
 
-
-// ================= GET REJECTED EMPLOYEES =================
-// router.get("/rejected", async (req, res) => {
-//   try {
-
-//     const employees = await Employee.find({
-//       status: "rejected"
-//     });
-
-//     const result = await Promise.all(
-//       employees.map(async (emp) => {
-
-//         const docs = await Document.find({
-//           employeeId: emp._id
-//         });
-
-//         return {
-//           _id: emp._id,
-//           employeeId: emp.employeeId,
-//           name: emp.name,
-//           email: emp.email,
-//           mobile: emp.mobile,
-//           department: emp.department,
-//           designation: emp.designation,
-//           remarks: emp.remarks, // 🔥 IMPORTANT
-//           documents: docs
-//         };
-//       })
-//     );
-
-//     res.json(result);
-
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: "Error fetching rejected employees" });
-//   }
-// });
-
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ================= RE-APPROVE (OPTIONAL 🔥) =================
-router.put("/reapprove/:id", async (req, res) => {
+router.put("/reapprove/:id", auth, hrOnly, async (req, res) => {
   try {
 
     await Employee.findByIdAndUpdate(req.params.id, {
       status: "approved",
       remarks: ""
     });
+
+    const emp = await Employee.findByIdAndUpdate(req.params.id, { status: "approved", remarks: "" });
+    await logAction(req, { action: "EMPLOYEE_REAPPROVE", entityType: "Employee", entityId: req.params.id, entityName: emp?.name || "" });
 
     res.json({ message: "Employee approved again ✅" });
 
@@ -61,13 +29,16 @@ router.put("/reapprove/:id", async (req, res) => {
 
 
 // ================= MOVE BACK TO PENDING (OPTIONAL 🔁) =================
-router.put("/move-to-pending/:id", async (req, res) => {
+router.put("/move-to-pending/:id", auth, hrOnly, async (req, res) => {
   try {
 
     await Employee.findByIdAndUpdate(req.params.id, {
       status: "pending",
       remarks: ""
     });
+
+    const emp = await Employee.findByIdAndUpdate(req.params.id, { status: "pending", remarks: "" });
+    await logAction(req, { action: "EMPLOYEE_MOVE_TO_PENDING", entityType: "Employee", entityId: req.params.id, entityName: emp?.name || "" });
 
     res.json({ message: "Moved to pending ⏳" });
 

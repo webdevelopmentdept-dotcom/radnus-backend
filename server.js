@@ -1,6 +1,5 @@
 require("dotenv").config();
 const express = require("express");
-console.log("JWT_SECRET:", process.env.JWT_SECRET);
 const mongoose = require("mongoose");
 const cors = require("cors");
 const prerender = require("prerender-node");
@@ -34,15 +33,17 @@ const allowedOrigins = [
   "https://www.radnus.in",
   "https://radnus-frontend-3xb7.vercel.app",
   "http://localhost:5173",
-   "http://localhost:5174"
+  "http://localhost:5174"
 ];
 
+// Vercel preview URLs of this project only (radnus-frontend-3xb7-xxxx.vercel.app)
+const previewPattern = /^https:\/\/radnus-frontend-3xb7-[a-z0-9-]+\.vercel\.app$/;
 
 // CORS Middleware
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.includes(origin) || previewPattern.test(origin)) {
         return callback(null, true);
       }
       return callback(new Error("Not allowed by CORS"));
@@ -60,7 +61,8 @@ app.use(
 
 // SEO Prerender
 app.use(prerender.set("prerenderToken", "N7ycVhRZGIhFLwN5sPFp"));
-
+app.use(require("./middleware/softActor"));
+app.use(require("./middleware/auditWrites"));
 /* --------------------------------------------------
    ROUTES IMPORT
 -------------------------------------------------- */
@@ -133,6 +135,7 @@ const loanProcessRoutes = require('./routes/loanprocessRoutes')
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
+app.use("/api/hr/last-actions", require("./routes/hrLastActionRoutes"));
 app.use("/api/export-excel", excelExportDailyLog);
 app.use('/api/kpi-monthly-versions', kpiMonthlyVersionsRouter);
 app.use("/api/partners", partnerRoutes);
@@ -185,6 +188,8 @@ app.use("/api/hr", hrApplicationsRoutes);
 app.use("/api/hr", hrPendingRoutes);
 app.use("/api/hr", employeeAuth);
 app.use("/api/hr/activation", require("./routes/hrActivationRoutes"));
+app.use("/api/admin/hr-staff", require("./routes/adminHrStaffRoutes"));
+app.use("/api/admin/hr-activity", require("./routes/adminHrActivityRoutes"));
 app.use("/api/admin", require("./routes/adminPendingRoutes"));
 app.use('/api/wellness', wellnessRoutes);
 app.use('/api/wellnesshr', require('./routes/wellnesshr'));

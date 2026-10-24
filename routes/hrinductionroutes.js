@@ -6,7 +6,8 @@ const fs      = require("fs");
 const HrInduction = require("../models/Hrinduction");
 
 const UPLOAD_DIR = path.join(__dirname, "../uploads/hr-induction");
-
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 // ── Multer — PDF only, 10MB ───────────────────────────────────────────────────
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -48,7 +49,6 @@ const removeFile = (filename) => {
 // ══════════════════════════════════════════════════════
 //  EMPLOYEE ROUTES  (declared first so they are never shadowed)
 // ══════════════════════════════════════════════════════
-
 // GET /api/hr-induction/my — active inductions for every employee
 router.get("/my", async (req, res) => {
   try {
@@ -76,7 +76,7 @@ router.get("/view/:filename", (req, res) => {
 // ══════════════════════════════════════════════════════
 
 // GET /api/hr-induction — all (HR)
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly,  async (req, res) => {
   try {
     const data = await HrInduction.find().sort({ createdAt: -1 });
     res.json({ success: true, data });
@@ -86,7 +86,7 @@ router.get("/", async (req, res) => {
 });
 
 // POST /api/hr-induction — create (title + description + PDF)
-router.post("/", uploadPdf, async (req, res) => {
+router.post("/", auth, hrOnly, uploadPdf, async (req, res) => {
   try {
     const { title, description, status } = req.body;
     if (!title || !title.trim()) {
@@ -112,7 +112,7 @@ router.post("/", uploadPdf, async (req, res) => {
 });
 
 // PUT /api/hr-induction/:id — update (PDF optional)
-router.put("/:id", uploadPdf, async (req, res) => {
+router.put("/:id", auth, hrOnly, uploadPdf, async (req, res) => {
   try {
     const existing = await HrInduction.findById(req.params.id);
     if (!existing) {
@@ -142,7 +142,7 @@ router.put("/:id", uploadPdf, async (req, res) => {
 });
 
 // PATCH /api/hr-induction/:id/status — toggle active / inactive
-router.patch("/:id/status", async (req, res) => {
+router.patch("/:id/status", auth, hrOnly, async (req, res) => {
   try {
     const { status } = req.body;
     if (!["active", "inactive"].includes(status)) {
@@ -157,7 +157,7 @@ router.patch("/:id/status", async (req, res) => {
 });
 
 // DELETE /api/hr-induction/:id — delete record + file
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const doc = await HrInduction.findById(req.params.id);
     if (!doc) return res.status(404).json({ success: false, message: "Not found" });

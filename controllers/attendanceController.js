@@ -7,10 +7,10 @@ const LeaveRequest = require("../models/LeaveRequest");
 // ══════════════════════════════════════════
 const DEFAULT_SHIFT_START = 10 * 60;
 const DEFAULT_SHIFT_END = 19 * 60;
-const HALF_DAY_CUTOFF = 11 * 60 + 30; 
+const HALF_DAY_CUTOFF = 11 * 60 + 30;
 const LUNCH_START = 13 * 60 + 30;     // 810 = 1:30 PM
-const LUNCH_END = 14 * 60 + 30;   
-const HALF_DAY_MORNING_CUTOFF = 11 * 60;    
+const LUNCH_END = 14 * 60 + 30;
+const HALF_DAY_MORNING_CUTOFF = 11 * 60;
 const LUNCH_RETURN_CUTOFF = 15 * 60;   // ✅ ADD THIS — 3:00 PM
 
 
@@ -48,13 +48,13 @@ const getLateMinutes = (firstIn, shiftStartMins = DEFAULT_SHIFT_START) => {
 const getEarlyOutMinutes = (lastOut, shiftEndMins = DEFAULT_SHIFT_END) => {
   if (!lastOut) return 0;
   const mins = toMins(lastOut);
-  
+
   // 12:00 AM (midnight) = 0 → employee worked past midnight, not early out
   if (mins === 0) return 0;
-  
+
   // Checkout after shift end → no early out
   if (mins >= shiftEndMins) return 0;
-  
+
   return Math.max(shiftEndMins - mins, 0);
 };
 
@@ -126,7 +126,7 @@ const isStuckOnLunch = (punches, dateStr) => {
 //  PUNCH CALCULATION ENGINE
 // ══════════════════════════════════════════
 const computeFromPunches = (punches, shiftStartMins = DEFAULT_SHIFT_START, shiftEndMins = DEFAULT_SHIFT_END, permission = null, dateStr = todayStr()) => {
-const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
 
   let netWorkMs = 0;
   let breakMs = 0;
@@ -175,63 +175,63 @@ const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
   const earlyOutMinutes = getEarlyOutMinutes(lastOut, shiftEndMins);
   const overtimeMinutes = getOvertimeMinutes(lastOut, shiftEndMins);
 
-  
-//   let status = "absent";
-// if (firstIn) {
-//   const firstInMins = toMins(firstIn);
 
-//   if (firstInMins <= effectiveStartMins + GRACE_MINUTES) {   // ← 15 → GRACE_MINUTES
-//     status = "present";
-//   } else {
-//     status = "late";
-//   }
-// }
+  //   let status = "absent";
+  // if (firstIn) {
+  //   const firstInMins = toMins(firstIn);
 
-//   const hasAnyIn = sorted.some(p => p.type === "in");
-//   if (!hasAnyIn && sorted.some(p => p.type === "out")) {
-//     status = "absent";
-//   }
+  //   if (firstInMins <= effectiveStartMins + GRACE_MINUTES) {   // ← 15 → GRACE_MINUTES
+  //     status = "present";
+  //   } else {
+  //     status = "late";
+  //   }
+  // }
 
-//   if (status !== "absent" && status !== "leave") {
-//     if (isStuckOnLunch(sorted, dateStr)) {
-//       status = "half_day";
-//     }
-//   }
+  //   const hasAnyIn = sorted.some(p => p.type === "in");
+  //   if (!hasAnyIn && sorted.some(p => p.type === "out")) {
+  //     status = "absent";
+  //   }
+
+  //   if (status !== "absent" && status !== "leave") {
+  //     if (isStuckOnLunch(sorted, dateStr)) {
+  //       status = "half_day";
+  //     }
+  //   }
 
 
-let status = "absent";
-let half_day_session = null;
-if (firstIn) {
-  const firstInMins = toMins(firstIn);
-  if (firstInMins <= effectiveStartMins + GRACE_MINUTES) {
-    status = "present";
-  } else if (firstInMins <= HALF_DAY_MORNING_CUTOFF) {
-    status = "late";
-  } else {
-    status = "half_day";
-    half_day_session = "morning";
+  let status = "absent";
+  let half_day_session = null;
+  if (firstIn) {
+    const firstInMins = toMins(firstIn);
+    if (firstInMins <= effectiveStartMins + GRACE_MINUTES) {
+      status = "present";
+    } else if (firstInMins <= HALF_DAY_MORNING_CUTOFF) {
+      status = "late";
+    } else {
+      status = "half_day";
+      half_day_session = "morning";
+    }
   }
-}
 
-const hasAnyIn = sorted.some(p => p.type === "in");
-    if (!hasAnyIn && sorted.some(p => p.type === "out")) {
-   status = "absent";
- }
+  const hasAnyIn = sorted.some(p => p.type === "in");
+  if (!hasAnyIn && sorted.some(p => p.type === "out")) {
+    status = "absent";
+  }
 
-if (status !== "absent" && status !== "leave") {
-  if (isStuckOnLunch(sorted, dateStr)) {
-    status = "half_day";
-    half_day_session = half_day_session || "afternoon";
+  if (status !== "absent" && status !== "leave") {
+    if (isStuckOnLunch(sorted, dateStr)) {
+      status = "half_day";
+      half_day_session = half_day_session || "afternoon";
+    }
   }
-}
-// NEW BLOCK — add after the isStuckOnLunch check
-if (status !== "absent" && status !== "leave" && !half_day_session) {
-  const { breakLateMins: lunchLateMins } = resolveBreak(sorted);
-  if (lunchLateMins > 0) {
-    status = "half_day";
-    half_day_session = "afternoon";
+  // NEW BLOCK — add after the isStuckOnLunch check
+  if (status !== "absent" && status !== "leave" && !half_day_session) {
+    const { breakLateMins: lunchLateMins } = resolveBreak(sorted);
+    if (lunchLateMins > 0) {
+      status = "half_day";
+      half_day_session = "afternoon";
+    }
   }
-}
 
   const isCurrentlyIn = lastInTime !== null;
 
@@ -244,7 +244,7 @@ if (status !== "absent" && status !== "leave" && !half_day_session) {
     early_out_minutes: earlyOutMinutes,
     overtime_minutes: overtimeMinutes,
     status,
-        half_day_session,
+    half_day_session,
 
     is_currently_in: isCurrentlyIn,
     permission_applied: permissionApplied,
@@ -580,7 +580,7 @@ exports.getMonthlyRecords = async (req, res) => {
       if (obj.punches && obj.punches.length > 0) {
         const sorted = [...obj.punches].sort((a, b) => new Date(a.time) - new Date(b.time));
         const { breakOut, breakIn, breakLateMins } = resolveBreak(sorted);
-       const computed = computeFromPunches(sorted, startMins, endMins, obj.permission || null, obj.date);
+        const computed = computeFromPunches(sorted, startMins, endMins, obj.permission || null, obj.date);
 
         let actualCheckOut = null;
         if (computed.last_out) {
@@ -601,7 +601,7 @@ exports.getMonthlyRecords = async (req, res) => {
         obj.early_out_minutes = computed.early_out_minutes;
         obj.overtime_minutes = computed.overtime_minutes;
         obj.status = computed.status;
-              obj.half_day_session = computed.half_day_session || null;
+        obj.half_day_session = computed.half_day_session || null;
 
       }
       return obj;
@@ -665,16 +665,16 @@ exports.getDailyReport = async (req, res) => {
 
 
         if (obj.punches && obj.punches.length > 0) {
-  const { startMins, endMins } = parseShiftMins(emp);
-  const computed = computeFromPunches(obj.punches, startMins, endMins, obj.permission || null, obj.date);
-  Object.assign(obj, computed);
-}
+          const { startMins, endMins } = parseShiftMins(emp);
+          const computed = computeFromPunches(obj.punches, startMins, endMins, obj.permission || null, obj.date);
+          Object.assign(obj, computed);
+        }
         obj.employee = emp;
-const { endMins } = parseShiftMins(emp);
-const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
-obj.missing_punch = obj.is_currently_in && 
-  (date !== todayStr() ? true : nowMins >= endMins);
-  
+        const { endMins } = parseShiftMins(emp);
+        const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+        obj.missing_punch = obj.is_currently_in &&
+          (date !== todayStr() ? true : nowMins >= endMins);
+
         obj.checkIn = obj.first_in || obj.checkIn || null;
         const { breakOut, breakIn, breakLateMins } = resolveBreakLocal(obj.punches || []);
         // Simple fix: last_out dhan actual check-out
@@ -775,6 +775,7 @@ exports.getMonthlyReport = async (req, res) => {
             { type: "in", time: fakeIn },
             ...(fakeOut ? [{ type: "out", time: fakeOut }] : []),
           ];
+          const { startMins, endMins } = parseShiftMins(emp);
           const c = computeFromPunches(fakePunches, startMins, endMins);
           return { ...obj, status: c.status, late_minutes: c.late_minutes, half_day_session: c.half_day_session || null };
         }
@@ -800,13 +801,13 @@ exports.getMonthlyReport = async (req, res) => {
       const earlyOutDays = enriched.filter(r => (r.early_out_minutes || 0) > 0).length;
       const missingPunch = enriched.filter(r => r.is_currently_in && r.date !== todayS).length;
 
-     const leave_for_pct = enriched.filter(r => 
-  r.status === "leave" && r.method === "hr_manual"
-).length;
+      const leave_for_pct = enriched.filter(r =>
+        r.status === "leave" && r.method === "hr_manual"
+      ).length;
 
-const pct = workingDays
-  ? Math.round(((present + half_day * 0.5 + leave_for_pct) / workingDays) * 100)
-  : 0;
+      const pct = workingDays
+        ? Math.round(((present + half_day * 0.5 + leave_for_pct) / workingDays) * 100)
+        : 0;
 
       return {
         _id: emp._id,
@@ -842,7 +843,7 @@ const pct = workingDays
 // ══════════════════════════════════════════
 exports.hrMarkAttendance = async (req, res) => {
   try {
-    const { employee_id, date, status, checkIn, checkOut, punches, remark , permissionStart, permissionEnd } = req.body;
+    const { employee_id, date, status, checkIn, checkOut, punches, remark, permissionStart, permissionEnd } = req.body;
 
     // ✅ Checkout must be after checkin validation
     if (checkIn && checkOut) {
@@ -854,42 +855,42 @@ exports.hrMarkAttendance = async (req, res) => {
       }
     }
 
-const noTimeStatus = ["leave", "holiday", "weekend", "absent"].includes(status);
+    const noTimeStatus = ["leave", "holiday", "weekend", "absent"].includes(status);
 
-let newPunches = []; // ← எப்பவும் fresh start
+    let newPunches = []; // ← எப்பவும் fresh start
 
-if (!noTimeStatus) {
-  if (punches && Array.isArray(punches) && punches.length > 0) {
-    newPunches = punches.map(p => ({
-      type: p.type,
-      time: new Date(p.time),
-      method: "hr_manual",
-      remark: p.remark || "",
-    }));
-  } else if (checkIn) {
-    newPunches.push({
-      type: "in",
-      time: new Date(checkIn),
-      method: "hr_manual",
-      remark: remark || "",
-    });
-    if (checkOut) {
-      newPunches.push({
-        type: "out",
-        time: new Date(checkOut),
-        method: "hr_manual",
-        remark: remark || "",
-      });
+    if (!noTimeStatus) {
+      if (punches && Array.isArray(punches) && punches.length > 0) {
+        newPunches = punches.map(p => ({
+          type: p.type,
+          time: new Date(p.time),
+          method: "hr_manual",
+          remark: p.remark || "",
+        }));
+      } else if (checkIn) {
+        newPunches.push({
+          type: "in",
+          time: new Date(checkIn),
+          method: "hr_manual",
+          remark: remark || "",
+        });
+        if (checkOut) {
+          newPunches.push({
+            type: "out",
+            time: new Date(checkOut),
+            method: "hr_manual",
+            remark: remark || "",
+          });
+        }
+      }
     }
-  }
-}
 
-newPunches.sort((a, b) => new Date(a.time) - new Date(b.time));
+    newPunches.sort((a, b) => new Date(a.time) - new Date(b.time));
 
     const emp2 = await Employee.findById(employee_id).select("shift").lean();
     const { startMins, endMins } = parseShiftMins(emp2);
 
-     const permission = (permissionStart && permissionEnd)
+    const permission = (permissionStart && permissionEnd)
       ? { start: permissionStart, end: permissionEnd }
       : null;
 
@@ -916,11 +917,14 @@ newPunches.sort((a, b) => new Date(a.time) - new Date(b.time));
           late_minutes: computed.late_minutes || 0,
           early_out_minutes: computed.early_out_minutes || 0,
           overtime_minutes: computed.overtime_minutes || 0,
-                   half_day_session: noTimeStatus ? null : (computed.half_day_session || null),
+          half_day_session: noTimeStatus ? null : (computed.half_day_session || null),
 
           remark: remark || "",
           method: "hr_manual",
-            permission: permission,
+          permission: permission,
+          edited_by_name: req.actor?.name || "",
+          edited_by_role: req.actor?.role || "",
+          edited_at: new Date(),
         },
       },
       { upsert: true, new: true }
@@ -1030,9 +1034,13 @@ exports.hrAddPunch = async (req, res) => {
     });
 
     const emp = await Employee.findById(employee_id).select("shift").lean();
-const { startMins, endMins } = parseShiftMins(emp);
-const computed = computeFromPunches(record.punches, startMins, endMins);
+    const { startMins, endMins } = parseShiftMins(emp);
+    const computed = computeFromPunches(record.punches, startMins, endMins);
     Object.assign(record, computed);
+
+    record.edited_by_name = req.actor?.name || "";
+    record.edited_by_role = req.actor?.role || "";
+    record.edited_at = new Date();
 
     await record.save();
     res.json({ success: true, message: `Punch ${type} added`, data: record });
@@ -1054,9 +1062,13 @@ exports.hrDeletePunch = async (req, res) => {
     record.punches = record.punches.filter(p => p._id.toString() !== punch_id);
 
     const emp = await Employee.findById(employee_id).select("shift").lean();
-const { startMins, endMins } = parseShiftMins(emp);
-const computed = computeFromPunches(record.punches, startMins, endMins);
-Object.assign(record, computed);
+    const { startMins, endMins } = parseShiftMins(emp);
+    const computed = computeFromPunches(record.punches, startMins, endMins);
+    Object.assign(record, computed);
+
+    record.edited_by_name = req.actor?.name || "";
+    record.edited_by_role = req.actor?.role || "";
+    record.edited_at = new Date();
 
     await record.save();
     res.json({ success: true, message: "Punch deleted", data: record });
@@ -1099,7 +1111,7 @@ exports.exportExcel = async (req, res) => {
     }
 
     const fmtMins = (mins) => {
-  if (mins === null || mins === undefined || mins <= 0) return "—";
+      if (mins === null || mins === undefined || mins <= 0) return "—";
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
@@ -1378,7 +1390,7 @@ exports.exportExcel = async (req, res) => {
         if (otMin > 0) otCount++;
 
         totalBreakLate += breakLateMins || 0;
-        totalLateIn += lateMin || 0; 
+        totalLateIn += lateMin || 0;
         totalEarlyOut += earlyOutMin || 0;
 
         dayRows.push({
@@ -1411,10 +1423,10 @@ exports.exportExcel = async (req, res) => {
 
       if (!isSingleEmployee && summarySheet) {
         const sRow = summarySheet.addRow([
-  empIdx + 1, emp.name || "—", emp.employeeId || emp.employee_code || "—",
-  emp.department || "—", workDays, presentCount, lateCount, halfCount,
-  leaveCount, absentCount, totalLateIn > 0 ? fmtMins(totalLateIn) : "—", attendancePct,
-]);
+          empIdx + 1, emp.name || "—", emp.employeeId || emp.employee_code || "—",
+          emp.department || "—", workDays, presentCount, lateCount, halfCount,
+          leaveCount, absentCount, totalLateIn > 0 ? fmtMins(totalLateIn) : "—", attendancePct,
+        ]);
         sRow.height = 22;
         sRow.eachCell((cell) => {
           cell.alignment = { horizontal: "center", vertical: "middle" };
@@ -1458,8 +1470,8 @@ exports.exportExcel = async (req, res) => {
       ws.getRow(2).height = 20;
 
       ws.mergeCells("A3:M3");
-     ws.getCell("A3").value =
-      `Total Working Days: ${workDays}   Present: ${presentCount}   Late: ${lateCount}   Absent: ${absentCount}   Half Day: ${halfCount}   On Leave: ${leaveCount}   Attendance: ${attendancePct}`;
+      ws.getCell("A3").value =
+        `Total Working Days: ${workDays}   Present: ${presentCount}   Late: ${lateCount}   Absent: ${absentCount}   Half Day: ${halfCount}   On Leave: ${leaveCount}   Attendance: ${attendancePct}`;
       ws.getCell("A3").font = { size: 10, bold: true, color: { argb: "FF1F2937" } };
       ws.getCell("A3").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
       ws.getCell("A3").alignment = { horizontal: "left", vertical: "middle", indent: 1 };

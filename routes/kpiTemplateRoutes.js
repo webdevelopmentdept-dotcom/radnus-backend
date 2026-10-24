@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const KpiTemplate = require('../models/KpiTemplate');
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 
 // GET all templates
-router.get('/', async (req, res) => {
+router.get('/', auth, hrOnly, async (req, res) => {
   try {
     const templates = await KpiTemplate.find({ is_active: true });
     res.json({ success: true, data: templates });
@@ -13,7 +15,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET single template
-router.get('/:id', async (req, res) => {
+router.get('/:id', auth, hrOnly, async (req, res) => {
   try {
     const template = await KpiTemplate.findById(req.params.id);
     if (!template) return res.status(404).json({ success: false, message: 'Not found' });
@@ -24,7 +26,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST create template
-router.post('/', async (req, res) => {
+router.post('/', auth, hrOnly, async (req, res) => {
   try {
     const template = new KpiTemplate(req.body);
     await template.save();
@@ -35,7 +37,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT update template
-router.put('/:id', async (req, res) => {
+router.put('/:id', auth, hrOnly, async (req, res) => {
   try {
     const template = await KpiTemplate.findByIdAndUpdate(
       req.params.id, req.body, { new: true }
@@ -47,7 +49,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE (soft delete)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     await KpiTemplate.findByIdAndUpdate(req.params.id, { is_active: false });
     res.json({ success: true, message: 'Template deleted' });

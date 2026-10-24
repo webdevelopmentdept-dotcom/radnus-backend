@@ -2,7 +2,7 @@ const { TrainingProgram, EmployeeTraining, ComplianceLog, QuizQuestion } = requi
 const Employee = require("../models/Employee");
 const Product = require("../models/Product");
 const { createNotification } = require("../helpers/notificationHelper");
-
+const HrAuditLog = require("../models/HrAuditLog");
 // ═══════════════════════════════════════════════════════════════
 // LOCK / UNLOCK HELPERS
 // ═══════════════════════════════════════════════════════════════
@@ -17,7 +17,7 @@ const lockMessage = (record) => record.lockReason === "manual"
   : "This course's due date has passed and it has been locked. Please contact HR to unlock it.";
 
 
-  // accessEndDate = picked day-oda END (11:59:59 PM IST), not UTC midnight
+// accessEndDate = picked day-oda END (11:59:59 PM IST), not UTC midnight
 const endOfDayIST = (d) => new Date(`${String(d).slice(0, 10)}T23:59:59.999+05:30`);
 
 // Auto-locks a record the moment its dueDate has passed. Called lazily
@@ -33,10 +33,10 @@ const autoLockIfOverdue = async (record) => {
   end.setHours(23, 59, 59, 999);
   if (end >= new Date()) return record;                                 // not overdue yet
 
-  record.isLocked   = true;
+  record.isLocked = true;
   record.lockReason = "auto_due_date";
-  record.lockedAt   = new Date();
-  record.lockedBy   = "System (auto)";
+  record.lockedAt = new Date();
+  record.lockedBy = "System (auto)";
   await record.save();
   return record;
 };
@@ -50,12 +50,28 @@ const getAllPrograms = async (req, res) => {
   try {
     const { level, department, type } = req.query;
     const filter = { isActive: true };
-    if (level)      filter.level      = level;
+    if (level) filter.level = level;
     if (department) filter.department = department;
-    if (type)       filter.type       = type;
+    if (type) filter.type = type;
 
-    const programs = await TrainingProgram.find(filter).sort({ level: 1, type: 1 });
+
+    const found = await TrainingProgram.find(filter).sort({ level: 1, type: 1 });
+    const programs = found.map((p) => p.toObject());
+
+    // old programs: take the HR name from the activity log
+    const missing = programs.filter((p) => !p.createdByName).map((p) => String(p._id));
+    if (missing.length) {
+      const logs = await HrAuditLog.find({ action: "TRAINING_CREATE", entityId: { $in: missing } })
+        .select("entityId actorName actorRole").lean();
+      const byId = {};
+      logs.forEach((l) => { byId[l.entityId] = l; });
+      programs.forEach((p) => {
+        const l = byId[String(p._id)];
+        if (!p.createdByName && l) { p.createdByName = l.actorName; p.createdByRole = l.actorRole; }
+      });
+    }
     res.json({ success: true, data: programs });
+
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
@@ -64,7 +80,7 @@ const createProgram = async (req, res) => {
   try {
     const body = { ...req.body };
     const videoFile = req.files?.video?.[0];
-    const pdfFile   = req.files?.pdf?.[0];
+    const pdfFile = req.files?.pdf?.[0];
 
     if (videoFile) {                       // uploaded video file
       body.videoSource = "upload";
@@ -99,10 +115,12 @@ const createProgram = async (req, res) => {
     }
     // Date range HR sets for the chapter course to be accessible
     if (body.accessStartDate === "") body.accessStartDate = null;
-if (body.accessEndDate === "")   body.accessEndDate   = null;
-else if (body.accessEndDate)     body.accessEndDate   = endOfDayIST(body.accessEndDate);
+    if (body.accessEndDate === "") body.accessEndDate = null;
+    else if (body.accessEndDate) body.accessEndDate = endOfDayIST(body.accessEndDate);
 
     body.noTest = body.noTest === true || body.noTest === "true";
+    body.createdByName = req.actor?.name || req.user?.name || "";
+    body.createdByRole = req.actor?.role || req.user?.role || "";
     const program = await TrainingProgram.create(body);
     res.status(201).json({ success: true, data: program, message: "Training program created" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -113,7 +131,7 @@ const updateProgram = async (req, res) => {
   try {
     const body = { ...req.body };
     const videoFile = req.files?.video?.[0];
-    const pdfFile   = req.files?.pdf?.[0];
+    const pdfFile = req.files?.pdf?.[0];
 
     if (videoFile) {
       body.videoSource = "upload";
@@ -145,8 +163,8 @@ const updateProgram = async (req, res) => {
       });
     }
     if (body.accessStartDate === "") body.accessStartDate = null;
-if (body.accessEndDate === "")   body.accessEndDate   = null;
-else if (body.accessEndDate)     body.accessEndDate   = endOfDayIST(body.accessEndDate);
+    if (body.accessEndDate === "") body.accessEndDate = null;
+    else if (body.accessEndDate) body.accessEndDate = endOfDayIST(body.accessEndDate);
 
 
     // ✅ Which chapters got a DIFFERENT video in this edit? (same chapterNo, new videoUrl)
@@ -163,7 +181,7 @@ else if (body.accessEndDate)     body.accessEndDate   = endOfDayIST(body.accessE
         .map(nc => Number(nc.chapterNo));
     }
 
-       if (body.noTest !== undefined) body.noTest = body.noTest === true || body.noTest === "true";
+    if (body.noTest !== undefined) body.noTest = body.noTest === true || body.noTest === "true";
     const program = await TrainingProgram.findByIdAndUpdate(req.params.id, body, { new: true });
     if (!program) return res.status(404).json({ success: false, message: "Program not found" });
 
@@ -220,26 +238,26 @@ const seedDefaultPrograms = async (req, res) => {
 
     const defaults = [
       // Job-Role Based (L1-L6)
-      { title:"Induction Training", level:"L1", type:"induction", modules:["Company Induction","Basic Communication Skills","Workplace Etiquette","Radnus Culture (The Radnus Way)"], duration:"7 Days", certification:"RCA Foundation Certificate", conductedBy:"HR & Culture", frequency:"on_joining", isMandatory:true },
-      { title:"Executive Training", level:"L2", type:"job_role",  modules:["Product & Service Training","CRM & ERP Usage","Customer Handling / Complaint Management","Basic Reporting & Excel"], duration:"1 Month", certification:"RCA Role Certificate", conductedBy:"Dept. Head + Trainer", frequency:"on_joining", isMandatory:true },
-      { title:"Senior Executive Training", level:"L3", type:"job_role", modules:["Advanced Product Knowledge","Department SOP Training","Team Coordination & Follow-up Systems","Basic Leadership Skills"], duration:"2 Months", certification:"RCA Performance Certificate", conductedBy:"L&D Team", frequency:"on_joining", isMandatory:true },
-      { title:"Manager Training", level:"L4", type:"job_role", modules:["Strategic Planning & Target Setting","People Management Skills","Coaching & Mentoring","Business Review & Reporting"], duration:"3 Months", certification:"RCA Leadership Readiness Badge", conductedBy:"HR + L&D", frequency:"on_joining", isMandatory:true },
-      { title:"GM / AVP Training", level:"L5", type:"job_role", modules:["Business Growth Strategy","Financial & Cost Awareness","Data-driven Decision Making","Leadership Communication"], duration:"3-6 Months", certification:"RCA Business Leadership Certificate", conductedBy:"CEO Office + External Faculty", frequency:"on_joining", isMandatory:true },
-      { title:"VP / Director / CXO Training", level:"L6", type:"job_role", modules:["Vision Alignment & Strategy Execution","Corporate Governance & Risk Management","Digital Transformation","Cross-Functional Leadership"], duration:"6 Months", certification:"RCA Executive Leadership Certificate", conductedBy:"CEO + Advisory Board", frequency:"on_joining", isMandatory:true },
+      { title: "Induction Training", level: "L1", type: "induction", modules: ["Company Induction", "Basic Communication Skills", "Workplace Etiquette", "Radnus Culture (The Radnus Way)"], duration: "7 Days", certification: "RCA Foundation Certificate", conductedBy: "HR & Culture", frequency: "on_joining", isMandatory: true },
+      { title: "Executive Training", level: "L2", type: "job_role", modules: ["Product & Service Training", "CRM & ERP Usage", "Customer Handling / Complaint Management", "Basic Reporting & Excel"], duration: "1 Month", certification: "RCA Role Certificate", conductedBy: "Dept. Head + Trainer", frequency: "on_joining", isMandatory: true },
+      { title: "Senior Executive Training", level: "L3", type: "job_role", modules: ["Advanced Product Knowledge", "Department SOP Training", "Team Coordination & Follow-up Systems", "Basic Leadership Skills"], duration: "2 Months", certification: "RCA Performance Certificate", conductedBy: "L&D Team", frequency: "on_joining", isMandatory: true },
+      { title: "Manager Training", level: "L4", type: "job_role", modules: ["Strategic Planning & Target Setting", "People Management Skills", "Coaching & Mentoring", "Business Review & Reporting"], duration: "3 Months", certification: "RCA Leadership Readiness Badge", conductedBy: "HR + L&D", frequency: "on_joining", isMandatory: true },
+      { title: "GM / AVP Training", level: "L5", type: "job_role", modules: ["Business Growth Strategy", "Financial & Cost Awareness", "Data-driven Decision Making", "Leadership Communication"], duration: "3-6 Months", certification: "RCA Business Leadership Certificate", conductedBy: "CEO Office + External Faculty", frequency: "on_joining", isMandatory: true },
+      { title: "VP / Director / CXO Training", level: "L6", type: "job_role", modules: ["Vision Alignment & Strategy Execution", "Corporate Governance & Risk Management", "Digital Transformation", "Cross-Functional Leadership"], duration: "6 Months", certification: "RCA Executive Leadership Certificate", conductedBy: "CEO + Advisory Board", frequency: "on_joining", isMandatory: true },
 
       // Training Frequency Types
-      { title:"Job Role Training", level:"all", type:"job_role", modules:["Role-specific skills","SOP compliance","Tool proficiency"], duration:"Varies", frequency:"within_30_days", responsible:"Department Trainer", isMandatory:true },
-      { title:"Cross-Functional / Leadership", level:"all", type:"cross_functional", modules:["Cross-team collaboration","Leadership fundamentals","Communication skills"], duration:"Varies", frequency:"half_yearly", responsible:"L&D + HR", isMandatory:false },
-      { title:"Culture & Engagement Training", level:"all", type:"culture", modules:["Radnus culture","Engagement practices","Team bonding"], duration:"1 Day", frequency:"quarterly", responsible:"Culture Team", isMandatory:true },
-      { title:"Refresher Training", level:"all", type:"refresher", modules:["Policy updates","Skill refresh","Compliance review"], duration:"Varies", frequency:"annual", responsible:"HR & L&D", isMandatory:true },
+      { title: "Job Role Training", level: "all", type: "job_role", modules: ["Role-specific skills", "SOP compliance", "Tool proficiency"], duration: "Varies", frequency: "within_30_days", responsible: "Department Trainer", isMandatory: true },
+      { title: "Cross-Functional / Leadership", level: "all", type: "cross_functional", modules: ["Cross-team collaboration", "Leadership fundamentals", "Communication skills"], duration: "Varies", frequency: "half_yearly", responsible: "L&D + HR", isMandatory: false },
+      { title: "Culture & Engagement Training", level: "all", type: "culture", modules: ["Radnus culture", "Engagement practices", "Team bonding"], duration: "1 Day", frequency: "quarterly", responsible: "Culture Team", isMandatory: true },
+      { title: "Refresher Training", level: "all", type: "refresher", modules: ["Policy updates", "Skill refresh", "Compliance review"], duration: "Varies", frequency: "annual", responsible: "HR & L&D", isMandatory: true },
 
       // Department-wise
-      { title:"Sales & Distribution Mandatory", level:"all", department:"Sales & Distribution", type:"department", modules:["Product Mastery","Negotiation Skills","Channel Management","CRM Usage","Customer Relationship Excellence"], duration:"1 Month", isMandatory:true },
-      { title:"Technical & Service Mandatory",  level:"all", department:"Technical & Service",  type:"department", modules:["Product Repair Standards","Troubleshooting","Tools & ESD Handling","Quality Audits","RCV Model"], duration:"1 Month", isMandatory:true },
-      { title:"HR & Admin Mandatory",           level:"all", department:"HR & Admin",           type:"department", modules:["HR Policies","Recruitment SOPs","Payroll Management","Employee Engagement","HRMS System"], duration:"1 Month", isMandatory:true },
-      { title:"Accounts & Finance Mandatory",   level:"all", department:"Accounts & Finance",   type:"department", modules:["GST / Tally / Compliance","Expense Control","Profit Analysis","Cost Optimization","Audit Preparation"], duration:"1 Month", isMandatory:true },
-      { title:"Marketing Mandatory",            level:"all", department:"Marketing",            type:"department", modules:["Digital Campaigns","Brand Guidelines","Market Analysis","Event Management","Customer Insights"], duration:"1 Month", isMandatory:true },
-      { title:"Operations Mandatory",           level:"all", department:"Operations",           type:"department", modules:["Stock Management","Vendor Handling","Delivery Process","Process Optimization","MIS Reporting"], duration:"1 Month", isMandatory:true },
+      { title: "Sales & Distribution Mandatory", level: "all", department: "Sales & Distribution", type: "department", modules: ["Product Mastery", "Negotiation Skills", "Channel Management", "CRM Usage", "Customer Relationship Excellence"], duration: "1 Month", isMandatory: true },
+      { title: "Technical & Service Mandatory", level: "all", department: "Technical & Service", type: "department", modules: ["Product Repair Standards", "Troubleshooting", "Tools & ESD Handling", "Quality Audits", "RCV Model"], duration: "1 Month", isMandatory: true },
+      { title: "HR & Admin Mandatory", level: "all", department: "HR & Admin", type: "department", modules: ["HR Policies", "Recruitment SOPs", "Payroll Management", "Employee Engagement", "HRMS System"], duration: "1 Month", isMandatory: true },
+      { title: "Accounts & Finance Mandatory", level: "all", department: "Accounts & Finance", type: "department", modules: ["GST / Tally / Compliance", "Expense Control", "Profit Analysis", "Cost Optimization", "Audit Preparation"], duration: "1 Month", isMandatory: true },
+      { title: "Marketing Mandatory", level: "all", department: "Marketing", type: "department", modules: ["Digital Campaigns", "Brand Guidelines", "Market Analysis", "Event Management", "Customer Insights"], duration: "1 Month", isMandatory: true },
+      { title: "Operations Mandatory", level: "all", department: "Operations", type: "department", modules: ["Stock Management", "Vendor Handling", "Delivery Process", "Process Optimization", "MIS Reporting"], duration: "1 Month", isMandatory: true },
     ];
 
     await TrainingProgram.insertMany(defaults);
@@ -435,7 +453,7 @@ const deleteQuizQuestion = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 const PASS_THRESHOLD = 70;   // %
-const MAX_ATTEMPTS   = 1;    // single attempt only — no retakes
+const MAX_ATTEMPTS = 1;    // single attempt only — no retakes
 
 // ── PUT /api/training/my/:recordId/study-product ────────────────
 // body: { productId }. Marks one product as studied for this record.
@@ -529,11 +547,11 @@ const markPdfRead = async (req, res) => {
 //   • re-watching / rewinding never hurts,
 //   • only the parts never really played stay "unwatched".
 const REQUIRED_WATCH_PERCENT = 90;  // % of the video that must be verified — keep in sync with the frontend
-const MAX_BEAT_GAP_SEC   = 40;      // ✅ raised from 25 — tolerate a throttled/backgrounded tab beat or two
-const BEAT_TOLERANCE     = 1.5;
-const BEAT_SLACK_SEC     = 4;   
-const BUDGET_FACTOR      = 1.1;     // … but total credit can never exceed real time x 1.1
-const BUDGET_SLACK_SEC   = 10;
+const MAX_BEAT_GAP_SEC = 40;      // ✅ raised from 25 — tolerate a throttled/backgrounded tab beat or two
+const BEAT_TOLERANCE = 1.5;
+const BEAT_SLACK_SEC = 4;
+const BUDGET_FACTOR = 1.1;     // … but total credit can never exceed real time x 1.1
+const BUDGET_SLACK_SEC = 10;
 
 const mergeRanges = (ranges) => {
   const sorted = ranges.map(r => [Number(r[0]), Number(r[1])]).filter(r => r[1] > r[0]).sort((a, b) => a[0] - b[0]);
@@ -614,21 +632,21 @@ const markChapterHeartbeat = async (req, res) => {
         TrainingProgram.updateOne(
           { _id: record.programId._id, chapters: { $elemMatch: { chapterNo: num, $or: [{ duration: "" }, { duration: { $exists: false } }] } } },
           { $set: { "chapters.$.duration": fmtVideoLen(reportedDuration) } }
-        ).catch(() => {});
+        ).catch(() => { });
       }
       const duration = cp.duration;
       const pos = Math.min(position, duration);
       if (!cp.startedAt) cp.startedAt = new Date(now);
 
       const prevPos = cp.lastPosition || 0;
-      const prevAt  = cp.lastBeatAt ? cp.lastBeatAt.getTime() : null;
+      const prevAt = cp.lastBeatAt ? cp.lastBeatAt.getTime() : null;
 
       if (prevAt !== null) {
         const elapsed = (now - prevAt) / 1000;
         const delta = pos - prevPos;
         const realSinceStart = (now - cp.startedAt.getTime()) / 1000;
         const plausibleStep = elapsed <= MAX_BEAT_GAP_SEC && delta > 0 && delta <= elapsed * BEAT_TOLERANCE + BEAT_SLACK_SEC;
-        const withinBudget  = (cp.playedSeconds || 0) + delta <= realSinceStart * BUDGET_FACTOR + BUDGET_SLACK_SEC;
+        const withinBudget = (cp.playedSeconds || 0) + delta <= realSinceStart * BUDGET_FACTOR + BUDGET_SLACK_SEC;
         if (plausibleStep && withinBudget) {
           cp.watchedRanges = mergeRanges([...(cp.watchedRanges || []), [prevPos, pos]]);
           cp.playedSeconds = (cp.playedSeconds || 0) + delta;
@@ -725,7 +743,7 @@ const markChapterWatchedOnce = async (req, res) => {
       if (doneCount === prog.chapters.length) {
         await ComplianceLog.create({
           employeeId: record.employeeId,
-          programId:  prog._id,
+          programId: prog._id,
           programTitle: prog.title || "",
           action: "score_updated",
           note: `All ${prog.chapters.length} chapters completed — Final Test unlocked`,
@@ -817,7 +835,7 @@ const submitChapterQuiz = async (req, res) => {
     const existing = record.chapterProgress.find(c => c.chapterNo === num);
     if (existing?.watched) {
       // Idempotent, same as markChapterWatched — nothing left to do.
-      return res.json({ success: true, data: { record, score: existing.lastScore ?? 100, passed: true, alreadyCompleted: true } , message: `Chapter ${num} already completed` });
+      return res.json({ success: true, data: { record, score: existing.lastScore ?? 100, passed: true, alreadyCompleted: true }, message: `Chapter ${num} already completed` });
     }
 
     const watchedCount = record.chapterProgress.filter(c => c.watched).length;
@@ -875,7 +893,7 @@ const submitChapterQuiz = async (req, res) => {
     if (!passed) {
       await ComplianceLog.create({
         employeeId: record.employeeId,
-        programId:  prog._id,
+        programId: prog._id,
         programTitle: prog.title || "",
         action: "score_updated",
         note: `Chapter ${num} quiz attempt failed — scored ${score}% (needs ${PASS_THRESHOLD}%)`,
@@ -886,7 +904,7 @@ const submitChapterQuiz = async (req, res) => {
       if (doneCount === prog.chapters.length) {
         await ComplianceLog.create({
           employeeId: record.employeeId,
-          programId:  prog._id,
+          programId: prog._id,
           programTitle: prog.title || "",
           action: "score_updated",
           note: `All ${prog.chapters.length} chapters completed — Final Test unlocked`,
@@ -933,12 +951,12 @@ const requestCertificate = async (req, res) => {
     await record.save();
 
     await createNotification({
-      recipient_id:   "hr_admin_001",
+      recipient_id: "hr_admin_001",
       recipient_role: "hr",
-      type:           "employee",
-      title:          `Certificate Requested — ${record.employeeId?.name || "Employee"} 🎓`,
-      message:        `${record.employeeId?.name || "An employee"} completed "${prog?.title || "a training"}" and requested their certificate.`,
-      link:           "/hr/dashboard/training",
+      type: "employee",
+      title: `Certificate Requested — ${record.employeeId?.name || "Employee"} 🎓`,
+      message: `${record.employeeId?.name || "An employee"} completed "${prog?.title || "a training"}" and requested their certificate.`,
+      link: "/hr/dashboard/training",
     });
 
     res.json({ success: true, data: record, message: "Certificate requested — HR will upload it shortly" });
@@ -967,12 +985,12 @@ const uploadCertificate = async (req, res) => {
     await record.save();
 
     await createNotification({
-      recipient_id:   String(record.employeeId?._id || record.employeeId),
+      recipient_id: String(record.employeeId?._id || record.employeeId),
       recipient_role: "employee",
-      type:           "hr",
-      title:          "Certificate Ready 🎓",
-      message:        `Your certificate for "${record.programId?.title || "your training"}" is ready to download.`,
-      link:           "/employee/training",
+      type: "hr",
+      title: "Certificate Ready 🎓",
+      message: `Your certificate for "${record.programId?.title || "your training"}" is ready to download.`,
+      link: "/employee/training",
     });
 
     res.json({ success: true, data: record, message: "Certificate uploaded" });
@@ -1022,12 +1040,12 @@ const markProgramComplete = async (req, res) => {
     await record.save();
 
     await createNotification({
-      recipient_id:   "hr_admin_001",
+      recipient_id: "hr_admin_001",
       recipient_role: "hr",
-      type:           "employee",
-      title:          `Training Submitted — ${record.employeeId?.name || "Employee"} 📚`,
-      message:        `${record.employeeId?.name || "An employee"} has submitted "${record.programId?.title || "a training"}" for your review.`,
-      link:           "/hr/dashboard/training",
+      type: "employee",
+      title: `Training Submitted — ${record.employeeId?.name || "Employee"} 📚`,
+      message: `${record.employeeId?.name || "An employee"} has submitted "${record.programId?.title || "a training"}" for your review.`,
+      link: "/hr/dashboard/training",
     });
 
     res.json({ success: true, data: record, message: "Submitted for HR review" });
@@ -1126,7 +1144,7 @@ const submitQuiz = async (req, res) => {
 
     await ComplianceLog.create({
       employeeId: record.employeeId,
-      programId:  record.programId?._id,
+      programId: record.programId?._id,
       programTitle: record.programId?.title || "",
       action: "score_updated",
       note: `Quiz submitted — Score: ${score}% — awaiting HR review`,
@@ -1134,12 +1152,12 @@ const submitQuiz = async (req, res) => {
     });
 
     await createNotification({
-      recipient_id:   "hr_admin_001",
+      recipient_id: "hr_admin_001",
       recipient_role: "hr",
-      type:           "employee",
-      title:          `Training Test Submitted — ${record.employeeId?.name || "Employee"} 📚`,
-      message:        `${record.employeeId?.name || "An employee"} scored ${score}% on "${record.programId?.title || "a training"}" and it's ready for your review.`,
-      link:           "/hr/dashboard/training",
+      type: "employee",
+      title: `Training Test Submitted — ${record.employeeId?.name || "Employee"} 📚`,
+      message: `${record.employeeId?.name || "An employee"} scored ${score}% on "${record.programId?.title || "a training"}" and it's ready for your review.`,
+      link: "/hr/dashboard/training",
     });
 
     res.json({
@@ -1162,14 +1180,14 @@ const assignTraining = async (req, res) => {
     if (!employeeId || !programId)
       return res.status(400).json({ success: false, message: "employeeId and programId required" });
 
-    const emp  = await Employee.findById(employeeId);
+    const emp = await Employee.findById(employeeId);
     if (!emp) return res.status(404).json({ success: false, message: "Employee not found" });
 
     const prog = await TrainingProgram.findById(programId);
     if (!prog) return res.status(404).json({ success: false, message: "Program not found" });
 
     // Check if already assigned
-    const exists = await EmployeeTraining.findOne({ employeeId, programId, status: { $nin: ["completed","waived"] } });
+    const exists = await EmployeeTraining.findOne({ employeeId, programId, status: { $nin: ["completed", "waived"] } });
     if (exists) return res.status(409).json({ success: false, message: "Already assigned and not yet completed" });
 
     const record = await EmployeeTraining.create({
@@ -1178,7 +1196,7 @@ const assignTraining = async (req, res) => {
       assignedDate: new Date(),
       dueDate: dueDate || null,
       notes: notes || "",
-      addedBy: addedBy || "HR",
+      addedBy: req.actor?.name || addedBy || "HR",
     });
 
     // Log compliance
@@ -1187,18 +1205,18 @@ const assignTraining = async (req, res) => {
       programTitle: prog.title,
       action: "assigned",
       note: `Assigned to ${emp.name}`,
-      addedBy: addedBy || "HR",
+      addedBy: req.actor?.name || addedBy || "HR",
     });
 
-    await record.populate(["employeeId","programId"]);
+    await record.populate(["employeeId", "programId"]);
 
     await createNotification({
-      recipient_id:   employeeId,
+      recipient_id: employeeId,
       recipient_role: "employee",
-      type:           "hr",
-      title:          "New Training Assigned 📚",
-      message:        `"${prog.title}" has been assigned to you. Check your training roadmap.`,
-      link:           "/employee/training",
+      type: "hr",
+      title: "New Training Assigned 📚",
+      message: `"${prog.title}" has been assigned to you. Check your training roadmap.`,
+      link: "/employee/training",
     });
 
     res.status(201).json({ success: true, data: record, message: "Training assigned" });
@@ -1220,19 +1238,19 @@ const assignBulk = async (req, res) => {
     const results = { assigned: [], skipped: [] };
 
     for (const empId of employeeIds) {
-      const exists = await EmployeeTraining.findOne({ employeeId: empId, programId, status: { $nin: ["completed","waived"] } });
+      const exists = await EmployeeTraining.findOne({ employeeId: empId, programId, status: { $nin: ["completed", "waived"] } });
       if (exists) { results.skipped.push(empId); continue; }
 
-      await EmployeeTraining.create({ employeeId: empId, programId, dueDate: dueDate || null, addedBy: addedBy || "HR" });
-      await ComplianceLog.create({ employeeId: empId, programId, programTitle: prog.title, action: "assigned", addedBy: addedBy || "HR" });
+      await EmployeeTraining.create({ employeeId: empId, programId, dueDate: dueDate || null, addedBy: req.actor?.name || addedBy || "HR", });
+      await ComplianceLog.create({ employeeId: empId, programId, programTitle: prog.title, action: "assigned", addedBy: req.actor?.name || addedBy || "HR", });
 
       await createNotification({
-        recipient_id:   empId,
+        recipient_id: empId,
         recipient_role: "employee",
-        type:           "hr",
-        title:          "New Training Assigned 📚",
-        message:        `"${prog.title}" has been assigned to you. Check your training roadmap.`,
-        link:           "/employee/training",
+        type: "hr",
+        title: "New Training Assigned 📚",
+        message: `"${prog.title}" has been assigned to you. Check your training roadmap.`,
+        link: "/employee/training",
       });
 
       results.assigned.push(empId);
@@ -1249,8 +1267,8 @@ const getAllRecords = async (req, res) => {
     const { employeeId, programId, status, department } = req.query;
     const filter = {};
     if (employeeId) filter.employeeId = employeeId;
-    if (programId)  filter.programId  = programId;
-    if (status)     filter.status     = status;
+    if (programId) filter.programId = programId;
+    if (status) filter.status = status;
 
     let records = await EmployeeTraining.find(filter)
       .populate("employeeId", "name department designation level")
@@ -1272,12 +1290,12 @@ const getAllRecords = async (req, res) => {
 // ── GET /api/training/stats ───────────────────────────────────
 const getStats = async (req, res) => {
   try {
-    const total       = await EmployeeTraining.countDocuments();
-    const completed   = await EmployeeTraining.countDocuments({ status: "completed" });
-    const pending     = await EmployeeTraining.countDocuments({ status: "pending" });
-    const inProgress  = await EmployeeTraining.countDocuments({ status: "in_progress" });
-    const overdue     = await EmployeeTraining.countDocuments({ status: "overdue" });
-    const certified   = await EmployeeTraining.countDocuments({ certificationIssued: true });
+    const total = await EmployeeTraining.countDocuments();
+    const completed = await EmployeeTraining.countDocuments({ status: "completed" });
+    const pending = await EmployeeTraining.countDocuments({ status: "pending" });
+    const inProgress = await EmployeeTraining.countDocuments({ status: "in_progress" });
+    const overdue = await EmployeeTraining.countDocuments({ status: "overdue" });
+    const certified = await EmployeeTraining.countDocuments({ certificationIssued: true });
 
     // Avg assessment score
     const scored = await EmployeeTraining.find({ assessmentScore: { $ne: null } });
@@ -1292,7 +1310,7 @@ const getStats = async (req, res) => {
     const byDept = await EmployeeTraining.aggregate([
       { $lookup: { from: "employees", localField: "employeeId", foreignField: "_id", as: "emp" } },
       { $unwind: "$emp" },
-      { $group: { _id: "$emp.department", total: { $sum: 1 }, completed: { $sum: { $cond: [{ $eq: ["$status","completed"] }, 1, 0] } } } },
+      { $group: { _id: "$emp.department", total: { $sum: 1 }, completed: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } } } },
       { $sort: { total: -1 } },
     ]);
 
@@ -1382,7 +1400,7 @@ const updateRecord = async (req, res) => {
         const stillFuture = !newDue || (() => { const e = new Date(newDue); e.setHours(23, 59, 59, 999); return e >= new Date(); })();
         if (stillFuture) {
           if (record.isLocked && record.lockReason === "auto_due_date") {
-            updateFields.isLocked   = false;
+            updateFields.isLocked = false;
             updateFields.lockReason = null;
           }
           updateFields.$unset = { unlockedAt: "", unlockedBy: "" };
@@ -1404,7 +1422,7 @@ const updateRecord = async (req, res) => {
       const fmt = (d) => d ? new Date(d).toLocaleDateString("en-IN") : "no deadline";
       await ComplianceLog.create({
         employeeId: record.employeeId,
-        programId:  record.programId?._id,
+        programId: record.programId?._id,
         programTitle: record.programId?.title || "",
         action: "assigned", // reuse existing enum value; note carries the real context
         note: `Due date changed from ${fmt(record.dueDate)} to ${fmt(updateFields.dueDate)}`,
@@ -1416,7 +1434,7 @@ const updateRecord = async (req, res) => {
     if (status) {
       await ComplianceLog.create({
         employeeId: record.employeeId,
-        programId:  record.programId?._id,
+        programId: record.programId?._id,
         programTitle: record.programId?.title || "",
         action: status === "completed" ? "completed" : status === "in_progress" ? "started" : status,
         note: notes || progressNote || "",
@@ -1426,44 +1444,44 @@ const updateRecord = async (req, res) => {
       // HR confirmed this training as complete — notify the employee
       if (status === "completed") {
         await createNotification({
-          recipient_id:   record.employeeId,
+          recipient_id: record.employeeId,
           recipient_role: "employee",
-          type:           "hr",
-          title:          "Training Completed ✅",
-          message:        `HR has confirmed "${record.programId?.title || "your training"}" as complete.${assessmentScore !== undefined ? ` Score: ${assessmentScore}%.` : ""}`,
-          link:           "/employee/training",
+          type: "hr",
+          title: "Training Completed ✅",
+          message: `HR has confirmed "${record.programId?.title || "your training"}" as complete.${assessmentScore !== undefined ? ` Score: ${assessmentScore}%.` : ""}`,
+          link: "/employee/training",
         });
       }
 
       // HR sent the record back for retraining — let the employee know
       if (status === "retrain") {
         await createNotification({
-          recipient_id:   record.employeeId,
+          recipient_id: record.employeeId,
           recipient_role: "employee",
-          type:           "hr",
-          title:          "Retraining Required 🔁",
-          message:        `HR has asked you to retrain on "${record.programId?.title || "your training"}". Please go through the material again and retake the test.`,
-          link:           "/employee/training",
+          type: "hr",
+          title: "Retraining Required 🔁",
+          message: `HR has asked you to retrain on "${record.programId?.title || "your training"}". Please go through the material again and retake the test.`,
+          link: "/employee/training",
         });
       }
     }
 
-          // HR marked this record as absent/not attended (offline session exception)
-      if (status === "absent") {
-        await createNotification({
-          recipient_id:   record.employeeId,
-          recipient_role: "employee",
-          type:           "hr",
-          title:          "Marked Absent",
-          message:        `HR has marked you absent / not attended for "${record.programId?.title || "your training"}". Please reach out to HR to reschedule.`,
-          link:           "/employee/training",
-        });
-      }
+    // HR marked this record as absent/not attended (offline session exception)
+    if (status === "absent") {
+      await createNotification({
+        recipient_id: record.employeeId,
+        recipient_role: "employee",
+        type: "hr",
+        title: "Marked Absent",
+        message: `HR has marked you absent / not attended for "${record.programId?.title || "your training"}". Please reach out to HR to reschedule.`,
+        link: "/employee/training",
+      });
+    }
 
     if (assessmentScore !== undefined) {
       await ComplianceLog.create({
         employeeId: record.employeeId,
-        programId:  record.programId?._id,
+        programId: record.programId?._id,
         programTitle: record.programId?.title || "",
         action: "score_updated",
         note: `Score: ${assessmentScore}%`,
@@ -1473,7 +1491,7 @@ const updateRecord = async (req, res) => {
     if (certificationIssued === true && !record.certificationIssued) {
       await ComplianceLog.create({
         employeeId: record.employeeId,
-        programId:  record.programId?._id,
+        programId: record.programId?._id,
         programTitle: record.programId?.title || "",
         action: "cert_issued",
         note: "Certification issued by HR after review",
@@ -1501,7 +1519,7 @@ const deleteRecord = async (req, res) => {
 
     await ComplianceLog.create({
       employeeId: record.employeeId?._id || record.employeeId,
-      programId:  record.programId?._id,
+      programId: record.programId?._id,
       programTitle: record.programId?.title || "",
       action: "assigned", // reuse existing enum value; note field carries the real context
       note: `Training record removed by HR (was: ${record.status})`,
@@ -1521,15 +1539,15 @@ const lockRecord = async (req, res) => {
     const record = await EmployeeTraining.findById(req.params.id).populate("employeeId", "name").populate("programId", "title");
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
 
-    record.isLocked   = true;
+    record.isLocked = true;
     record.lockReason = "manual";
-    record.lockedAt   = new Date();
-    record.lockedBy   = addedBy || "HR";
+    record.lockedAt = new Date();
+    record.lockedBy = addedBy || "HR";
     await record.save();
 
     await ComplianceLog.create({
       employeeId: record.employeeId?._id || record.employeeId,
-      programId:  record.programId?._id,
+      programId: record.programId?._id,
       programTitle: record.programId?.title || "",
       action: "overdue", // reuse existing enum value; note carries the real context
       note: reason ? `Course locked by HR — ${reason}` : "Course locked by HR",
@@ -1537,12 +1555,12 @@ const lockRecord = async (req, res) => {
     });
 
     await createNotification({
-      recipient_id:   record.employeeId?._id || record.employeeId,
+      recipient_id: record.employeeId?._id || record.employeeId,
       recipient_role: "employee",
-      type:           "hr",
-      title:          "Training Locked 🔒",
-      message:        `HR has locked "${record.programId?.title || "your training"}". Contact HR to get it unlocked.`,
-      link:           "/employee/training",
+      type: "hr",
+      title: "Training Locked 🔒",
+      message: `HR has locked "${record.programId?.title || "your training"}". Contact HR to get it unlocked.`,
+      link: "/employee/training",
     });
 
     res.json({ success: true, data: record, message: "Training locked" });
@@ -1560,7 +1578,7 @@ const unlockRecord = async (req, res) => {
     const record = await EmployeeTraining.findById(req.params.id).populate("employeeId", "name").populate("programId", "title");
     if (!record) return res.status(404).json({ success: false, message: "Record not found" });
 
-    record.isLocked   = false;
+    record.isLocked = false;
     record.lockReason = null;
     record.unlockedAt = new Date();
     record.unlockedBy = addedBy || "HR";
@@ -1568,7 +1586,7 @@ const unlockRecord = async (req, res) => {
 
     await ComplianceLog.create({
       employeeId: record.employeeId?._id || record.employeeId,
-      programId:  record.programId?._id,
+      programId: record.programId?._id,
       programTitle: record.programId?.title || "",
       action: "overdue",
       note: "Course unlocked by HR",
@@ -1576,12 +1594,12 @@ const unlockRecord = async (req, res) => {
     });
 
     await createNotification({
-      recipient_id:   record.employeeId?._id || record.employeeId,
+      recipient_id: record.employeeId?._id || record.employeeId,
       recipient_role: "employee",
-      type:           "hr",
-      title:          "Training Unlocked ✅",
-      message:        `HR has unlocked "${record.programId?.title || "your training"}". You can continue now.`,
-      link:           "/employee/training",
+      type: "hr",
+      title: "Training Unlocked ✅",
+      message: `HR has unlocked "${record.programId?.title || "your training"}". You can continue now.`,
+      link: "/employee/training",
     });
 
     res.json({ success: true, data: record, message: "Training unlocked" });
@@ -1614,7 +1632,7 @@ const markAllComplete = async (req, res) => {
       record.status = "completed";
       record.completedDate = now;
       if (!record.startedDate) record.startedDate = now;
-       record.progressLog.push({ note: "Marked complete via HR bulk 'Finish Training'", addedBy: req.body?.addedBy || "HR" });
+      record.progressLog.push({ note: "Marked complete via HR bulk 'Finish Training'", addedBy: req.body?.addedBy || "HR" });
       await record.save();
 
       await ComplianceLog.create({
@@ -1627,12 +1645,12 @@ const markAllComplete = async (req, res) => {
       });
 
       await createNotification({
-        recipient_id:   record.employeeId?._id || record.employeeId,
+        recipient_id: record.employeeId?._id || record.employeeId,
         recipient_role: "employee",
-        type:           "hr",
-        title:          "Training Completed ✅",
-        message:        `HR has marked "${prog.title}" as complete for you.`,
-        link:           "/employee/training",
+        type: "hr",
+        title: "Training Completed ✅",
+        message: `HR has marked "${prog.title}" as complete for you.`,
+        link: "/employee/training",
       });
 
       updated++;
@@ -1672,11 +1690,11 @@ const getMyTrainings = async (req, res) => {
     await Promise.all(records.map(r => autoLockIfOverdue(r))); // ✅ NEW — reflect due-date auto-lock before the employee sees it
 
     const stats = {
-      total:     records.length,
+      total: records.length,
       completed: records.filter(r => r.status === "completed").length,
-      pending:   records.filter(r => r.status === "pending").length,
-      inProgress:records.filter(r => r.status === "in_progress").length,
-      overdue:   records.filter(r => r.status === "overdue").length,
+      pending: records.filter(r => r.status === "pending").length,
+      inProgress: records.filter(r => r.status === "in_progress").length,
+      overdue: records.filter(r => r.status === "overdue").length,
       certified: records.filter(r => r.certificationIssued).length,
     };
 
@@ -1702,7 +1720,7 @@ const markStarted = async (req, res) => {
 
     await ComplianceLog.create({
       employeeId: record.employeeId,
-      programId:  record.programId?._id,
+      programId: record.programId?._id,
       programTitle: record.programId?.title || "",
       action: "started",
       addedBy: "Employee",
@@ -1736,7 +1754,7 @@ const updateCompetencyLevel = async (req, res) => {
 
     await ComplianceLog.create({
       employeeId: record.employeeId,
-      programId:  record.programId._id,
+      programId: record.programId._id,
       programTitle: record.programId.title,
       action: "score_updated",
       note: `Competency set to ${competencyLevel}`,

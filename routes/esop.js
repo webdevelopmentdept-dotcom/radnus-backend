@@ -2,6 +2,8 @@ const express = require('express');
 const router  = express.Router();
 const Esop    = require('../models/Esop');
 const { createNotification } = require('../helpers/notificationHelper');
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 
 const GRADE_CONFIG = {
   L6:  { designation: 'Senior Manager',  min: 0.05, max: 0.10 },
@@ -12,7 +14,7 @@ const GRADE_CONFIG = {
 };
 
 // GET all ESOP grants
-router.get('/', async (req, res) => {
+router.get('/', auth, hrOnly, async (req, res) => {
   try {
     const { grade, status } = req.query;
     const filter = {};
@@ -29,7 +31,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET summary
-router.get('/summary', async (req, res) => {
+router.get('/summary', auth, hrOnly, async (req, res) => {
   try {
     const [total, granted, vesting, vested, exercised, forfeited] = await Promise.all([
       Esop.countDocuments(),
@@ -55,7 +57,7 @@ router.get('/summary', async (req, res) => {
 });
 
 // GET employee ESOP
-router.get('/employee/:employeeId', async (req, res) => {
+router.get('/employee/:employeeId', auth, hrOnly, async (req, res) => {
   try {
     const grants = await Esop.find({ employee_id: req.params.employeeId })
       .sort({ createdAt: -1 });
@@ -66,7 +68,7 @@ router.get('/employee/:employeeId', async (req, res) => {
 });
 
 // POST grant ESOP
-router.post('/', async (req, res) => {
+router.post('/', auth, hrOnly, async (req, res) => {
   try {
     const {
       employee_id, grade, designation,
@@ -108,7 +110,7 @@ router.post('/', async (req, res) => {
 });
 
 // PATCH update status
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', auth, hrOnly, async (req, res) => {
   try {
     const { status, exercised_options, payout_method } = req.body;
     const esop = await Esop.findById(req.params.id);
@@ -127,7 +129,7 @@ router.patch('/:id/status', async (req, res) => {
 });
 
 // DELETE
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     await Esop.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'ESOP grant deleted' });

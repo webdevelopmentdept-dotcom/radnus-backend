@@ -7,11 +7,13 @@ const FeedbackCycle = require("../models/Feedbackcycle");
 const Notification = require("../models/Notification");
 const FeedbackTask = require("../models/FeedbackTask");
 const mongoose = require("mongoose");
+ const auth = require("../middleware/auth"); 
+ const hrOnly = require("../middleware/hrOnly");
 // ─────────────────────────────────────────
 // POST /api/feedback-nominations
 // Submit nominations for a cycle
 // ─────────────────────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const { cycleId, nominations } = req.body;
 
@@ -138,7 +140,7 @@ await FeedbackTask.deleteMany({});
 // GET /api/feedback-nominations/:cycleId
 // Get nominations for a specific cycle
 // ─────────────────────────────────────────
-router.get("/:cycleId", async (req, res) => {
+router.get("/:cycleId", auth, hrOnly, async (req, res) => {
   try {
     const nominations = await FeedbackNomination.find({ cycleId: req.params.cycleId })
       .populate("employeeId", "name department")
@@ -155,7 +157,7 @@ router.get("/:cycleId", async (req, res) => {
 // DELETE /api/feedback-nominations/:cycleId
 // Delete all nominations + tasks for a cycle
 // ─────────────────────────────────────────
-router.delete("/:cycleId", async (req, res) => {
+router.delete("/:cycleId", auth, hrOnly, async (req, res) => {
   try {
     await FeedbackNomination.deleteMany({ cycleId: req.params.cycleId });
     await FeedbackTask.deleteMany({ cycleId: req.params.cycleId });
@@ -167,7 +169,7 @@ router.delete("/:cycleId", async (req, res) => {
 
 
 // ✅ GET /api/feedback-nominations — Dashboard total count
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const nominations = await FeedbackNomination.find();
     res.json({ success: true, total: nominations.length, data: nominations });

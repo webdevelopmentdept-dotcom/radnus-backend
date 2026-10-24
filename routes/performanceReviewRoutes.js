@@ -9,12 +9,12 @@ const mongoose = require('mongoose');
 const Employee = require('../models/Employee');
 const EmploymentDetails = require('../models/EmploymentDetails');
 const { periodToAbs, buildCycles, MIN_PER_MONTH, CYCLE_LEN, CYCLE_REQUIRED } = require('../helpers/kpiCycleLogic');
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 
 // ✅ FIX: Model already loaded-ஆ இருந்தா reuse பண்ணு — OverwriteModelError இல்லை
 const SelfAssessment = mongoose.models.SelfAssessment ||
   require('../models/SelfAssessment'); 
-
-
 
 const calcScore = (items) => {
   if (!items || items.length === 0) return 0;
@@ -50,7 +50,7 @@ const getRating = (score) => {
   return 'Unsatisfactory';
 };
 
-router.post('/', async (req, res) => {
+router.post('/', auth, hrOnly, async (req, res) => {
   try {
     const {
       employee_id, assignment_id, self_assessment_id,
@@ -87,7 +87,7 @@ router.post('/', async (req, res) => {
             status: 'reviewed', 
             final_score: final_score, 
             reviewed_at: new Date(),
-            hr_overall_comment: hr_comment  // ✅ HR comment now saved!
+            hr_overall_comment: hr_comment 
           }
         );
       }
@@ -143,7 +143,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.get('/all', async (req, res) => {
+router.get('/all', auth, hrOnly, async (req, res) => {
   try {
     const reviews = await PerformanceReview.find()
       .populate('employee_id', 'name email department designation')
@@ -156,24 +156,6 @@ router.get('/all', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/performance-reviews/kpi-compliance            (optional: ?asOf=2026-09)
-//
-// Employee-wise 3-month KPI CYCLES (not calendar quarters). See
-// helpers/kpiCycleLogic.js for the full rules. In short:
-//   • Cycle 1 starts in the employee's first KPI month (earliest KpiAssignment.period
-//     or finalized review month).
-//   • KPI applies from the 2nd month after joining (anchor >= joining month + 1).
-//   • Each cycle = 3 months, needs a combined total >= 150% (50% x 3).
-//   • When the 3rd month is reviewed the cycle closes (status final) and the
-//     next cycle starts the following month.
-//
-// Response: one row per active employee with ALL of their cycles up to the
-// current one, so the UI can show current / previous / cycle N.
-//
-// Must be declared BEFORE router.get('/:employeeId') or it will be shadowed.
-// ─────────────────────────────────────────────────────────────────────────────
-
 // date_of_joining is stored as a string (normally "YYYY-MM-DD")
 const parseJoinDate = (val) => {
   if (!val) return null;
@@ -184,7 +166,7 @@ const parseJoinDate = (val) => {
   return { y: dt.getFullYear(), m: dt.getMonth(), d: dt.getDate() };
 };
 
-router.get('/kpi-compliance', async (req, res) => {
+router.get('/kpi-compliance', auth, hrOnly, async (req, res) => {
   try {
     // "today" as an absolute month number; ?asOf=YYYY-MM lets you simulate another month
     const now = new Date();
@@ -284,7 +266,7 @@ router.get('/:employeeId', async (req, res) => {
 });
 
 // ✅ GET /api/performance-reviews — Dashboard total count
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const reviews = await PerformanceReview.find();
     res.json({ success: true, total: reviews.length, data: reviews });

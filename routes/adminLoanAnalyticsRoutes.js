@@ -2,12 +2,9 @@ const express = require("express");
 const router = express.Router();
 const LoanCustomer = require("../models/LoanCustomer");
 const { buildModeFilter } = require("../utils/loanMode");
+const auth = require("../middleware/auth"); 
+const adminOnly = require("../middleware/adminOnly");  
 
-// NOTE: Same pattern as adminLoanProcessRoutes.js — Admin-only, gated on the
-// frontend via localStorage "admin-role". No JWT here (consistent with rest
-// of the admin loan-process module).
-
-// Order matters for the funnel — this is the real lifecycle sequence.
 const STAGE_ORDER = [
   { key: "cibilVerification", label: "CIBIL Verification" },
   { key: "documentCollection", label: "Document Collection" },
@@ -26,7 +23,7 @@ const STAGE_ORDER = [
 //  One combined payload for the whole Loan Analytics page.
 //  Optional query: ?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD  (applies to loanDate)
 // ══════════════════════════════════════════════════════
-router.get("/overview", async (req, res) => {
+router.get("/overview", auth, adminOnly, async (req, res) => {
   try {
     const match = {};
     if (req.query.fromDate || req.query.toDate) {

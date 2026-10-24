@@ -5,6 +5,8 @@ const IncentiveResult     = require("../models/IncentiveResult");
 const IncentivePlan       = require("../models/IncentivePlan");
 const IncentiveAssignment = require("../models/IncentiveAssignment");
 const { createNotification } = require("../helpers/notificationHelper");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ── Shared populate fields ────────────────────────────────────────────────────
 const PLAN_FIELDS = [
@@ -283,7 +285,7 @@ async function syncResultState(result, plan) {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/incentive-results
 // ─────────────────────────────────────────────────────────────────────────────
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const results = await IncentiveResult.find()
       .populate("employee_id", EMP_FIELDS)
@@ -304,18 +306,6 @@ router.get("/", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/incentive-results/employee/:employeeId
 // ─────────────────────────────────────────────────────────────────────────────
-// router.get("/employee/:employeeId", async (req, res) => {
-//   try {
-//     const results = await IncentiveResult.find({ employee_id: req.params.employeeId })
-//       .populate("plan_id", PLAN_FIELDS)
-//       .populate("employee_id", EMP_FIELDS)
-//       .sort({ createdAt: -1 });
-
-//     res.json({ success: true, data: results });
-//   } catch (err) {
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// });
 
 router.get("/employee/:empId", async (req, res) => {
   try {
@@ -342,7 +332,7 @@ router.get("/employee/:empId", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/incentive-results/generate  ← Bulk generate for a period
 // ─────────────────────────────────────────────────────────────────────────────
-router.post("/generate", async (req, res) => {
+router.post("/generate", auth, hrOnly, async (req, res) => {
   try {
     const { period } = req.body;
     if (!period) return res.status(400).json({ success: false, message: "period required" });
@@ -451,7 +441,7 @@ router.post("/generate", async (req, res) => {
 });
 
 // ── GET /api/incentive-results/pending-reviews ───────────────────────────────
-router.get("/pending-reviews", async (req, res) => {
+router.get("/pending-reviews", auth, hrOnly, async (req, res) => {
   try {
     // 🆕 First, catch any standalone results whose period just locked
     // (nobody opened the app to trigger the sync yet) and flip them ready.
@@ -497,7 +487,7 @@ router.get("/pending-reviews", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/incentive-results/:id
 // ─────────────────────────────────────────────────────────────────────────────
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, hrOnly, async (req, res) => {
   try {
     const result = await IncentiveResult.findById(req.params.id)
       .populate("employee_id", EMP_FIELDS)
@@ -512,7 +502,7 @@ router.get("/:id", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/incentive-results
 // ─────────────────────────────────────────────────────────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const {
       employee_id, plan_id, assignment_id,
@@ -578,7 +568,7 @@ router.post("/", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/incentive-results/:id  ← approve / mark paid / recalculate
 // ─────────────────────────────────────────────────────────────────────────────
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, hrOnly, async (req, res) => {
   try {
     const allowed = ["pending", "approved", "paid"];
     if (req.body.status && !allowed.includes(req.body.status))
@@ -620,6 +610,14 @@ router.put("/:id", async (req, res) => {
         req.body.paid_at = new Date();
       }
     }
+
+    if (req.body.status === "approved") {
+  req.body.approved_by_name = req.actor?.name || "";
+  req.body.approved_at = new Date();
+}
+if (req.body.status === "paid") {
+  req.body.paid_by_name = req.actor?.name || "";
+}
 
    const result = await IncentiveResult.findByIdAndUpdate(
       req.params.id,
@@ -754,7 +752,7 @@ router.post("/:id/add-entry", async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════
 
 // ── POST /api/incentive-results/:id/entries/:entryId/approve ──
-router.post("/:id/entries/:entryId/approve", async (req, res) => {
+router.post("/:id/entries/:entryId/approve", auth, hrOnly, async (req, res) => {
   try {
     const { remark } = req.body;
     const result = await IncentiveResult.findById(req.params.id).populate("plan_id");
@@ -768,6 +766,7 @@ router.post("/:id/entries/:entryId/approve", async (req, res) => {
     entry.status      = "approved";
     entry.approved_at = new Date();
     entry.hr_remark    = remark || "";
+    entry.approved_by_name = req.actor?.name || "";
 
     await result.save();
 
@@ -787,7 +786,7 @@ router.post("/:id/entries/:entryId/approve", async (req, res) => {
 });
 
 // ── POST /api/incentive-results/:id/entries/:entryId/pay ──
-router.post("/:id/entries/:entryId/pay", async (req, res) => {
+router.post("/:id/entries/:entryId/pay", auth, hrOnly, async (req, res) => {
   try {
     const { paid_date } = req.body;   // 🆕 optional — HR can backdate/forward the paid date
     const result = await IncentiveResult.findById(req.params.id).populate("plan_id");
@@ -813,7 +812,7 @@ router.post("/:id/entries/:entryId/pay", async (req, res) => {
     const paidEntries = result.sale_entries.filter(e => e.status === "paid");
     result.calculated_amount        = paidEntries.reduce((s, e) => s + (Number(e.payout) || 0), 0);
     result.employee_submitted_value = result.sale_entries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-
+    
     // 🆕 FIX: Daily-mode plan → don't close out the whole month just because
     // ONE entry got paid. Keep result.status = "pending" so the employee can
     // keep adding entries all month. Only monthly-mode plans (final-submit
@@ -824,7 +823,7 @@ router.post("/:id/entries/:entryId/pay", async (req, res) => {
     } else {
       result.paid_at = new Date(); // 🆕 track "last paid" timestamp, but keep status open
     }
-
+entry.paid_by_name = req.actor?.name || "";
     await result.save();
 
     await createNotification({
@@ -843,7 +842,7 @@ router.post("/:id/entries/:entryId/pay", async (req, res) => {
 });
 
 // ── POST /api/incentive-results/:id/entries/:entryId/reject ──
-router.post("/:id/entries/:entryId/reject", async (req, res) => {
+router.post("/:id/entries/:entryId/reject", auth, hrOnly, async (req, res) => {
   try {
     const { remark } = req.body;
     const result = await IncentiveResult.findById(req.params.id);
@@ -856,6 +855,7 @@ router.post("/:id/entries/:entryId/reject", async (req, res) => {
 
     entry.status     = "rejected";
     entry.hr_remark  = remark || "";
+    entry.rejected_by_name = req.actor?.name || "";
     await result.save();
 
     await createNotification({
@@ -927,7 +927,7 @@ router.get("/:id/entries", async (req, res) => {
 });
 
 // ── POST /api/incentive-results/:id/hr-entry  (HR add/correct — bypasses lock) ──
-router.post("/:id/hr-entry", async (req, res) => {
+router.post("/:id/hr-entry", auth, hrOnly, async (req, res) => {
   try {
     const { amount, date, note } = req.body;
     if (!amount || Number(amount) <= 0)
@@ -1068,7 +1068,7 @@ router.post("/:id/final-submit", async (req, res) => {
 
 
 // ── POST /api/incentive-results/:id/hr-approve ───────────────────────────────
-router.post("/:id/hr-approve", async (req, res) => {
+router.post("/:id/hr-approve", auth, hrOnly, async (req, res) => {
   try {
     const { calculated_amount, remark } = req.body;
     const result = await IncentiveResult.findById(req.params.id);
@@ -1078,6 +1078,7 @@ router.post("/:id/hr-approve", async (req, res) => {
     result.calculated_amount = Number(calculated_amount) || 0;
     result.status            = "approved";
     result.hr_review_remark  = remark || "";
+    result.hr_actioned_by_name = req.actor?.name || "";
     await result.save();
 
     // 🆕 Notify employee — approved
@@ -1098,7 +1099,7 @@ router.post("/:id/hr-approve", async (req, res) => {
 });
 
 // ── POST /api/incentive-results/:id/hr-reject ────────────────────────────────
-router.post("/:id/hr-reject", async (req, res) => {
+router.post("/:id/hr-reject", auth, hrOnly, async (req, res) => {
   try {
     const { remark } = req.body;
     const result = await IncentiveResult.findById(req.params.id);
@@ -1108,6 +1109,7 @@ router.post("/:id/hr-reject", async (req, res) => {
     result.hr_review_requested = false;
     result.hr_review_remark    = remark || "";
     result.status              = "pending";
+    result.hr_actioned_by_name = req.actor?.name || "";
     await result.save();
 
     // 🆕 Notify employee — rejected
@@ -1130,7 +1132,7 @@ router.post("/:id/hr-reject", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/incentive-results/:id
 // ─────────────────────────────────────────────────────────────────────────────
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const result = await IncentiveResult.findByIdAndDelete(req.params.id);
     if (!result) return res.status(404).json({ success: false, message: "Not found" });
