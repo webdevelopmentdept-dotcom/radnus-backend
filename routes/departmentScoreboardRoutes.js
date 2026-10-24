@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const KpiAssignment = require('../models/KpiAssignment');
 const DailyLog = require('../models/DailyLog');
+ const auth = require("../middleware/auth"); 
+ const hrOnly = require("../middleware/hrOnly");
 
 // ── /debug route (unchanged) ──────────────────────────────────────────────────
-router.get('/debug', async (req, res) => {
+router.get('/debug',  auth, hrOnly, async (req, res) => {
   const { period } = req.query;
 
   const assignments = await KpiAssignment.find({
@@ -27,7 +29,7 @@ router.get('/debug', async (req, res) => {
 });
 
 // ── Main scoreboard route ─────────────────────────────────────────────────────
-router.get('/', async (req, res) => {
+router.get('/',  auth, hrOnly, async (req, res) => {
   try {
     const { department, period } = req.query;
 

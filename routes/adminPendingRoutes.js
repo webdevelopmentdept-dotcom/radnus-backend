@@ -3,9 +3,10 @@ const router = express.Router();
 const Employee = require("../models/Employee");
 const Document = require("../models/Document");
 const { createNotification } = require("../helpers/notificationHelper");
-
+const auth = require("../middleware/auth");
+const adminOnly = require("../middleware/adminOnly");
 // ================= ADMIN PENDING LIST =================
-router.get("/pending", async (req, res) => {
+router.get("/pending", auth, adminOnly, async (req, res) => {
   try {
     const employees = await Employee.find({ status: "admin_pending" });
 
@@ -39,7 +40,7 @@ router.get("/pending", async (req, res) => {
 });
 
 // ================= ADMIN APPROVE (FINAL) =================
-router.put("/approve/:id", async (req, res) => {
+router.put("/approve/:id", auth, adminOnly, async (req, res) => {
   try {
     const { remarks } = req.body;   // ✅ இது சேர்க்கணும்
 
@@ -70,7 +71,7 @@ router.put("/approve/:id", async (req, res) => {
 });
 
 // ================= ADMIN REJECT =================
-router.put("/reject/:id", async (req, res) => {
+router.put("/reject/:id", auth, adminOnly, async (req, res) => {
   try {
     const { remarks } = req.body;
 

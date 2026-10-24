@@ -4,9 +4,11 @@ const Job = require("../models/Job");
 const Notification = require("../models/Notification");
 const Employee = require("../models/Employee");
 const HR_ID = "hr_admin_001";   
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 
 // HR — all jobs
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const jobs = await Job.find().sort({ posted: -1 });
     res.json({ success: true, jobs });
@@ -16,7 +18,7 @@ router.get("/", async (req, res) => {
 });
 
 // Create job
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const job = new Job(req.body);
     await job.save();
@@ -27,7 +29,7 @@ router.post("/", async (req, res) => {
 });
 
 // Update job (edit + status change)
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, hrOnly, async (req, res) => {
   try {
     const updated = await Job.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!updated) return res.status(404).json({ success: false, msg: "Not found" });
@@ -38,7 +40,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // Delete job
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     await Job.findByIdAndDelete(req.params.id);
     res.json({ success: true, msg: "Job deleted!" });
@@ -145,7 +147,7 @@ router.post("/:id/apply", async (req, res) => {
 });
 
 // HR updates an internal applicant's status
-router.put("/:id/applicant-status", async (req, res) => {
+router.put("/:id/applicant-status", auth, hrOnly, async (req, res) => {
   try {
     const { employeeId, status, rejectionReason } = req.body;
     if (!employeeId || !status) {
@@ -164,6 +166,10 @@ router.put("/:id/applicant-status", async (req, res) => {
 
     applicant.status = status;
     applicant.rejectionReason = rejectionReason || undefined;
+
+    applicant.status_by_name = req.actor?.name || "";
+applicant.status_at = new Date();
+
 
     await job.save();
 
@@ -201,7 +207,7 @@ router.put("/:id/applicant-status", async (req, res) => {
 });
 
 // HR removes an internal applicant from a job
-router.delete("/:id/applicant/:employeeId", async (req, res) => {
+router.delete("/:id/applicant/:employeeId", auth, hrOnly, async (req, res) => {
   try {
     const { id, employeeId } = req.params;
     const job = await Job.findById(id);
@@ -250,7 +256,5 @@ router.delete("/:id/withdraw/:employeeId", async (req, res) => {
     res.status(500).json({ success: false, msg: "Server error" });
   }
 });
-
-module.exports = router;
 
 module.exports = router;

@@ -2,6 +2,8 @@ const express = require('express');
 const router  = express.Router();
 const ImpactBonus = require('../models/ImpactBonus');
 const { createNotification } = require('../helpers/notificationHelper');
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 
 const TIER_CONFIG = {
   tier1_local:    { label:'Local Impact',          min:5000,   max:15000  },
@@ -17,7 +19,7 @@ const SCORING_CRITERIA = {
 };
 
 // GET all submissions
-router.get('/', async (req, res) => {
+router.get('/', auth, hrOnly, async (req, res) => {
   try {
     const { status, impact_tier, period } = req.query;
     const filter = {};
@@ -35,7 +37,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET summary stats
-router.get('/summary', async (req, res) => {
+router.get('/summary', auth, hrOnly, async (req, res) => {
   try {
     const [total, submitted, approved, announced] = await Promise.all([
       ImpactBonus.countDocuments(),
@@ -149,7 +151,7 @@ router.post('/', async (req, res) => {
 });
 
 // PATCH update status + scoring
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', auth, hrOnly, async (req, res) => {
   try {
     const {
       status, scoring, bonus_amount, impact_tier,
@@ -206,7 +208,7 @@ router.patch('/:id/status', async (req, res) => {
 });
 
 // DELETE
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     await ImpactBonus.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Deleted' });

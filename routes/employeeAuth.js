@@ -11,7 +11,7 @@ const Counter = require('../models/Counter');
 const axios = require('axios');
 const auth = require('../middleware/auth');
 const KpiAssignment = require('../models/KpiAssignment');
-
+const hrOnly = require("../middleware/hrOnly");
 
 
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
@@ -116,13 +116,13 @@ router.post('/register', async (req, res) => {
 
     // ✅ NEW — HR notification on new employee registration
     try {
-      await createNotification({
+           await createNotification({
         recipient_id: "hr_admin_001",
         recipient_role: "hr",
-        type: "document",
-        title: "Documents Submitted",
-        message: `${emp.name} submitted all documents`,
-        link: "",
+        type: "employee",
+        title: "New Employee Registered",
+        message: `${name} registered and is waiting for approval`,
+        link: "/hr/dashboard/hr-pending",
       });
     } catch (notifErr) {
       console.error("Register notification error:", notifErr.message);
@@ -205,9 +205,9 @@ router.post('/upload-doc', (req, res) => {
       const uploadedTypes = uploadedDocs.map(d => d.docType);
       const allUploaded = requiredDocs.every(doc => uploadedTypes.includes(doc));
 
-      
 
-            const isHrUpload = req.body.isHrUpload === "true";
+
+      const isHrUpload = req.body.isHrUpload === "true";
       const emp0 = await Employee.findById(employeeId).select('staffType').lean();
       const keepStatus = isHrUpload || emp0?.staffType === 'machine_staff';
 
@@ -458,7 +458,7 @@ router.put('/update-profile', async (req, res) => {
 
 
 // ================= GET ALL EMPLOYEES =================
-router.get('/employees', async (req, res) => {
+router.get('/employees', auth, hrOnly, async (req, res) => {
   try {
     const { status, email } = req.query;
 
@@ -486,7 +486,7 @@ router.get('/employees', async (req, res) => {
 });
 
 // ================= DEPARTMENT DISTRIBUTION =================
-router.get('/employees/department-distribution', async (req, res) => {
+router.get('/employees/department-distribution', auth, hrOnly, async (req, res) => {
   try {
     const dist = await Employee.aggregate([
       { $group: { _id: '$department', count: { $sum: 1 } } },
@@ -498,9 +498,8 @@ router.get('/employees/department-distribution', async (req, res) => {
   }
 });
 
-
 // ================= RELIEVE EMPLOYEE =================
-router.patch('/employees/:id/relieve', async (req, res) => {
+router.patch('/employees/:id/relieve', auth, hrOnly, async (req, res) => {
   try {
     const emp = await Employee.findById(req.params.id);
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
@@ -525,7 +524,7 @@ router.patch('/employees/:id/relieve', async (req, res) => {
 });
 
 // ================= FIRE EMPLOYEE =================
-router.patch('/employees/:id/fire', async (req, res) => {
+router.patch('/employees/:id/fire', auth, hrOnly, async (req, res) => {
   try {
     const emp = await Employee.findById(req.params.id);
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
@@ -549,7 +548,7 @@ router.patch('/employees/:id/fire', async (req, res) => {
 });
 
 // ================= DEACTIVATE ACCESS =================
-router.patch('/employees/:id/deactivate-access', async (req, res) => {
+router.patch('/employees/:id/deactivate-access', auth, hrOnly, async (req, res) => {
   try {
     const emp = await Employee.findById(req.params.id);
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
@@ -565,7 +564,7 @@ router.patch('/employees/:id/deactivate-access', async (req, res) => {
   }
 });
 // ================= REACTIVATE EMPLOYEE =================
-router.patch('/employees/:id/reactivate', async (req, res) => {
+router.patch('/employees/:id/reactivate', auth, hrOnly, async (req, res) => {
   try {
     const emp = await Employee.findById(req.params.id);
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
@@ -585,7 +584,7 @@ router.patch('/employees/:id/reactivate', async (req, res) => {
 
 
 // ================= DELETE EMPLOYEE =================
-router.delete('/employees/:id', async (req, res) => {
+router.delete('/employees/:id', auth, hrOnly, async (req, res) => {
   try {
     const employeeId = req.params.id;
 
@@ -618,7 +617,7 @@ router.delete('/employees/:id', async (req, res) => {
 });
 
 // ================= GET EMPLOYEE BY EMPLOYEE ID =================
-router.get('/employees/:id', async (req, res) => {
+router.get('/employees/:id', auth, hrOnly, async (req, res) => {
   try {
     const employee = await Employee.findOne({ employeeId: req.params.id });
     if (!employee) return res.status(404).json({ message: 'Employee not found' });
@@ -643,7 +642,7 @@ router.post('/save-link', async (req, res) => {
       { upsert: true, new: true }
     );
 
-        const e0 = await Employee.findById(employeeId).select('staffType').lean();
+    const e0 = await Employee.findById(employeeId).select('staffType').lean();
     if (e0?.staffType !== 'machine_staff') {
       await Employee.findByIdAndUpdate(employeeId, { status: 'pending' });
     }
@@ -784,7 +783,7 @@ router.get('/view-doc/:docId', async (req, res) => {
 
 
 // ================= MIGRATE SHIFTS (run once) =================
-router.post('/employees/migrate-shifts', async (req, res) => {
+router.post('/employees/migrate-shifts', auth, hrOnly, async (req, res) => {
   try {
     const result = await Employee.updateMany(
       { shift: { $exists: false } },
@@ -798,7 +797,7 @@ router.post('/employees/migrate-shifts', async (req, res) => {
 
 
 // ================= ASSIGN SHIFT TO EMPLOYEE =================
-router.put('/employees/:id/shift', async (req, res) => {
+router.put('/employees/:id/shift', auth, hrOnly, async (req, res) => {
   try {
     const { start, end } = req.body;
     if (!start || !end) return res.status(400).json({ message: 'start and end required' });
@@ -865,6 +864,25 @@ router.get('/product-access/current', auth, async (req, res) => {
     res.json({ success: true, data: emp || null });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put("/change-password", async (req, res) => {
+  try {
+    const { employeeId, currentPassword, newPassword } = req.body;
+    if (!employeeId || !currentPassword || !newPassword)
+      return res.status(400).json({ message: "All fields required" });
+    if (newPassword.length < 6)
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
+    const user = await Employee.findById(employeeId);
+    if (!user) return res.status(404).json({ message: "Employee not found" });
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) return res.status(400).json({ message: "Current password is incorrect" });
+    const hash = await bcrypt.hash(newPassword, 10);
+    await Employee.updateOne({ _id: employeeId }, { $set: { password: hash } });
+    res.json({ message: "Password changed successfully" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
   }
 });
 

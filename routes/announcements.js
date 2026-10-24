@@ -1,15 +1,16 @@
 // routes/announcements.js — Full with comments + replies + likes
 
-const express      = require('express');
-const router       = express.Router();
+const express = require('express');
+const router = express.Router();
 const Announcement = require('../models/Announcement');
-const Employee     = require('../models/Employee');
+const Employee = require('../models/Employee');
 const { createNotification } = require('../helpers/notificationHelper');
-
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 function canSee(ann, emp) {
   if (ann.target === 'all') return true;
   if (ann.target === 'department') return ann.target_departments.includes(emp.department);
-  if (ann.target === 'role')       return ann.target_roles.includes(emp.designation);
+  if (ann.target === 'role') return ann.target_roles.includes(emp.designation);
   if (ann.target === 'individual') return ann.target_employees.some(id => String(id) === String(emp._id));
   return false;
 }
@@ -19,9 +20,9 @@ async function getEmpInfo(id) {
   try {
     const e = await Employee.findById(id).select('name designation profileImage');
     return {
-      name:        e?.name        || 'Employee',
+      name: e?.name || 'Employee',
       designation: e?.designation || '',
-      avatar:      e?.profileImage || ''
+      avatar: e?.profileImage || ''
     };
   } catch { return { name: 'Employee', designation: '', avatar: '' }; }
 }
@@ -29,18 +30,20 @@ async function getEmpInfo(id) {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/announcements — Create
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/', async (req, res) => {
+router.post('/', auth, hrOnly, async (req, res) => {
   try {
     if (req.body.created_by && !/^[a-f\d]{24}$/i.test(req.body.created_by)) {
-  delete req.body.created_by;
-}
+      delete req.body.created_by;
+    }
     const ann = new Announcement({
       ...req.body,
       target_departments: req.body.target_departments || [],
-      target_roles:       req.body.target_roles       || [],
-      target_employees:   req.body.target_employees   || [],
-      images:             req.body.images             || [],
-      attachments:        req.body.attachments        || [],
+      target_roles: req.body.target_roles || [],
+      target_employees: req.body.target_employees || [],
+      images: req.body.images || [],
+      attachments: req.body.attachments || [],
+      created_by_name: req.actor?.name || '',
+      updated_by_name: req.actor?.name || '',
     });
     await ann.save();
 
@@ -51,12 +54,12 @@ router.post('/', async (req, res) => {
       await Promise.all(
         targets.map(e =>
           createNotification({
-            recipient_id:   String(e._id),
+            recipient_id: String(e._id),
             recipient_role: 'employee',
-            type:           'announcement',
-            title:          `📢 ${ann.title}`,
-            message:        (ann.content || '').slice(0, 120),
-            link:           '/employee/announcements'
+            type: 'announcement',
+            title: `📢 ${ann.title}`,
+            message: (ann.content || '').slice(0, 120),
+            link: '/employee/announcements'
           })
         )
       );
@@ -72,7 +75,7 @@ router.post('/', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/announcements/stats
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/stats', async (req, res) => {
+router.get('/stats', auth, hrOnly, async (req, res) => {
   try {
     const [total, active, pinned, urgent, byType] = await Promise.all([
       Announcement.countDocuments(),
@@ -88,7 +91,7 @@ router.get('/stats', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/announcements/all — HR panel
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/all', async (req, res) => {
+router.get('/all', auth, hrOnly, async (req, res) => {
   try {
     const list = await Announcement.find()
       .populate('created_by', 'name designation')
@@ -99,7 +102,7 @@ router.get('/all', async (req, res) => {
 
     const data = list.map(a => {
       // Only employees this announcement is actually targeted to
-      const audience    = activeEmps.filter(e => canSee(a, e));
+      const audience = activeEmps.filter(e => canSee(a, e));
       const audienceIds = new Set(audience.map(e => String(e._id)));
 
       // Unique readers who are inside the audience
@@ -113,12 +116,12 @@ router.get('/all', async (req, res) => {
 
       return {
         ...a.toJSON(),
-        read_count:      readers.size,
-        like_count:      a.likes?.length     || 0,
-        comment_count:   a.comments?.length  || 0,
+        read_count: readers.size,
+        like_count: a.likes?.length || 0,
+        comment_count: a.comments?.length || 0,
         total_employees: totalTarget,
         read_percentage: totalTarget > 0 ? Math.round((readers.size / totalTarget) * 100) : 0,
-        is_expired:      a.expires_at ? new Date(a.expires_at) < new Date() : false
+        is_expired: a.expires_at ? new Date(a.expires_at) < new Date() : false
       };
     });
 
@@ -146,27 +149,27 @@ router.get('/employee/:employeeId', async (req, res) => {
 
     const data = visible.map(a => {
       const readEntry = a.read_by?.find(r => String(r.employee_id) === String(emp._id));
-      const hasLiked  = a.likes?.some(id => String(id) === String(emp._id));
+      const hasLiked = a.likes?.some(id => String(id) === String(emp._id));
 
       // Enrich comments with hasLiked for this user
       const comments = (a.comments || []).map(c => ({
         ...c.toObject(),
-        has_liked:   c.likes?.some(id => String(id) === String(emp._id)),
-        like_count:  c.likes?.length || 0,
+        has_liked: c.likes?.some(id => String(id) === String(emp._id)),
+        like_count: c.likes?.length || 0,
         replies: (c.replies || []).map(r => ({
           ...r.toObject(),
-          has_liked:  r.likes?.some(id => String(id) === String(emp._id)),
+          has_liked: r.likes?.some(id => String(id) === String(emp._id)),
           like_count: r.likes?.length || 0,
         }))
       }));
 
       return {
         ...a.toJSON(),
-        is_read:       !!readEntry,
-        read_at:       readEntry?.read_at || null,
-        has_liked:     hasLiked,
-        read_count:    a.read_by?.length  || 0,
-        like_count:    a.likes?.length    || 0,
+        is_read: !!readEntry,
+        read_at: readEntry?.read_at || null,
+        has_liked: hasLiked,
+        read_count: a.read_by?.length || 0,
+        like_count: a.likes?.length || 0,
         comment_count: a.comments?.length || 0,
         comments,
       };
@@ -214,8 +217,8 @@ router.post('/:id/comments', async (req, res) => {
     const { employee_id, text } = req.body;
     if (!text?.trim()) return res.status(400).json({ success: false, message: 'Comment text required' });
 
-    const ann  = await Announcement.findById(req.params.id);
-    if (!ann)  return res.status(404).json({ success: false });
+    const ann = await Announcement.findById(req.params.id);
+    if (!ann) return res.status(404).json({ success: false });
 
     const info = await getEmpInfo(employee_id);
     const comment = { employee_id, text: text.trim(), ...info, likes: [], replies: [] };
@@ -352,10 +355,13 @@ router.put('/:id/comments/:commentId/replies/:replyId/like', async (req, res) =>
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/announcements/:id — HR edit
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/:id', async (req, res) => {
+router.put('/:id', auth, hrOnly, async (req, res) => {
   try {
-    const updated = await Announcement.findByIdAndUpdate(req.params.id, req.body, { new: true })
-      .populate('created_by', 'name designation');
+    const updated = await Announcement.findByIdAndUpdate(
+      req.params.id,
+      { ...req.body, updated_by_name: req.actor?.name || '' },
+      { new: true }
+    ).populate('created_by', 'name designation');
     if (!updated) return res.status(404).json({ success: false });
     res.json({ success: true, data: updated });
   } catch (err) { res.status(400).json({ success: false, message: err.message }); }
@@ -364,7 +370,7 @@ router.put('/:id', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/announcements/:id/pin
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/:id/pin', async (req, res) => {
+router.put('/:id/pin', auth, hrOnly, async (req, res) => {
   try {
     const ann = await Announcement.findById(req.params.id);
     if (!ann) return res.status(404).json({ success: false });
@@ -377,7 +383,7 @@ router.put('/:id/pin', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/announcements/:id
 // ─────────────────────────────────────────────────────────────────────────────
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     await Announcement.findByIdAndDelete(req.params.id);
     res.json({ success: true });

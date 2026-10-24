@@ -3,11 +3,12 @@
 const express        = require('express');
 const router         = express.Router();
 const WellnessSession = require('../models/Wellness');
-
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly"); 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/wellness — Employee books a session
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/', async (req, res) => {
+router.post('/', auth, hrOnly, async (req, res) => {
   try {
     const { employee_id, session_type, title, description, scheduled_date, scheduled_time, mode, employee_notes } = req.body;
     const session = new WellnessSession({
@@ -24,7 +25,7 @@ router.post('/', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/wellness/all — All sessions (HR panel)
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/all', async (req, res) => {
+router.get('/all', auth, hrOnly, async (req, res) => {
   try {
     const sessions = await WellnessSession.find()
       .populate('employee_id', 'name email department designation')
@@ -39,7 +40,7 @@ router.get('/all', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/wellness/stats — HR dashboard stats
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/stats', async (req, res) => {
+router.get('/stats', auth, hrOnly, async (req, res) => {
   try {
     const [total, requested, approved, completed, cancelled] = await Promise.all([
       WellnessSession.countDocuments(),
@@ -69,7 +70,7 @@ router.get('/stats', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/wellness/employee/:employeeId — Employee's own sessions
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/employee/:employeeId', async (req, res) => {
+router.get('/employee/:employeeId', auth, hrOnly, async (req, res) => {
   try {
     const sessions = await WellnessSession.find({ employee_id: req.params.employeeId })
       .sort({ createdAt: -1 });
@@ -82,7 +83,7 @@ router.get('/employee/:employeeId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/wellness/:id/status — HR approves / rejects / completes
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/:id/status', async (req, res) => {
+router.put('/:id/status', auth, hrOnly, async (req, res) => {
   try {
     const { status, hr_notes, reviewed_by } = req.body;
     const session = await WellnessSession.findById(req.params.id);
@@ -102,7 +103,7 @@ router.put('/:id/status', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/wellness/:id/feedback — Employee submits feedback after session
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/:id/feedback', async (req, res) => {
+router.put('/:id/feedback', auth, hrOnly, async (req, res) => {
   try {
     const { feedback_score, feedback_comment } = req.body;
     const session = await WellnessSession.findById(req.params.id);
@@ -121,7 +122,7 @@ router.put('/:id/feedback', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/wellness/:id — Employee cancels (or HR deletes)
 // ─────────────────────────────────────────────────────────────────────────────
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     await WellnessSession.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Session deleted' });

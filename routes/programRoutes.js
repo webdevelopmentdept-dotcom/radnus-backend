@@ -1,9 +1,11 @@
 const express = require("express");
-const router  = express.Router();
+const router = express.Router();
 const Program = require("../models/Program");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // GET all
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const programs = await Program.find({ is_active: true }).sort({ createdAt: -1 });
     res.json({ success: true, data: programs });
@@ -13,7 +15,7 @@ router.get("/", async (req, res) => {
 });
 
 // POST add new
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ success: false, message: "Name required" });
@@ -28,7 +30,7 @@ router.post("/", async (req, res) => {
 });
 
 // DELETE
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     await Program.findByIdAndUpdate(req.params.id, { is_active: false });
     res.json({ success: true, message: "Deleted" });

@@ -3,12 +3,13 @@
 const express = require("express");
 const router = express.Router();
 const FeedbackCycle = require("../models/Feedbackcycle");
-
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 // ─────────────────────────────────────────
 // POST /api/feedback-cycles
 // Create a new feedback cycle (Launch)
 // ─────────────────────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const {
       cycleName,
@@ -25,10 +26,10 @@ router.post("/", async (req, res) => {
 
     // Validate total weight = 100
     const totalWeight =
-      (reviewerConfig.manager      ? weightage.manager      : 0) +
-      (reviewerConfig.peers        ? weightage.peers        : 0) +
+      (reviewerConfig.manager ? weightage.manager : 0) +
+      (reviewerConfig.peers ? weightage.peers : 0) +
       (reviewerConfig.subordinates ? weightage.subordinates : 0) +
-      (reviewerConfig.self         ? weightage.self         : 0);
+      (reviewerConfig.self ? weightage.self : 0);
 
     if (totalWeight !== 100) {
       return res.status(400).json({
@@ -68,7 +69,7 @@ router.post("/", async (req, res) => {
 // GET /api/feedback-cycles
 // Get all feedback cycles
 // ─────────────────────────────────────────
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const cycles = await FeedbackCycle.find()
       .populate("selectedEmployees", "name role department")
@@ -87,7 +88,7 @@ router.get("/", async (req, res) => {
 // GET /api/feedback-cycles/:id
 // Get single cycle by ID
 // ─────────────────────────────────────────
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, hrOnly, async (req, res) => {
   try {
     const cycle = await FeedbackCycle.findById(req.params.id)
       .populate("selectedEmployees", "name role department");
@@ -106,7 +107,7 @@ router.get("/:id", async (req, res) => {
 // PATCH /api/feedback-cycles/:id/status
 // Update cycle status (active / completed)
 // ─────────────────────────────────────────
-router.patch("/:id/status", async (req, res) => {
+router.patch("/:id/status", auth, hrOnly, async (req, res) => {
   try {
     const { status } = req.body;
 
@@ -134,7 +135,7 @@ router.patch("/:id/status", async (req, res) => {
 // DELETE /api/feedback-cycles/:id
 // Delete a cycle
 // ─────────────────────────────────────────
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const cycle = await FeedbackCycle.findByIdAndDelete(req.params.id);
 

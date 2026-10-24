@@ -5,6 +5,7 @@ const Attendance = require("../models/Attendance");
 const Employee = require("../models/Employee");
 const { createNotification } = require("../helpers/notificationHelper");
 const KpiLeaderMapping = require("../models/KpiLeaderMapping");
+const logAction = require("../helpers/logAction");
 
 // ── POST /api/leave-requests ──────────────────────────────────────────────────
 exports.createLeaveRequest = async (req, res) => {
@@ -39,8 +40,8 @@ exports.createLeaveRequest = async (req, res) => {
     // ── Routing: TL mapped-ah? ──
     const mapping = await KpiLeaderMapping.findOne({ isActive: true, member_ids: employee_id }).lean();
     const needsTL = !!mapping
-  && String(mapping.leader_id) !== String(employee_id)
-  && mapping.permissions?.leave_approval !== false;
+      && String(mapping.leader_id) !== String(employee_id)
+      && mapping.permissions?.leave_approval !== false;
 
     const leave = await LeaveRequest.create({
       employee_id, employee_name, department, leave_type, from_date,
@@ -138,9 +139,9 @@ const tlDecision = (decision) => async (req, res) => {
       return res.status(400).json({ success: false, message: "Already reviewed" });
     }
 
-    leave.tl_status     = decision;               // "approved" | "rejected"
-    leave.tl_remark     = req.body.tl_remark || "";
-    leave.tl_acted_at   = new Date();
+    leave.tl_status = decision;               // "approved" | "rejected"
+    leave.tl_remark = req.body.tl_remark || "";
+    leave.tl_acted_at = new Date();
     leave.current_stage = "hr";                   // approve aanalum reject aanalum HR ku
     await leave.save();
 
@@ -148,53 +149,38 @@ const tlDecision = (decision) => async (req, res) => {
     const tlName = tl?.name || "Team Lead";
 
     await createNotification({
-      recipient_id:   "hr_admin_001",
+      recipient_id: "hr_admin_001",
       recipient_role: "hr",
-      type:           "leave_tl_decision",
-      title:          `Leave ${decision === "approved" ? "recommended" : "not recommended"} by TL`,
-      message:        `${tlName} ${decision} ${leave.employee_name}'s ${leave.leave_type} (${leave.from_date} → ${leave.to_date}).`
-                    + (leave.tl_remark ? ` Remark: ${leave.tl_remark}` : ""),
-      link:           "/hr/dashboard/leave/requests",
+      type: "leave_tl_decision",
+      title: `Leave ${decision === "approved" ? "recommended" : "not recommended"} by TL`,
+      message: `${tlName} ${decision} ${leave.employee_name}'s ${leave.leave_type} (${leave.from_date} → ${leave.to_date}).`
+        + (leave.tl_remark ? ` Remark: ${leave.tl_remark}` : ""),
+      link: "/hr/dashboard/leave/requests",
     });
 
     await createNotification({
-      recipient_id:   String(leave.employee_id),
+      recipient_id: String(leave.employee_id),
       recipient_role: "employee",
-      type:           "leave_tl_decision",
-      title:          `Team Lead ${decision} your leave`,
-      message:        `${tlName} ${decision} your ${leave.leave_type}. Now waiting for HR decision.`
-                    + (leave.tl_remark ? ` Remark: ${leave.tl_remark}` : ""),
-      link:           "/employee/attendance",
+      type: "leave_tl_decision",
+      title: `Team Lead ${decision} your leave`,
+      message: `${tlName} ${decision} your ${leave.leave_type}. Now waiting for HR decision.`
+        + (leave.tl_remark ? ` Remark: ${leave.tl_remark}` : ""),
+      link: "/employee/attendance",
     });
 
     res.json({ success: true, message: `Sent to HR (TL ${decision})`, data: leave });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
-    
+
 };
 exports.tlApproveLeave = tlDecision("approved");
-exports.tlRejectLeave  = tlDecision("rejected");
+exports.tlRejectLeave = tlDecision("rejected");
 
 // ── PUT /api/leave-requests/:id/approve ──────────────────────────────────────
 exports.approveLeave = async (req, res) => {
   try {
-    // const leave = await LeaveRequest.findByIdAndUpdate(
-    //   req.params.id,
-    //   {
-    //     $set: {
-    //       status: "approved",
-    //       hr_remark: req.body.hr_remark || "",
-    //       approved_by: req.user?._id,
-    //     },
-    //   },
-    //   { new: true }
-    // );
-    // if (!leave) {
-    //   return res.status(404).json({ success: false, message: "Leave not found" });
-    // }
-
-        const current = await LeaveRequest.findById(req.params.id);
+    const current = await LeaveRequest.findById(req.params.id);
     if (!current) return res.status(404).json({ success: false, message: "Leave not found" });
     if (current.status === "approved") {
       return res.status(400).json({ success: false, message: "Already approved" });
@@ -207,10 +193,12 @@ exports.approveLeave = async (req, res) => {
       req.params.id,
       {
         $set: {
-          status:        "approved",
+          status: "approved",
           current_stage: "completed",
-          hr_remark:     req.body.hr_remark || "",
-          approved_by:   req.user?._id,   // idhai appadiye vidunga ("hr_admin_001" ObjectId cast aagaadhu)
+          hr_remark: req.body.hr_remark || "",
+          approved_by: req.user?._id,   // idhai appadiye vidunga ("hr_admin_001" ObjectId cast aagaadhu)
+          approved_by_name: req.actor?.name || "",                // NEW
+          approved_by_staffId: String(req.actor?.id || ""),       // NEW
         },
       },
       { new: true }
@@ -218,6 +206,15 @@ exports.approveLeave = async (req, res) => {
     if (!leave) {
       return res.status(404).json({ success: false, message: "Leave not found" });
     }
+
+    // NEW: audit log (never throws, so it can't break the approval)
+    await logAction(req, {
+      action: "LEAVE_APPROVE",
+      entityType: "LeaveRequest",
+      entityId: leave._id,
+      remarks: req.body.hr_remark || "",
+      meta: { employee_id: leave.employee_id, leave_type: leave.leave_type },
+    });
 
     const start = new Date(leave.from_date);
     const end = new Date(leave.to_date);
@@ -243,6 +240,9 @@ exports.approveLeave = async (req, res) => {
             method: "leave_request",  // "auto" → "leave_request"
             session: leave.is_half_day ? leave.session : null,
             leave_request_id: leave._id,  // trace பண்ண
+            edited_by_name: req.actor?.name || "",
+            edited_by_role: req.actor?.role || "",
+            edited_at: new Date(),
           },
         },
         { upsert: true }
@@ -268,7 +268,7 @@ exports.approveLeave = async (req, res) => {
 // ── PUT /api/leave-requests/:id/reject ───────────────────────────────────────
 exports.rejectLeave = async (req, res) => {
   try {
-      if (!(req.body.hr_remark || "").trim()) {
+    if (!(req.body.hr_remark || "").trim()) {
       return res.status(400).json({ success: false, message: "Reason is required to reject a leave" });
     }
     const current = await LeaveRequest.findById(req.params.id);
@@ -282,21 +282,31 @@ exports.rejectLeave = async (req, res) => {
 
     const leave = await LeaveRequest.findByIdAndUpdate(
       req.params.id,
-      { $set: { status: "rejected", current_stage: "completed", hr_remark: req.body.hr_remark || "" } },
+      {
+        $set: {
+          status: "rejected", current_stage: "completed", hr_remark: req.body.hr_remark || "", approved_by_name: req.actor?.name || "",
+          approved_by_staffId: String(req.actor?.id || ""),
+        }
+      },
       { new: true }
     );
     if (!leave) {
       return res.status(404).json({ success: false, message: "Leave not found" });
     }
 
+    await logAction(req, {
+      action: "LEAVE_REJECT", entityType: "LeaveRequest", entityId: leave._id,
+      remarks: req.body.hr_remark || "", meta: { employee_id: leave.employee_id },
+    });
+
     await createNotification({
-      recipient_id:   leave.employee_id,
+      recipient_id: leave.employee_id,
       recipient_role: "employee",
-      type:           "leave_rejected",
-      title:          "Leave Rejected ❌",
-      message:        `Your ${leave.leave_type} from ${leave.from_date} to ${leave.to_date} has been rejected.`
-                    + (req.body.hr_remark ? ` HR note: ${req.body.hr_remark}` : ""),
-      link:           "/employee/attendance",
+      type: "leave_rejected",
+      title: "Leave Rejected ❌",
+      message: `Your ${leave.leave_type} from ${leave.from_date} to ${leave.to_date} has been rejected.`
+        + (req.body.hr_remark ? ` HR note: ${req.body.hr_remark}` : ""),
+      link: "/employee/attendance",
     });
 
     res.json({ success: true, message: "Leave rejected", data: leave });
@@ -336,7 +346,7 @@ exports.cancelLeaveRequest = async (req, res) => {
       return res.status(404).json({ success: false, message: "Leave not found" });
     }
 
-        const isHr = ["hr", "admin"].includes(req.user.role);
+    const isHr = ["hr", "admin"].includes(req.user.role);
     if (!isHr && String(leave.employee_id) !== String(req.user.id)) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }

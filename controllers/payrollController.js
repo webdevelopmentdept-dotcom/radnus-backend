@@ -44,7 +44,7 @@ exports.generatePayroll = async (req, res) => {
     if (!run) {
       run = await Payroll.create({
         month, year, total_days_in_month: totalDaysInMonth,
-        generated_by: generated_by || "", status: "draft",
+        generated_by: req.actor?.name || generated_by || "", status: "draft",
       });
     }
 
@@ -225,7 +225,7 @@ exports.approvePayroll = async (req, res) => {
     }
 
    run.status = "approved";
-    run.approved_by = approved_by || "";
+    run.approved_by = req.actor?.name || approved_by || "";
     run.approved_at = new Date();
     await run.save();
 
@@ -401,7 +401,7 @@ exports.setOtherDeduction = async (req, res) => {
     payslip.other_deduction = {
       amount: newAmount,
       reason: newAmount > 0 ? String(reason).trim() : "",
-      added_by: added_by || "",
+      added_by: req.actor?.name || added_by || "",
       added_at: new Date(),
     };
     payslip.deductions.total_deductions = Math.round(((payslip.deductions.total_deductions || 0) + diff) * 100) / 100;
@@ -462,7 +462,7 @@ exports.updatePayslip = async (req, res) => {
       payslip.other_deduction = {
         amount: Number(other_deduction.amount) || 0,
         reason: other_deduction.reason || "",
-        added_by: edited_by || "",
+       added_by: req.actor?.name || edited_by || "",
         added_at: new Date(),
       };
     }
@@ -569,7 +569,7 @@ exports.updatePayslip = async (req, res) => {
       payslip.other_deduction = {
         amount: Number(other_deduction.amount) || 0,
         reason: other_deduction.reason || "",
-        added_by: edited_by || "",
+        added_by: req.actor?.name || edited_by || "",
         added_at: new Date(),
       };
     }

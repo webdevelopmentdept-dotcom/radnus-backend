@@ -1,11 +1,9 @@
-// routes/okr.js
-// Mount in server.js:  app.use('/api/okr', require('./routes/okr'));
-
 const express = require('express');
-const router  = express.Router();
+const router = express.Router();
 const OkrObjective = require('../models/OkrObjective');
-const KpiTemplate  = require('../models/KpiTemplate');
-
+const KpiTemplate = require('../models/KpiTemplate');
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 // ─────────────────────────────────────────────
 // HELPER: empty string → null fix
 // ─────────────────────────────────────────────
@@ -23,7 +21,7 @@ const sanitizeKeyResults = (key_results) => {
 // ⚠️ MUST be before /:id route — otherwise Express
 //    treats "templates" as an :id param → 404
 // ─────────────────────────────────────────────
-router.get('/templates/all', async (req, res) => {
+router.get('/templates/all', auth, hrOnly, async (req, res) => {
   try {
     const templates = await KpiTemplate.find({ is_active: true })
       .select('template_name role department kpi_items');
@@ -36,13 +34,13 @@ router.get('/templates/all', async (req, res) => {
 // ─────────────────────────────────────────────
 // GET /api/okr  — All objectives (with filters)
 // ─────────────────────────────────────────────
-router.get('/', async (req, res) => {
+router.get('/', auth, hrOnly, async (req, res) => {
   try {
     const filter = {};
     if (req.query.department) filter.department = req.query.department;
-    if (req.query.status)     filter.status     = req.query.status;
-    if (req.query.quarter)    filter.quarter    = req.query.quarter;
-    if (req.query.year)       filter.year       = req.query.year;
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.quarter) filter.quarter = req.query.quarter;
+    if (req.query.year) filter.year = req.query.year;
 
     const objectives = await OkrObjective.find(filter)
       .populate('key_results.linked_template_id', 'template_name role department')
@@ -57,7 +55,7 @@ router.get('/', async (req, res) => {
 // ─────────────────────────────────────────────
 // GET /api/okr/by-department/:dept
 // ─────────────────────────────────────────────
-router.get('/by-department/:dept', async (req, res) => {
+router.get('/by-department/:dept', auth, hrOnly, async (req, res) => {
   try {
     const objectives = await OkrObjective.find({
       department: req.params.dept,
@@ -74,7 +72,7 @@ router.get('/by-department/:dept', async (req, res) => {
 // GET /api/okr/:id  — Single objective
 // ⚠️ Keep this AFTER all named routes like /templates/all
 // ─────────────────────────────────────────────
-router.get('/:id', async (req, res) => {
+router.get('/:id', auth, hrOnly, async (req, res) => {
   try {
     const obj = await OkrObjective.findById(req.params.id)
       .populate('key_results.linked_template_id', 'template_name role department kpi_items');
@@ -88,7 +86,7 @@ router.get('/:id', async (req, res) => {
 // ─────────────────────────────────────────────
 // POST /api/okr  — Create OKR Objective
 // ─────────────────────────────────────────────
-router.post('/', async (req, res) => {
+router.post('/', auth, hrOnly, async (req, res) => {
   try {
     const { title, description, department, quarter, year, key_results, created_by } = req.body;
 
@@ -121,7 +119,7 @@ router.post('/', async (req, res) => {
 // ─────────────────────────────────────────────
 // PUT /api/okr/:id  — Update OKR
 // ─────────────────────────────────────────────
-router.put('/:id', async (req, res) => {
+router.put('/:id', auth, hrOnly, async (req, res) => {
   try {
     const { title, description, department, quarter, year, key_results, status } = req.body;
 
@@ -135,13 +133,13 @@ router.put('/:id', async (req, res) => {
     const obj = await OkrObjective.findById(req.params.id);
     if (!obj) return res.status(404).json({ success: false, message: 'OKR not found' });
 
-    if (title)                     obj.title       = title;
+    if (title) obj.title = title;
     if (description !== undefined) obj.description = description;
-    if (department)                obj.department  = department;
-    if (quarter)                   obj.quarter     = quarter;
-    if (year)                      obj.year        = year;
-    if (status)                    obj.status      = status;
-    if (key_results)               obj.key_results = sanitizeKeyResults(key_results);
+    if (department) obj.department = department;
+    if (quarter) obj.quarter = quarter;
+    if (year) obj.year = year;
+    if (status) obj.status = status;
+    if (key_results) obj.key_results = sanitizeKeyResults(key_results);
 
     await obj.save();
 
@@ -154,7 +152,7 @@ router.put('/:id', async (req, res) => {
 // ─────────────────────────────────────────────
 // DELETE /api/okr/:id  — Archive OKR (soft delete)
 // ─────────────────────────────────────────────
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
     await OkrObjective.findByIdAndUpdate(req.params.id, { status: 'archived' });
     res.json({ success: true, message: 'OKR archived' });
@@ -167,7 +165,7 @@ router.delete('/:id', async (req, res) => {
 // PATCH /api/okr/:id/update-kr-progress
 // Called when employee submits self-assessment
 // ─────────────────────────────────────────────
-router.patch('/:id/update-kr-progress', async (req, res) => {
+router.patch('/:id/update-kr-progress', auth, hrOnly, async (req, res) => {
   try {
     const { kpi_item_id, actual_value } = req.body;
 

@@ -1,9 +1,11 @@
-const express  = require("express");
-const router   = express.Router();
-const multer   = require("multer");
-const path     = require("path");
-const fs       = require("fs");
-const SOP      = require("../models/Sop");
+const express = require("express");
+const router = express.Router();
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const SOP = require("../models/Sop");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ── Multer Storage — saves to /uploads/sops/ ──────────────────────────────────
 const storage = multer.diskStorage({
@@ -42,9 +44,9 @@ const upload = multer({ storage, fileFilter, limits: { fileSize: 10 * 1024 * 102
 router.get("/", async (req, res) => {
   try {
     const filter = {};
-    if (req.query.department)  filter.department  = req.query.department;
+    if (req.query.department) filter.department = req.query.department;
     if (req.query.designation) filter.designation = req.query.designation;
-    if (req.query.status)      filter.status      = req.query.status;
+    if (req.query.status) filter.status = req.query.status;
 
     const sops = await SOP.find(filter).sort({ createdAt: -1 });
     res.json({ success: true, data: sops });
@@ -55,7 +57,7 @@ router.get("/", async (req, res) => {
 
 
 // ── POST /api/sops — create SOP with file upload ─────────────────────────────
-router.post("/", upload.single("file"), async (req, res) => {
+router.post("/", auth, hrOnly, upload.single("file"), async (req, res) => {
   try {
     const { title, department, designation, status } = req.body;
 
@@ -67,12 +69,14 @@ router.post("/", upload.single("file"), async (req, res) => {
     }
 
     const sop = await SOP.create({
-      title:       title.trim(),
-      department:  department.trim(),
+      title: title.trim(),
+      department: department.trim(),
       designation: designation?.trim() || null,  // null = dept-level
-      fileUrl:     req.file.filename,
-      fileName:    req.file.originalname,
-      status:      status || "active",
+      fileUrl: req.file.filename,
+      fileName: req.file.originalname,
+      status: status || "active",
+      createdByName: req.actor?.name || "",
+      updatedByName: req.actor?.name || "",
     });
 
     res.status(201).json({ success: true, data: sop, message: "SOP created successfully" });
@@ -83,7 +87,7 @@ router.post("/", upload.single("file"), async (req, res) => {
 
 
 // ── PUT /api/sops/:id — update SOP (replace file optional) ───────────────────
-router.put("/:id", upload.single("file"), async (req, res) => {
+router.put("/:id", auth, hrOnly, upload.single("file"), async (req, res) => {
   try {
     const { title, department, designation, status } = req.body;
 
@@ -91,10 +95,11 @@ router.put("/:id", upload.single("file"), async (req, res) => {
     if (!existing) return res.status(404).json({ success: false, message: "SOP not found" });
 
     const updateData = {
-      title:       title?.trim()       || existing.title,
-      department:  department?.trim()  || existing.department,
+      title: title?.trim() || existing.title,
+      department: department?.trim() || existing.department,
       designation: designation?.trim() || null,
-      status:      status              || existing.status,
+      status: status || existing.status,
+      updatedByName: req.actor?.name || existing.updatedByName || "",
     };
 
     // If new file uploaded — delete old file, save new one
@@ -102,7 +107,7 @@ router.put("/:id", upload.single("file"), async (req, res) => {
       const oldPath = path.join(__dirname, "../uploads/sops", existing.fileUrl);
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
 
-      updateData.fileUrl  = req.file.filename;
+      updateData.fileUrl = req.file.filename;
       updateData.fileName = req.file.originalname;
     }
 
@@ -115,13 +120,17 @@ router.put("/:id", upload.single("file"), async (req, res) => {
 
 
 // ── PATCH /api/sops/:id/status — toggle active/inactive ──────────────────────
-router.patch("/:id/status", async (req, res) => {
+router.patch("/:id/status", auth, hrOnly, async (req, res) => {
   try {
     const { status } = req.body;
     if (!["active", "inactive"].includes(status))
       return res.status(400).json({ success: false, message: "Invalid status" });
 
-    const sop = await SOP.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    const sop = await SOP.findByIdAndUpdate(
+      req.params.id,
+      { status, updatedByName: req.actor?.name || "" },
+      { new: true }
+    );
     if (!sop) return res.status(404).json({ success: false, message: "SOP not found" });
 
     res.json({ success: true, data: sop, message: `SOP marked ${status}` });
@@ -132,7 +141,7 @@ router.patch("/:id/status", async (req, res) => {
 
 
 // ── DELETE /api/sops/:id — delete SOP + file ─────────────────────────────────
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const sop = await SOP.findById(req.params.id);
     if (!sop) return res.status(404).json({ success: false, message: "SOP not found" });

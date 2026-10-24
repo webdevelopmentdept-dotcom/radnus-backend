@@ -60,7 +60,8 @@ app.use(
 
 // SEO Prerender
 app.use(prerender.set("prerenderToken", "N7ycVhRZGIhFLwN5sPFp"));
-
+app.use(require("./middleware/softActor"));
+app.use(require("./middleware/auditWrites"));
 /* --------------------------------------------------
    ROUTES IMPORT
 -------------------------------------------------- */
@@ -133,6 +134,7 @@ const loanProcessRoutes = require('./routes/loanprocessRoutes')
 /* --------------------------------------------------
    REGISTER ROUTES
 -------------------------------------------------- */
+app.use("/api/hr/last-actions", require("./routes/hrLastActionRoutes"));
 app.use("/api/export-excel", excelExportDailyLog);
 app.use('/api/kpi-monthly-versions', kpiMonthlyVersionsRouter);
 app.use("/api/partners", partnerRoutes);
@@ -184,6 +186,8 @@ app.use("/api/hr", hrApplicationsRoutes);
 app.use("/api/hr", hrPendingRoutes);
 app.use("/api/hr", employeeAuth);
 app.use("/api/hr/activation", require("./routes/hrActivationRoutes"));
+app.use("/api/admin/hr-staff", require("./routes/adminHrStaffRoutes"));
+app.use("/api/admin/hr-activity", require("./routes/adminHrActivityRoutes"));
 app.use("/api/admin", require("./routes/adminPendingRoutes"));
 app.use('/api/wellness', wellnessRoutes);
 app.use('/api/wellnesshr', require('./routes/wellnesshr'));

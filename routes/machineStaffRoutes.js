@@ -12,7 +12,8 @@ const Counter = require("../models/Counter");
 const MachineAttendance = require("../models/MachineAttendance");
 const MachineUser = require("../models/MachineUser");
 const { computeFromPunches, parseShiftMins } = require("../controllers/attendanceController");
-
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 // "007" -> "7"  (attendance-app same logic use pannudhu)
 const norm = (id) =>
   id === null || id === undefined ? null : String(id).trim().replace(/^0+/, "") || "0";
@@ -62,7 +63,7 @@ async function migrateMachineAttendance(emp, esslNorm) {
 }
 
 // ── GET: machine-la irukku, aana HRMS employee-ku link aagaadhavanga ──
-router.get("/unlinked", async (req, res) => {
+router.get("/unlinked", auth, hrOnly, async (req, res) => {
   try {
     const emps = await Employee.find({ essl_id: { $nin: [null, ""] } })
       .select("essl_id").lean();
@@ -93,7 +94,7 @@ router.get("/unlinked", async (req, res) => {
 });
 
 // ── GET: next staff id + suggested email ─────────────────────
-router.get("/next-id", async (req, res) => {
+router.get("/next-id", auth, hrOnly, async (req, res) => {
   try {
     const c = await Counter.findOne({ name: "machineStaffId" }).lean();
     const employeeId = fmtId((c?.seq || 0) + 1);
@@ -104,7 +105,7 @@ router.get("/next-id", async (req, res) => {
 });
 
 // ── POST: staff create (Employee + EmploymentDetails, direct active) ──
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   let emp = null;
   try {
     const b = req.body || {};
@@ -185,15 +186,15 @@ router.post("/", async (req, res) => {
     res.json({ success: true, data: emp, migrated_days: migrated });
   } catch (err) {
     if (emp) {
-      await Employee.findByIdAndDelete(emp._id).catch(() => {});
-      await EmploymentDetails.deleteOne({ employee_id: emp._id }).catch(() => {});
+      await Employee.findByIdAndDelete(emp._id).catch(() => { });
+      await EmploymentDetails.deleteOne({ employee_id: emp._id }).catch(() => { });
     }
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // ── POST: re-run attendance migration for one staff ──────────
-router.post("/:id/migrate", async (req, res) => {
+router.post("/:id/migrate", auth, hrOnly, async (req, res) => {
   try {
     const emp = await Employee.findById(req.params.id);
     if (!emp || !emp.essl_id)
@@ -206,7 +207,7 @@ router.post("/:id/migrate", async (req, res) => {
 });
 
 // ── POST: file doc upload (status touch pannaadhu) ───────────
-router.post("/:id/docs", (req, res) => {
+router.post("/:id/docs", auth, hrOnly, (req, res) => {
   upload.single("file")(req, res, async (err) => {
     if (err) return res.status(400).json({ success: false, message: err.message });
     try {
@@ -226,7 +227,7 @@ router.post("/:id/docs", (req, res) => {
 });
 
 // ── POST: text doc (Reference Number 1 / 2) ──────────────────
-router.post("/:id/docs/text", async (req, res) => {
+router.post("/:id/docs/text", auth, hrOnly, async (req, res) => {
   try {
     const { docType, value } = req.body;
     if (!docType || !String(value || "").trim())

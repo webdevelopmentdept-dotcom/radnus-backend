@@ -3,14 +3,16 @@ const router = express.Router();
 const Employee = require("../models/Employee");
 const Document = require("../models/Document");
 const { createNotification } = require("../helpers/notificationHelper"); // ✅ ADD THIS IMPORT
-
+const logAction = require("../helpers/logAction");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ================= PENDING =================
-router.get("/pending", async (req, res) => {
+router.get("/pending", auth, hrOnly, async (req, res) => {
   try {
 
     const employees = await Employee.find({
-     status: { $in: ["pending", "admin_pending"] }
+      status: { $in: ["pending", "admin_pending"] }
     });
 
     const result = await Promise.all(
@@ -50,7 +52,7 @@ router.get("/pending", async (req, res) => {
 
 
 // ================= REJECTED =================
-router.get("/rejected", async (req, res) => {
+router.get("/rejected", auth, hrOnly, async (req, res) => {
   try {
 
     const employees = await Employee.find({
@@ -74,7 +76,7 @@ router.get("/rejected", async (req, res) => {
           designation: emp.designation,
           status: emp.status,
           remarks: emp.remarks, // ✅ FIXED
-            hrRemarks: emp.hrRemarks,
+          hrRemarks: emp.hrRemarks,
           mdRemarks: emp.mdRemarks,
           reuploaded: emp.reuploaded,
           createdAt: emp.createdAt,
@@ -91,12 +93,10 @@ router.get("/rejected", async (req, res) => {
   }
 });
 
-
-// ================= APPROVE =================
 // ================= APPROVE (HR STEP) =================
-router.put("/approve/:id", async (req, res) => {
+router.put("/approve/:id", auth, hrOnly, async (req, res) => {
   try {
-    const { remarks } = req.body;   // ✅ இது சேர்க்கணும்
+    const { remarks } = req.body;   
 
     const employee = await Employee.findByIdAndUpdate(req.params.id, {
       status: "admin_pending",
@@ -111,12 +111,17 @@ router.put("/approve/:id", async (req, res) => {
     }
 
     await createNotification({
-      recipient_id:   null,
+      recipient_id: null,
       recipient_role: "admin",
-      type:           "general",
-      title:          "New HR Approval Pending",
-      message:        `${employee.name}'s application has been approved by HR and is waiting for your approval.`,
-      link:           "/admin/pending-approvals"
+      type: "general",
+      title: "New HR Approval Pending",
+      message: `${employee.name}'s application has been approved by HR and is waiting for your approval.`,
+      link: "/admin/pending-approvals"
+    });
+
+    await logAction(req, {
+      action: "EMPLOYEE_APPROVE", entityType: "Employee",
+      entityId: employee._id, entityName: employee.name, remarks: remarks || "",
     });
 
     res.json({ message: "Sent for Admin approval" });
@@ -128,14 +133,14 @@ router.put("/approve/:id", async (req, res) => {
 });
 
 // ================= REJECT =================
-router.put("/reject/:id", async (req, res) => {
+router.put("/reject/:id", auth, hrOnly, async (req, res) => {
   try {
     const { remarks } = req.body;
 
-        const employee = await Employee.findByIdAndUpdate(req.params.id, {
+    const employee = await Employee.findByIdAndUpdate(req.params.id, {
       status: "rejected",
       remarks: remarks || "Rejected by HR",
-      hrRemarks: remarks || "Rejected by HR",   // ✅ add பண்ணுங்க
+      hrRemarks: remarks || "Rejected by HR",   
       updatedAt: new Date()
     }, { new: true });
 
@@ -143,15 +148,11 @@ router.put("/reject/:id", async (req, res) => {
       return res.status(404).json({ message: "Employee not found" });
     }
 
-    // ⚪ Reject-ku notification venumna, idha uncomment pannunga:
-    // await createNotification({
-    //   recipient_id:   employee._id,
-    //   recipient_role: "employee",
-    //   type:           "system",
-    //   title:          "Application Update",
-    //   message:        `Hi ${employee.name}, your application needs some corrections. Reason: ${employee.remarks}`,
-    //   link:           "/employee/dashboard"
-    // });
+    await logAction(req, {
+  action: "EMPLOYEE_REJECT", entityType: "Employee",
+  entityId: employee._id, entityName: employee.name, remarks: remarks || "",
+});
+
 
     res.json({ message: "Rejected successfully" });
 
@@ -161,7 +162,7 @@ router.put("/reject/:id", async (req, res) => {
 });
 
 // ================= APPROVED =================
-router.get("/approved", async (req, res) => {
+router.get("/approved", auth, hrOnly, async (req, res) => {
   try {
     const employees = await Employee.find({
       status: "approved"
@@ -200,7 +201,7 @@ router.get("/approved", async (req, res) => {
 });
 
 // ================= ALL EMPLOYEES =================
-router.get("/employees", async (req, res) => {
+router.get("/employees", auth, hrOnly, async (req, res) => {
   try {
     const employees = await Employee.find();
 
@@ -222,7 +223,7 @@ router.get("/employees", async (req, res) => {
           status: emp.status,
           reuploaded: emp.reuploaded,
           documentsCompleted: emp.documentsCompleted,
-           exitType: emp.exitType,
+          exitType: emp.exitType,
           accessDeactivated: emp.accessDeactivated,
           documents: docs
         };

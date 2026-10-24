@@ -2,7 +2,8 @@
 const express = require("express");
 const router  = express.Router();
 const DGS     = require("../models/DepartmentGradeSalary");
-
+ const auth = require("../middleware/auth"); 
+ const hrOnly = require("../middleware/hrOnly");
 // GET all — optionally filter by dept: ?department_id=xxx
 // routes/departmentGradeSalary.js — GET route மட்டும் மாத்து
 
@@ -24,7 +25,7 @@ router.get("/", async (req, res) => {
 });
 
 // POST — create
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const doc = await DGS.create(req.body);
     res.json({ success: true, data: doc });
@@ -41,7 +42,7 @@ router.post("/", async (req, res) => {
 });
 
 // PUT — update
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, hrOnly, async (req, res) => {
   try {
     const doc = await DGS.findByIdAndUpdate(
       req.params.id, req.body, { new: true }
@@ -53,7 +54,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // DELETE
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     await DGS.findByIdAndDelete(req.params.id);
     res.json({ success: true });

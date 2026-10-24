@@ -5,6 +5,8 @@ const ClubEvent = require("../models/ClubEvent");
 const ClubPoints = require("../models/ClubPoints");
 
 const VALID_CLUBS = ["tech", "fitness", "creativity"];
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ── Validate club ──
 router.param("club", (req, res, next, val) => {
@@ -89,7 +91,7 @@ router.post("/:club/members", async (req, res) => {
 
 // ✅ NEW — PATCH /:club/members/:id/status  (approve / reject)
 // Frontend: PATCH /api/clubs/tech/members/69e0b59.../status
-router.patch("/:club/members/:id/status", async (req, res) => {
+router.patch("/:club/members/:id/status", auth, hrOnly, async (req, res) => {
   try {
     const { status } = req.body; // "approved" | "rejected"
 
@@ -117,7 +119,7 @@ router.patch("/:club/members/:id/status", async (req, res) => {
 });
 
 // APPROVE member (old route — kept for backward compatibility)
-router.patch("/:club/members/:id/approve", async (req, res) => {
+router.patch("/:club/members/:id/approve", auth, hrOnly, async (req, res) => {
   try {
     const mem = await ClubMember.findByIdAndUpdate(
       req.params.id,
@@ -159,7 +161,7 @@ router.get("/:club/events", async (req, res) => {
 });
 
 // CREATE event
-router.post("/:club/events", async (req, res) => {
+router.post("/:club/events", auth, hrOnly, async (req, res) => {
   try {
     const { title, activity_type } = req.body;
 
@@ -182,7 +184,7 @@ router.post("/:club/events", async (req, res) => {
 });
 
 // UPDATE event
-router.put("/:club/events/:id", async (req, res) => {
+router.put("/:club/events/:id", auth, hrOnly, async (req, res) => {
   try {
     const ev = await ClubEvent.findByIdAndUpdate(
       req.params.id,
@@ -201,7 +203,7 @@ router.put("/:club/events/:id", async (req, res) => {
 });
 
 // UPDATE event status
-router.patch("/:club/events/:id/status", async (req, res) => {
+router.patch("/:club/events/:id/status", auth, hrOnly, async (req, res) => {
   try {
     const { status } = req.body;
 
@@ -218,7 +220,7 @@ router.patch("/:club/events/:id/status", async (req, res) => {
 });
 
 // DELETE event
-router.delete("/:club/events/:id", async (req, res) => {
+router.delete("/:club/events/:id", auth, hrOnly, async (req, res) => {
   try {
     await ClubEvent.findByIdAndDelete(req.params.id);
     res.json({ success: true });
@@ -244,7 +246,7 @@ router.get("/:club/points", async (req, res) => {
 });
 
 // AWARD points
-router.post("/:club/points", async (req, res) => {
+router.post("/:club/points", auth, hrOnly, async (req, res) => {
   try {
     const { employee_id, points } = req.body;
 
@@ -284,7 +286,7 @@ router.post("/:club/points", async (req, res) => {
 });
 
 // DELETE points
-router.delete("/:club/points/:id", async (req, res) => {
+router.delete("/:club/points/:id", auth, hrOnly, async (req, res) => {
   try {
     await ClubPoints.findByIdAndDelete(req.params.id);
     res.json({ success: true });
@@ -297,7 +299,7 @@ router.delete("/:club/points/:id", async (req, res) => {
 // ═════════════════════ STATS ═════════════════════
 
 // GET /:club/stats
-router.get("/:club/stats", async (req, res) => {
+router.get("/:club/stats", auth, hrOnly, async (req, res) => {
   try {
     const club = req.params.club;
 
@@ -332,7 +334,7 @@ router.get("/:club/stats", async (req, res) => {
 
 // ✅ NEW — GET /:club/summary
 // Frontend: GET /api/clubs/tech/summary
-router.get("/:club/summary", async (req, res) => {
+router.get("/:club/summary", auth, hrOnly, async (req, res) => {
   try {
     const club = req.params.club;
 
@@ -367,13 +369,13 @@ router.get("/:club/summary", async (req, res) => {
       data: {
         club,
         members: {
-          total:    totalMembers,
+          total: totalMembers,
           approved: approvedMembers,
-          pending:  pendingMembers,
+          pending: pendingMembers,
           rejected: rejectedMembers,
         },
         events: {
-          upcoming:  upcomingEvents,
+          upcoming: upcomingEvents,
           completed: completedEvents,
         },
         totalPointsAwarded: totalPointsAgg[0]?.total || 0,

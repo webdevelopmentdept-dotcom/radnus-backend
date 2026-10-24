@@ -1,10 +1,7 @@
-// routes/adminHrDashboardRoutes.js
-// NEW FILE – read-only HR stats for the Admin Dashboard "HR" tab.
-// Workforce, Attendance, Leave, Payroll, Top Performers.
-// It does NOT modify any data and does not touch any existing route.
-
 const express = require("express");
 const router = express.Router();
+const auth = require("../middleware/auth"); 
+const adminOnly = require("../middleware/adminOnly"); 
 
 const Employee           = require("../models/Employee");
 const Attendance         = require("../models/Attendance");
@@ -74,7 +71,7 @@ const monthStart = () => {
 };
 
 /* ================= GET /api/admin-hr-dashboard/stats ================= */
-router.get("/stats", async (req, res) => {
+router.get("/stats", auth, adminOnly, async (req, res) => {
   try {
     const today = istDate(0);
     const last7 = Array.from({ length: 7 }, (_, i) => istDate(-(6 - i)));

@@ -7,6 +7,9 @@ const EmploymentDetails = require("../models/EmploymentDetails");
 const Employee = require("../models/Employee");
 const Document = require("../models/Document");
 const { createNotification } = require("../helpers/notificationHelper");
+const logAction = require("../helpers/logAction");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ================= CLOUDINARY STORAGE =================
 const storage = new CloudinaryStorage({
@@ -38,8 +41,7 @@ const upload = multer({
 });
 
 // ================= UPLOAD HR DOCUMENT =================
-// ================= UPLOAD HR DOCUMENT =================
-router.post("/upload-doc", (req, res) => {
+router.post("/upload-doc", auth, hrOnly, (req, res) => {
   upload.single("file")(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ success: false, message: err.message });
@@ -57,16 +59,23 @@ router.post("/upload-doc", (req, res) => {
       if (existingDoc) {
         existingDoc.fileUrl = req.file.path;
         existingDoc.publicId = req.file.filename;
+        existingDoc.uploadedByName = req.actor?.name || "";   // NEW
+        existingDoc.uploadedByRole = req.actor?.role || "";
         await existingDoc.save();
+
+        await logAction(req, {                                // NEW
+          action: "HR_DOC_REPLACE", entityType: "Employee",
+          entityId: employeeId, remarks: `Replaced HR document: ${docType}`,
+        });
 
         // ✅ NEW — Employee notification on HR doc update
         await createNotification({
-          recipient_id:   employeeId,
+          recipient_id: employeeId,
           recipient_role: "employee",
-          type:           "hr",
-          title:          "Document Updated",
-          message:        `HR updated your "${docType}"`,
-          link:           "/employee/documents",
+          type: "hr",
+          title: "Document Updated",
+          message: `HR updated your "${docType}"`,
+          link: "/employee/documents",
         });
 
         return res.json({ success: true, message: "Document updated", fileUrl: req.file.path });
@@ -76,33 +85,40 @@ router.post("/upload-doc", (req, res) => {
         employeeId, docType,
         fileUrl: req.file.path,
         publicId: req.file.filename,
+        uploadedByName: req.actor?.name || "",
+        uploadedByRole: req.actor?.role || "",
       });
       await newDoc.save();
 
-      // ✅ NEW — Employee notification on new HR doc upload
-      await createNotification({
-        recipient_id:   employeeId,
-        recipient_role: "employee",
-        type:           "hr",
-        title:          "New Document Available",
-        message:        `HR uploaded a new document: "${docType}"`,
-        link:           "/employee/documents",
+      await logAction(req, {                     // NEW
+        action: "HR_DOC_UPLOAD", entityType: "Employee",
+        entityId: employeeId, remarks: `Uploaded HR document: ${docType}`,
       });
 
-     res.json({ success: true, message: "Uploaded successfully", fileUrl: req.file.path });
-} catch (err) {
-  console.error("HR upload-doc error:", err);   // ✅ terminal la full error varum
-  res.status(500).json({ success: false, message: err.message || "Upload failed" });
-}
+      // ✅ NEW — Employee notification on new HR doc upload
+      await createNotification({
+        recipient_id: employeeId,
+        recipient_role: "employee",
+        type: "hr",
+        title: "New Document Available",
+        message: `HR uploaded a new document: "${docType}"`,
+        link: "/employee/documents",
+      });
+
+      res.json({ success: true, message: "Uploaded successfully", fileUrl: req.file.path });
+    } catch (err) {
+      console.error("HR upload-doc error:", err);   // ✅ terminal la full error varum
+      res.status(500).json({ success: false, message: err.message || "Upload failed" });
+    }
   });
 });
 // ================= GET HR DOCUMENTS =================
-router.get("/docs/:employeeId", async (req, res) => {
+router.get("/docs/:employeeId", auth, hrOnly, async (req, res) => {
   try {
     const hrDocTypes = [
       "Offer Letter", "Appointment Letter", "NDA Agreement",
       "Employment Contract", "Salary Structure Document", "HR Policy Document",
-    "Salary Revision Letter", "Promotion Letter",
+      "Salary Revision Letter", "Promotion Letter",
     ];
     const docs = await Document.find({
       employeeId: req.params.employeeId,
@@ -115,7 +131,7 @@ router.get("/docs/:employeeId", async (req, res) => {
 });
 
 // ================= ACTIVATE EMPLOYEE =================
-router.post("/activate", async (req, res) => {
+router.post("/activate", auth, hrOnly, async (req, res) => {
   try {
     const { employee_id } = req.body;
     const details = await EmploymentDetails.findOne({ employee_id });
@@ -129,20 +145,25 @@ router.post("/activate", async (req, res) => {
     const employee = await Employee.findByIdAndUpdate(
       employee_id,
       {
-        status:      "active",
+        status: "active",
         designation: details.employment?.designation,
-        department:  details.employment?.department,
+        department: details.employment?.department,
       },
       { new: true }
     );
 
     await createNotification({
-      recipient_id:   employee_id,
+      recipient_id: employee_id,
       recipient_role: "employee",
-      type:           "employee_activated",
-      title:          "Account Activated 🎉",
-      message:        `Welcome ${employee?.name || ""}! Your employee account is now active. Access your salary, documents and performance.`,
-      link:           "/employee/dashboard"
+      type: "employee_activated",
+      title: "Account Activated 🎉",
+      message: `Welcome ${employee?.name || ""}! Your employee account is now active. Access your salary, documents and performance.`,
+      link: "/employee/dashboard"
+    });
+
+    await logAction(req, {
+      action: "EMPLOYEE_ACTIVATE", entityType: "Employee",
+      entityId: employee_id, entityName: employee?.name || "",
     });
 
     res.json({ success: true, message: "Employee activated successfully" });
@@ -153,7 +174,7 @@ router.post("/activate", async (req, res) => {
 
 // ================= SAVE EMPLOYMENT + SALARY =================
 // ✅ CHANGE 1: essl_id → Employee model-ல save பண்றோம்
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const { employee_id, employment, salary } = req.body;
 
@@ -172,6 +193,8 @@ router.post("/", async (req, res) => {
       { upsert: true, new: true }
     );
 
+    await logAction(req, { action: "EMPLOYMENT_SAVE", entityType: "Employee", entityId: employee_id });
+
     res.json({ success: true, data: details });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
@@ -179,7 +202,7 @@ router.post("/", async (req, res) => {
 });
 
 // ================= GET ACTIVATION DETAILS =================
-router.get("/:employeeId", async (req, res) => {
+router.get("/:employeeId", auth, hrOnly, async (req, res) => {
   try {
     const details = await EmploymentDetails.findOne({ employee_id: req.params.employeeId });
     if (!details) return res.json({ success: false, data: null });
@@ -191,7 +214,7 @@ router.get("/:employeeId", async (req, res) => {
 
 // ================= UPDATE EMPLOYEE INFO BY HR =================
 // ✅ CHANGE 2: essl_id → update route-லயும் handle பண்றோம்
-router.put("/update/:employeeId", async (req, res) => {
+router.put("/update/:employeeId", auth, hrOnly, async (req, res) => {
   try {
     const { employeeId } = req.params;
     const {
@@ -201,7 +224,7 @@ router.put("/update/:employeeId", async (req, res) => {
       employeeId: empId,
       department,
       designation,
-        employment_type, 
+      employment_type,
       date_of_joining,
       essl_id,        // ✅ இந்த line add பண்ணினோம்
       salary,
@@ -211,13 +234,13 @@ router.put("/update/:employeeId", async (req, res) => {
     const updatedEmployee = await Employee.findByIdAndUpdate(
       employeeId,
       {
-        ...(name        && { name }),
-        ...(email       && { email }),
-        ...(mobile      && { mobile }),
-        ...(empId       && { employeeId: empId }),
-        ...(department  && { department }),
+        ...(name && { name }),
+        ...(email && { email }),
+        ...(mobile && { mobile }),
+        ...(empId && { employeeId: empId }),
+        ...(department && { department }),
         ...(designation && { designation }),
-         ...(employment_type  && { employment_type }), 
+        ...(employment_type && { employment_type }),
         ...(essl_id !== undefined && { essl_id: essl_id || null }),
       },
       { new: true }
@@ -230,11 +253,11 @@ router.put("/update/:employeeId", async (req, res) => {
     // 2. Update EmploymentDetails
     const empDetailsUpdate = {};
     if (department || designation || date_of_joining || employment_type) {
-  empDetailsUpdate["employment.department"]       = department;
-  empDetailsUpdate["employment.designation"]      = designation;
-  empDetailsUpdate["employment.date_of_joining"]  = date_of_joining;
-  empDetailsUpdate["employment.employment_type"]  = employment_type;  // ← ADD
-}
+      empDetailsUpdate["employment.department"] = department;
+      empDetailsUpdate["employment.designation"] = designation;
+      empDetailsUpdate["employment.date_of_joining"] = date_of_joining;
+      empDetailsUpdate["employment.employment_type"] = employment_type;  // ← ADD
+    }
     if (salary) {
       empDetailsUpdate["salary"] = salary;
     }
@@ -246,6 +269,11 @@ router.put("/update/:employeeId", async (req, res) => {
         { upsert: true, new: true }
       );
     }
+
+    await logAction(req, {
+      action: "EMPLOYEE_UPDATE", entityType: "Employee", entityId: employeeId,
+      meta: { fields: Object.keys(req.body || {}) },   // salary value log-la save aaga koodadhu, so field names mattum
+    });
 
     res.json({
       success: true,

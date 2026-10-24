@@ -2,11 +2,11 @@ const mongoose = require("mongoose");
 
 // ── Single punch entry ────────────────────────────────────────
 const PunchSchema = new mongoose.Schema({
-  type:      { type: String, enum: ["in", "out"], required: true },
-  time:      { type: Date, required: true },
-  method:    { type: String, enum: ["manual", "hr_manual", "auto", "qr"], default: "manual" },
-  location:  { lat: Number, lng: Number },
-  remark:    { type: String, default: "" },
+  type: { type: String, enum: ["in", "out"], required: true },
+  time: { type: Date, required: true },
+  method: { type: String, enum: ["manual", "hr_manual", "auto", "qr"], default: "manual" },
+  location: { lat: Number, lng: Number },
+  remark: { type: String, default: "" },
 }, { _id: true });
 
 // ── Main Attendance Schema ────────────────────────────────────
@@ -16,7 +16,7 @@ const AttendanceSchema = new mongoose.Schema({
     ref: "Employee",
     required: true,
   },
-  date:   { type: String, required: true }, // "YYYY-MM-DD"
+  date: { type: String, required: true }, // "YYYY-MM-DD"
   // shift: { type: String, default: "General" },
   remark: { type: String, default: "" },
 
@@ -31,33 +31,38 @@ const AttendanceSchema = new mongoose.Schema({
 
   // ── Computed / cached fields (updated on every punch) ─────
   // These are derived from punches[] — stored for query speed
-  status:            {
+  status: {
     type: String,
     enum: ["present", "absent", "late", "half_day", "leave", "holiday", "weekend"],
     default: "absent",
   },
-  first_in:          { type: Date },   // first "in" punch of the day
-  last_out:          { type: Date },   // last "out" punch of the day
-  work_hours:        { type: Number, default: 0 },   // net work hours (sum of in→out pairs)
-  break_minutes:     { type: Number, default: 0 },   // total break time between punches
-  late_minutes:      { type: Number, default: 0 },   // mins after 10:00 AM grace
+  first_in: { type: Date },   // first "in" punch of the day
+  last_out: { type: Date },   // last "out" punch of the day
+  work_hours: { type: Number, default: 0 },   // net work hours (sum of in→out pairs)
+  break_minutes: { type: Number, default: 0 },   // total break time between punches
+  late_minutes: { type: Number, default: 0 },   // mins after 10:00 AM grace
   early_out_minutes: { type: Number, default: 0 },   // mins before 7:00 PM (based on last_out)
-  overtime_minutes:  { type: Number, default: 0 },   // mins after 7:00 PM (based on last_out)
-  half_day_session:  { type: String, enum: ["morning", "afternoon", null], default: null },
+  overtime_minutes: { type: Number, default: 0 },   // mins after 7:00 PM (based on last_out)
+  half_day_session: { type: String, enum: ["morning", "afternoon", null], default: null },
   // ── HR override fields ────────────────────────────────────
-  method:   { type: String, enum: ["manual", "hr_manual", "auto", "qr"], default: "manual" },
+  method: { type: String, enum: ["manual", "hr_manual", "auto", "qr"], default: "manual" },
+
+  edited_by_name: { type: String, default: "" },
+  edited_by_role: { type: String, default: "" },
+  edited_at: { type: Date, default: null },
+
 
   // ── Legacy fields (kept for backward compat during migration) ──
   // Remove these after migration is complete
-  checkIn:    { type: Date },
-  checkOut:   { type: Date },
+  checkIn: { type: Date },
+  checkOut: { type: Date },
   breakStart: { type: Date },
-  breakEnd:   { type: Date },
+  breakEnd: { type: Date },
 
   permission: {
-  start: { type: String, default: null }, // "10:00"
-  end: { type: String, default: null },   // "11:00"
-},
+    start: { type: String, default: null }, // "10:00"
+    end: { type: String, default: null },   // "11:00"
+  },
 
 }, { timestamps: true });
 

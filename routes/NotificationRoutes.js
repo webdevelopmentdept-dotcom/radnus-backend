@@ -2,8 +2,8 @@ const express      = require("express");
 const router       = express.Router();
 const Notification = require("../models/Notification");
 const Employee = require("../models/Employee");
-
-
+const auth = require("../middleware/auth");  
+const hrOnly = require("../middleware/hrOnly");
 
 // ══════════════════════════════════════════
 // ✅ WEB PUSH — must stay ABOVE the "/:recipientId" routes
@@ -67,7 +67,7 @@ router.post("/push/unsubscribe", async (req, res) => {
 // ══════════════════════════════════════════
 
 // GET /api/notifications/hr/all
-router.get("/hr/all", async (req, res) => {
+router.get("/hr/all", auth, hrOnly, async (req, res) => {
   try {
     const notifications = await Notification.find({
       recipient_role: "hr"
@@ -92,7 +92,7 @@ const hrFilter = (hrId) => ({
 });
 
 // GET /api/notifications/hr/:hrId
-router.get("/hr/:hrId", async (req, res) => {
+router.get("/hr/:hrId", auth, hrOnly, async (req, res) => {
   try {
     const notifications = await Notification.find(hrFilter(req.params.hrId))
       .sort({ createdAt: -1 })
@@ -105,7 +105,7 @@ router.get("/hr/:hrId", async (req, res) => {
 });
 
 // PUT /api/notifications/mark-all-read/hr/:hrId
-router.put("/mark-all-read/hr/:hrId", async (req, res) => {
+router.put("/mark-all-read/hr/:hrId", auth, hrOnly, async (req, res) => {
   try {
     await Notification.updateMany(
       { ...hrFilter(req.params.hrId), isRead: false },
@@ -118,7 +118,7 @@ router.put("/mark-all-read/hr/:hrId", async (req, res) => {
 });
 
 // PUT /api/notifications/mark-all-read/hr
-router.put("/mark-all-read/hr", async (req, res) => {
+router.put("/mark-all-read/hr", auth, hrOnly, async (req, res) => {
   try {
     await Notification.updateMany(
       { recipient_role: "hr", isRead: false },
@@ -135,7 +135,7 @@ router.put("/mark-all-read/hr", async (req, res) => {
 // POST /api/notifications/send-hr-message
 // Body: { employeeIds: ["all"] or ["id1","id2"], title: string, message: string }
 // ══════════════════════════════════════════
-router.post("/send-hr-message", async (req, res) => {
+router.post("/send-hr-message", auth, hrOnly, async (req, res) => {
   try {
         const { employeeIds, title, message, hrId } = req.body;
 
@@ -174,22 +174,22 @@ if (employeeIds.length === 1 && employeeIds[0] === "all") {
 
         await Notification.insertMany(docs);
 
-    if (hrId) {
-      const recipientLabel =
-        employeeIds.length === 1 && employeeIds[0] === "all"
-          ? "All Employees"
-          : `${targetIds.length} employee${targetIds.length === 1 ? "" : "s"}`;
+    // HR-side log: visible to ALL HRs, shows who sent it
+const senderName = req.actor?.name || "HR";
+const recipientLabel =
+  employeeIds.length === 1 && employeeIds[0] === "all"
+    ? "All Employees"
+    : `${targetIds.length} employee${targetIds.length === 1 ? "" : "s"}`;
 
-      await Notification.create({
-        recipient_id:   String(hrId),
-        recipient_role: "hr",
-        type:           "hr_message_sent",
-        title:          notifTitle,
-        message:        `To ${recipientLabel}: ${message.trim()}`,
-        link:           "",
-        isRead:         true
-      });
-    }
+await Notification.create({
+  recipient_id:   null,          // role-wide → every HR can see it
+  recipient_role: "hr",
+  type:           "hr_message_sent",
+  title:          notifTitle,
+  message:        `${senderName} sent to ${recipientLabel}: ${message.trim()}`,
+  link:           "",
+  isRead:         true
+});
 
     res.json({ success: true, sent: docs.length });
   

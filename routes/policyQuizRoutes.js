@@ -1,4 +1,5 @@
 // routes/policyQuizRoutes.js
+
 const express = require("express");
 const router = express.Router();
 const {
@@ -10,12 +11,13 @@ const {
   submitQuiz,
   checkAttempt,
 } = require("../controllers/policyQuizController");
-
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 // ── HR Routes ──────────────────────────────
-router.post("/", upsertQuiz);                              // Create / update quiz
-router.get("/policy/:policy_id", getQuizByPolicy);         // Get quiz questions (HR view)
-router.delete("/policy/:policy_id", deleteQuiz);           // Remove quiz
-router.get("/stats/:policy_id", getQuizStats);             // Attempt stats
+router.post("/", auth, hrOnly, upsertQuiz);                              // Create / update quiz
+router.get("/policy/:policy_id", auth, hrOnly, getQuizByPolicy);         // Get quiz questions (HR view)
+router.delete("/policy/:policy_id", auth, hrOnly, deleteQuiz);           // Remove quiz
+router.get("/stats/:policy_id", auth, hrOnly, getQuizStats);             // Attempt stats
 
 // ── Employee Routes ────────────────────────
 router.get("/start/:policy_id", startQuiz);                // Get 5 shuffled questions

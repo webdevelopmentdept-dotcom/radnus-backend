@@ -5,17 +5,17 @@ const mongoose = require("mongoose");
 const KpiSlabSchema = new mongoose.Schema({
   min_score: { type: Number, required: true },
   max_score: { type: Number, required: true },
-  type:      { type: String, enum: ["none", "fixed", "target_percentage"], default: "none" },
-  value:     { type: Number, default: 0 },
+  type: { type: String, enum: ["none", "fixed", "target_percentage"], default: "none" },
+  value: { type: Number, default: 0 },
 }, { _id: false });
 
 // ── Standalone slab schema (target range → payout) ────────────────────────────
 const StandaloneSlabSchema = new mongoose.Schema({
-  min_target:   { type: Number, required: true, default: 0 },
-  max_target:   { type: Number, default: 0 },   // 0 = no upper limit
-  payout_type:  {
-    type:    String,
-    enum:    ["fixed", "percent_of_achieved", "percent_of_salary", "per_unit"],
+  min_target: { type: Number, required: true, default: 0 },
+  max_target: { type: Number, default: 0 },   // 0 = no upper limit
+  payout_type: {
+    type: String,
+    enum: ["fixed", "percent_of_achieved", "percent_of_salary", "per_unit"],
     default: "fixed",
   },
   payout_value: { type: Number, default: 0 },
@@ -23,31 +23,31 @@ const StandaloneSlabSchema = new mongoose.Schema({
 
 // ── Per-program slab block (for Admission KPIs) ───────────────────────────────
 const ProgramSlabSchema = new mongoose.Schema({
-  program_id:   { type: String, required: true },
+  program_id: { type: String, required: true },
   program_name: { type: String, default: "" },
-  slabs:        { type: [KpiSlabSchema], default: [] },
+  slabs: { type: [KpiSlabSchema], default: [] },
 }, { _id: false });
 
 // ── Program target (mirrors KPI template) ────────────────────────────────────
 const ProgramTargetSchema = new mongoose.Schema({
-  program_id:   { type: String, required: true },
+  program_id: { type: String, required: true },
   program_name: { type: String, default: "" },
-  target:       { type: Number, default: 0 },
+  target: { type: Number, default: 0 },
 }, { _id: false });
 
 // ── Per-KPI configuration block ───────────────────────────────────────────────
 const KpiConfigSchema = new mongoose.Schema({
-  kpi_name:         { type: String, required: true },
-  weight:           { type: Number, default: 0 },
-  target:           { type: String, default: "" },
-  value_type:       { type: String, enum: ["count", "percentage", "amount", "rating"], default: "count" },
-  operator:         { type: String, enum: [">=", ">", "=", "<=", "<"], default: ">=" },
-  rule_label:       { type: String, default: "" },
+  kpi_name: { type: String, required: true },
+  weight: { type: Number, default: 0 },
+  target: { type: String, default: "" },
+  value_type: { type: String, enum: ["count", "percentage", "amount", "rating"], default: "count" },
+  operator: { type: String, enum: [">=", ">", "=", "<=", "<"], default: ">=" },
+  rule_label: { type: String, default: "" },
 
   // ── Admission KPI fields ──────────────────────────────────────────────────
   is_admission_kpi: { type: Boolean, default: false },
-  program_targets:  { type: [ProgramTargetSchema], default: [] },
-  program_slabs:    { type: [ProgramSlabSchema],   default: [] },
+  program_targets: { type: [ProgramTargetSchema], default: [] },
+  program_slabs: { type: [ProgramSlabSchema], default: [] },
 
   // ── Normal KPI slabs ──────────────────────────────────────────────────────
   slabs: { type: [KpiSlabSchema], default: [] },
@@ -55,64 +55,64 @@ const KpiConfigSchema = new mongoose.Schema({
 
 // ── Main IncentivePlan Schema ─────────────────────────────────────────────────
 const IncentivePlanSchema = new mongoose.Schema({
-  name:       { type: String, required: true, trim: true },
-  description: { type: String, default: "", trim: true },   
+  name: { type: String, required: true, trim: true },
+  description: { type: String, default: "", trim: true },
   department: { type: String, required: true },
 
   // Time Period
   period_type: {
-    type:    String,
-    enum:    ["Monthly", "Quarterly", "Half-Yearly", "Yearly"],
+    type: String,
+    enum: ["Monthly", "Quarterly", "Half-Yearly", "Yearly"],
     default: "Monthly",
   },
-  period_month:   { type: Number, default: null },
+  period_month: { type: Number, default: null },
   period_quarter: { type: String, default: null },
-  period_half:    { type: String, default: null },
-  period_year:    { type: Number, default: () => new Date().getFullYear() },
+  period_half: { type: String, default: null },
+  period_year: { type: Number, default: () => new Date().getFullYear() },
 
   // Plan type
   plan_type: {
-    type:    String,
-    enum:    ["kpi_linked", "standalone"],
+    type: String,
+    enum: ["kpi_linked", "standalone"],
     default: "kpi_linked",
   },
 
-    // ── Payout Mode (🆕) ───────────────────────────────────────────────────────
+  // ── Payout Mode (🆕) ───────────────────────────────────────────────────────
   payout_frequency: {
-    type:    String,
-    enum:    ["monthly", "daily"],
+    type: String,
+    enum: ["monthly", "daily"],
     default: "monthly",
   },
 
   // ── Validity window (🆕) ───────────────────────────────────────────────────
   validity_start: { type: Date, default: null },
-  validity_end:   { type: Date, default: null },
+  validity_end: { type: Date, default: null },
 
   // ── KPI-Linked fields ─────────────────────────────────────────────────────
   kpi_template_id: {
-    type:    mongoose.Schema.Types.ObjectId,
-    ref:     "KpiTemplate",
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "KpiTemplate",
     default: null,
   },
   kpi_configs: { type: [KpiConfigSchema], default: [] },
 
   // Completion reward
-  completion_reward_type:  { type: String, enum: ["none", "fixed", "percentage"], default: "none" },
+  completion_reward_type: { type: String, enum: ["none", "fixed", "percentage"], default: "none" },
   completion_reward_value: { type: Number, default: 0 },
   completion_reward_label: { type: String, default: "" },
 
   // ── Standalone fields ─────────────────────────────────────────────────────
-  standalone_metric:       { type: String, enum: ["manual", "attendance", "custom"], default: "manual" },
+  standalone_metric: { type: String, enum: ["manual", "attendance", "custom"], default: "manual" },
   standalone_metric_label: { type: String, default: "" },
 
   // Legacy flat payout (kept for backward compat)
-  standalone_payout_type:  { type: String, enum: ["fixed", "percentage"], default: "fixed" },
+  standalone_payout_type: { type: String, enum: ["fixed", "percentage"], default: "fixed" },
   standalone_payout_value: { type: Number, default: 0 },
 
   // NEW: target measurement type
   standalone_target_type: {
-    type:    String,
-    enum:    ["revenue", "units", "percent"],
+    type: String,
+    enum: ["revenue", "units", "percent"],
     default: "revenue",
   },
 
@@ -122,15 +122,18 @@ const IncentivePlanSchema = new mongoose.Schema({
   // Legacy KPI slabs (kept for backward compat)
   slabs: { type: [KpiSlabSchema], default: [] },
 
-   version_history: [{
-    version:          { type: Number },
-    saved_at:         { type: Date, default: Date.now },
-    period_month:     { type: Number },
-    period_year:      { type: Number },
+  version_history: [{
+    version: { type: Number },
+    saved_at: { type: Date, default: Date.now },
+    period_month: { type: Number },
+    period_year: { type: Number },
     standalone_slabs: { type: Array, default: [] },
-    kpi_configs:      { type: Array, default: [] },
-    change_note:      { type: String, default: "" },
+    kpi_configs: { type: Array, default: [] },
+    change_note: { type: String, default: "" },
   }],
+
+  created_by_name: { type: String, default: "" },
+  updated_by_name: { type: String, default: "" },
 
 }, { timestamps: true });
 
@@ -139,11 +142,11 @@ IncentivePlanSchema.virtual("period_label").get(function () {
   const y = this.period_year || new Date().getFullYear();
   switch (this.period_type) {
     case "Monthly":
-      return `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][(this.period_month||1)-1]} ${y}`;
-    case "Quarterly":   return `${this.period_quarter || "Q1"} ${y}`;
+      return `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][(this.period_month || 1) - 1]} ${y}`;
+    case "Quarterly": return `${this.period_quarter || "Q1"} ${y}`;
     case "Half-Yearly": return `${this.period_half || "H1"} ${y}`;
-    case "Yearly":      return `FY ${y}`;
-    default:            return `${y}`;
+    case "Yearly": return `FY ${y}`;
+    default: return `${y}`;
   }
 });
 
