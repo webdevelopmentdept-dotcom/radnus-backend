@@ -1,7 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const Update = require("../models/Update");
-
+const auth = require("../middleware/auth"); 
+const adminOnly = require("../middleware/adminOnly");  
 // GET all updates
 router.get("/", async (req, res) => {
   const updates = await Update.find().sort({ createdAt: -1 });
@@ -9,7 +10,7 @@ router.get("/", async (req, res) => {
 });
 
 // ADD update
-router.post("/add", async (req, res) => {
+router.post("/add", auth, adminOnly, async (req, res) => {
   try {
     const { message } = req.body;
     const add = await Update.create({ message });
@@ -20,7 +21,7 @@ router.post("/add", async (req, res) => {
 });
 
 // DELETE update
-router.delete("/delete/:id", async (req, res) => {
+router.delete("/delete/:id", auth, adminOnly, async (req, res) => {
   try {
     await Update.findByIdAndDelete(req.params.id);
     res.json({ success: true });

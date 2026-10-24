@@ -3,11 +3,12 @@ const router = express.Router();
 const Appraisal = require("../models/Appraisal");
 const PerformanceReview = require("../models/PerformanceReview");
 const { computeRecognitionScore } = require("../helpers/recognitionScoreHelper");
-
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 // ═══════════════════════════════════════════════
 // POST /api/appraisals — Create new appraisal
 // ═══════════════════════════════════════════════
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const {
       title,
@@ -83,7 +84,7 @@ router.post("/", async (req, res) => {
 // Re-pull recognition score from Recognition Hub (in case
 // awards were announced after this appraisal was created)
 // ═══════════════════════════════════════════════
-router.patch("/:id/refresh-recognition", async (req, res) => {
+router.patch("/:id/refresh-recognition", auth, hrOnly, async (req, res) => {
   try {
     const appraisal = await Appraisal.findById(req.params.id);
     if (!appraisal) {
@@ -113,7 +114,7 @@ router.patch("/:id/refresh-recognition", async (req, res) => {
 // GET /api/appraisals — Get all appraisals (HR)
 // Query: ?status=Draft&employee_id=xxx
 // ═══════════════════════════════════════════════
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const filter = {};
 
@@ -153,7 +154,7 @@ router.get("/employee/:employeeId", async (req, res) => {
 // ═══════════════════════════════════════════════
 // GET /api/appraisals/:id — Single appraisal
 // ═══════════════════════════════════════════════
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, hrOnly, async (req, res) => {
   try {
     const appraisal = await Appraisal.findById(req.params.id)
       .populate("employee_id", "name email department designation");
@@ -171,7 +172,7 @@ router.get("/:id", async (req, res) => {
 // ═══════════════════════════════════════════════
 // PUT /api/appraisals/:id — Update appraisal
 // ═══════════════════════════════════════════════
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, hrOnly, async (req, res) => {
   try {
     const appraisal = await Appraisal.findByIdAndUpdate(
       req.params.id,
@@ -193,7 +194,7 @@ router.put("/:id", async (req, res) => {
 // PATCH /api/appraisals/:id/publish — Publish appraisal
 // Employee-க்கு visible ஆகும்
 // ═══════════════════════════════════════════════
-router.patch("/:id/publish", async (req, res) => {
+router.patch("/:id/publish", auth, hrOnly, async (req, res) => {
   try {
     const appraisal = await Appraisal.findByIdAndUpdate(
       req.params.id,
@@ -214,7 +215,7 @@ router.patch("/:id/publish", async (req, res) => {
 // ═══════════════════════════════════════════════
 // DELETE /api/appraisals/:id — Delete appraisal
 // ═══════════════════════════════════════════════
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const appraisal = await Appraisal.findByIdAndDelete(req.params.id);
 

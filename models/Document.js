@@ -19,6 +19,8 @@ const documentSchema = new mongoose.Schema(
     publicId: {
       type: String,
     },
+    uploadedByName: { type: String, default: "" },
+    uploadedByRole: { type: String, default: "" }, 
   },
   { timestamps: true }
 );

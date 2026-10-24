@@ -3,6 +3,8 @@
 
 const express = require('express');
 const router  = express.Router();
+const auth = require("../middleware/auth");  
+const hrOnly = require("../middleware/hrOnly"); 
 
 const KpiAssignment    = require('../models/KpiAssignment');
 const KpiActual        = require('../models/KpiActual');
@@ -31,7 +33,7 @@ const getRating = (score) => {
 };
 
 // ─── GET /api/okr-dashboard ────────────────────────────────────────────────
-router.get('/', async (req, res) => {
+router.get('/', auth, hrOnly, async (req, res) => {
   try {
     // 1. All active assignments with employee + template populated
     const assignments = await KpiAssignment.find({ status: { $in: ['active', 'completed'] } })

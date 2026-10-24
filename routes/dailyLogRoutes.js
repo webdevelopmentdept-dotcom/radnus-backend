@@ -3,7 +3,8 @@ const router = express.Router();
 const DailyLog = require('../models/DailyLog');
 const mongoose = require('mongoose'); 
 const { isDateInPeriod, isPeriodOpen, GRACE_DAYS } = require('../helpers/kpiPeriodRules');
-
+const auth = require("../middleware/auth");  
+const hrOnly = require("../middleware/hrOnly");
 router.post('/', async (req, res) => {
   try {
     const { 
@@ -172,7 +173,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // ── HR Unlock ──
-router.patch('/:id/unlock', async (req, res) => {
+router.patch('/:id/unlock', auth, hrOnly, async (req, res) => {
   try {
     const log = await DailyLog.findById(req.params.id);
     if (!log) return res.status(404).json({ success: false, message: 'Log not found' });
@@ -189,7 +190,7 @@ router.patch('/:id/unlock', async (req, res) => {
 });
 
 // ── HR Re-lock (optional) ──
-router.patch('/:id/lock', async (req, res) => {
+router.patch('/:id/lock', auth, hrOnly, async (req, res) => {
   try {
     const log = await DailyLog.findById(req.params.id);
     if (!log) return res.status(404).json({ success: false, message: 'Log not found' });
@@ -204,7 +205,5 @@ router.patch('/:id/lock', async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
-module.exports = router; // ← இது already இருக்கு, மாத்தாதே
 
 module.exports = router;

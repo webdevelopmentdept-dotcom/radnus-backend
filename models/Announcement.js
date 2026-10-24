@@ -4,27 +4,27 @@ const mongoose = require('mongoose');
 // ── Reply (nested comment) ────────────────────────────────────────────────────
 const replySchema = new mongoose.Schema({
   employee_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
-  name:        { type: String },
+  name: { type: String },
   designation: { type: String },
-  avatar:      { type: String },
-  text:        { type: String, required: true, trim: true },
-  likes:       [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
+  avatar: { type: String },
+  text: { type: String, required: true, trim: true },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
 }, { timestamps: true });
 
 // ── Comment ───────────────────────────────────────────────────────────────────
 const commentSchema = new mongoose.Schema({
   employee_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
-  name:        { type: String },
+  name: { type: String },
   designation: { type: String },
-  avatar:      { type: String },
-  text:        { type: String, required: true, trim: true },
-  likes:       [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
-  replies:     [replySchema],
+  avatar: { type: String },
+  text: { type: String, required: true, trim: true },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
+  replies: [replySchema],
 }, { timestamps: true });
 
 // ── Announcement ──────────────────────────────────────────────────────────────
 const announcementSchema = new mongoose.Schema({
-  title:   { type: String, required: true, trim: true },
+  title: { type: String, required: true, trim: true },
   content: { type: String, required: true },
   type: {
     type: String,
@@ -35,31 +35,33 @@ const announcementSchema = new mongoose.Schema({
 
   // Images (base64 or URL)
   images: [{
-    url:      { type: String, required: true },
-    caption:  { type: String, default: '' },
+    url: { type: String, required: true },
+    caption: { type: String, default: '' },
     filename: { type: String, default: '' }
   }],
 
   // Targeting
-  target:             { type: String, enum: ['all','department','role','individual'], default: 'all' },
+  target: { type: String, enum: ['all', 'department', 'role', 'individual'], default: 'all' },
   target_departments: [{ type: String }],
-  target_roles:       [{ type: String }],
-  target_employees:   [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
+  target_roles: [{ type: String }],
+  target_employees: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
 
-  
-created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: false },
-  is_active:  { type: Boolean, default: true },
-  is_pinned:  { type: Boolean, default: false },
+
+  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: false },
+  created_by_name: { type: String, default: '' },
+  updated_by_name: { type: String, default: '' },
+  is_active: { type: Boolean, default: true },
+  is_pinned: { type: Boolean, default: false },
   expires_at: { type: Date },
 
   // Engagement
-  likes:    [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
   comments: [commentSchema],
 
   // Read tracking
   read_by: [{
     employee_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee' },
-    read_at:     { type: Date, default: Date.now }
+    read_at: { type: Date, default: Date.now }
   }],
 
   attachments: [{ name: String, url: String }],

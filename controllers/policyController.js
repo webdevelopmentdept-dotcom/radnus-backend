@@ -18,12 +18,16 @@ exports.createPolicy = async (req, res) => {
       file_url,
       applicable_to: applicable_to || "all",
       uploaded_by: uploaded_by || null,
+      uploaded_by_name: req.actor?.name || "",
+      updated_by_name: req.actor?.name || "",   // policy level mattum (version_history la venam)
       version: 1,
       // ✅ v1 entry goes into version_history on creation itself
       version_history: [{
         version_number: 1,
         file_url,
         uploaded_by: uploaded_by || null,
+        uploaded_by_name: req.actor?.name || "",
+        updated_by_name: req.actor?.name || "",   // policy level mattum (version_history la venam)
         change_note: "Initial upload",
         created_at: new Date(),
       }]
@@ -57,6 +61,7 @@ exports.updatePolicy = async (req, res) => {
         version_number: newVersion,
         file_url: newFileUrl,
         uploaded_by: uploaded_by || policy.uploaded_by,
+        uploaded_by_name: req.actor?.name || "",
         change_note: change_note || `Updated to v${newVersion}`,
         created_at: new Date(),
       });
@@ -75,7 +80,7 @@ exports.updatePolicy = async (req, res) => {
     if (title) policy.title = title;
     if (category) policy.category = category;
     if (description !== undefined) policy.description = description;
-
+    policy.updated_by_name = req.actor?.name || policy.updated_by_name;
     await policy.save();
     res.json({ message: "Policy updated", policy });
 
@@ -146,7 +151,7 @@ exports.getPolicyStats = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-  
+
 // HR - Soft delete
 exports.deletePolicy = async (req, res) => {
   try {

@@ -1,18 +1,20 @@
 // routes/incentiveAssignments.js
-const express             = require("express");
-const router              = express.Router();
+const express = require("express");
+const router = express.Router();
 const IncentiveAssignment = require("../models/IncentiveAssignment");
-const IncentivePlan       = require("../models/IncentivePlan");
-const IncentiveResult     = require("../models/IncentiveResult");
-const Employee            = require("../models/Employee");
+const IncentivePlan = require("../models/IncentivePlan");
+const IncentiveResult = require("../models/IncentiveResult");
+const Employee = require("../models/Employee");
 const { createNotification } = require("../helpers/notificationHelper");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ── GET /api/incentive-assignments ───────────────────────────────────────────
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly , async (req, res) => {
   try {
     const filter = {};
     if (req.query.employee_id) filter.employee_id = req.query.employee_id;
-    if (req.query.period)      filter.period      = req.query.period;
+    if (req.query.period) filter.period = req.query.period;
 
     const assignments = await IncentiveAssignment.find(filter)
       .populate("employee_id", "name email department designation salary")
@@ -26,7 +28,7 @@ router.get("/", async (req, res) => {
 });
 
 // ── POST /api/incentive-assignments ──────────────────────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const { employee_id, plan_id, cycle, period } = req.body;
 
@@ -54,17 +56,6 @@ router.post("/", async (req, res) => {
       return res.status(404).json({ success: false, message: "Incentive plan not found" });
     if (!emp)
       return res.status(404).json({ success: false, message: "Employee not found" });
-
-    // if (plan.period_type === "Monthly") {
-    //   const planPeriod = `${plan.period_year}-${String(plan.period_month).padStart(2, "0")}`;
-    //   if (period !== planPeriod) {
-    //     return res.status(400).json({
-    //       success: false,
-    //       message: `This plan is for ${planPeriod} only. Create a new plan for ${period}.`,
-    //     });
-    //   }
-    // }
-
     // ── Resolve cycle from plan ────────────────────────────────────────────
     const finalCycle = cycle || plan.period_type || plan.cycle || "Monthly";
 
@@ -75,17 +66,18 @@ router.post("/", async (req, res) => {
       cycle: finalCycle,
       period,
 
-       plan_snapshot: {
-    plan_type:               plan.plan_type,
-    standalone_slabs:        plan.standalone_slabs        || [],
-    standalone_target_type:  plan.standalone_target_type  || "revenue",
-    standalone_payout_type:  plan.standalone_payout_type  || "fixed",
-    kpi_configs:             plan.kpi_configs             || [],
-    completion_reward_type:  plan.completion_reward_type  || "none",
-    completion_reward_value: plan.completion_reward_value || 0,
-    completion_reward_label: plan.completion_reward_label || "",
-    snapped_at: new Date(),
-  },
+      plan_snapshot: {
+        plan_type: plan.plan_type,
+        standalone_slabs: plan.standalone_slabs || [],
+        standalone_target_type: plan.standalone_target_type || "revenue",
+        standalone_payout_type: plan.standalone_payout_type || "fixed",
+        kpi_configs: plan.kpi_configs || [],
+        completion_reward_type: plan.completion_reward_type || "none",
+        completion_reward_value: plan.completion_reward_value || 0,
+        completion_reward_label: plan.completion_reward_label || "",
+        snapped_at: new Date(),
+        created_by_name: req.actor?.name || "",
+      },
 
     }).save();
 
@@ -110,32 +102,32 @@ router.post("/", async (req, res) => {
       await IncentiveResult.create({
         employee_id,
         plan_id,
-        assignment_id:          asgn._id,
-        performance_score:      0,
+        assignment_id: asgn._id,
+        performance_score: 0,
         salary,
         calculated_amount,
-        completion_bonus:       0,
+        completion_bonus: 0,
         completion_bonus_label: "",
-        cycle:                  finalCycle,
-        cycle_period:           period,
-        status:                 "pending",
+        cycle: finalCycle,
+        cycle_period: period,
+        status: "pending",
       });
     }
 
-   // 🆕 Notify employee — plan assigned
+    // 🆕 Notify employee — plan assigned
     await createNotification({
-      recipient_id:   employee_id,
+      recipient_id: employee_id,
       recipient_role: "employee",
-      type:           "incentive_assigned",
-      title:          "Incentive Plan Assigned 🎯",
-      message:        `You've been assigned "${plan.name}" for ${period}. Track your progress in My Incentive.`,
-      link:           "/employee/my-incentive",
+      type: "incentive_assigned",
+      title: "Incentive Plan Assigned 🎯",
+      message: `You've been assigned "${plan.name}" for ${period}. Track your progress in My Incentive.`,
+      link: "/employee/my-incentive",
     });
 
     // ── Return populated assignment ────────────────────────────────────────
     const populated = await IncentiveAssignment.findById(asgn._id)
       .populate("employee_id", "name email department designation salary")
-      .populate("plan_id",     "name department cycle period_type slabs plan_type");
+      .populate("plan_id", "name department cycle period_type slabs plan_type");
 
     res.status(201).json({ success: true, data: populated });
   } catch (err) {
@@ -146,7 +138,7 @@ router.post("/", async (req, res) => {
 });
 
 // ── DELETE /api/incentive-assignments/:id ─────────────────────────────────────
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const asgn = await IncentiveAssignment.findById(req.params.id);
     if (!asgn)
@@ -155,7 +147,7 @@ router.delete("/:id", async (req, res) => {
     // ── Also remove the linked pending result (if still pending) ──────────
     await IncentiveResult.deleteOne({
       assignment_id: asgn._id,
-      status:        "pending",   // never delete approved/paid results
+      status: "pending",   // never delete approved/paid results
     });
 
     await asgn.deleteOne();

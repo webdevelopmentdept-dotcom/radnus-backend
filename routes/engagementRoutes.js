@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 const engagementSchema = new mongoose.Schema({
@@ -116,13 +118,13 @@ const SEED_DATA = [
 ];
 
 // ── GET all ──────────────────────────────────────────────────────────────────
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const { category, status, month } = req.query;
     const filter = {};
     if (category && category !== "All") filter.category = category;
-    if (status   && status   !== "All") filter.status   = status;
-    if (month    && month    !== "All") filter.month    = month;
+    if (status && status !== "All") filter.status = status;
+    if (month && month !== "All") filter.month = month;
 
     const data = await Engagement.find(filter).sort({ month_number: 1 });
     res.json({ success: true, data });
@@ -132,11 +134,11 @@ router.get("/", async (req, res) => {
 });
 
 // ── GET summary stats ────────────────────────────────────────────────────────
-router.get("/summary", async (req, res) => {
+router.get("/summary", auth, hrOnly, async (req, res) => {
   try {
-    const total     = await Engagement.countDocuments();
-    const upcoming  = await Engagement.countDocuments({ status: "upcoming" });
-    const ongoing   = await Engagement.countDocuments({ status: "ongoing" });
+    const total = await Engagement.countDocuments();
+    const upcoming = await Engagement.countDocuments({ status: "upcoming" });
+    const ongoing = await Engagement.countDocuments({ status: "ongoing" });
     const completed = await Engagement.countDocuments({ status: "completed" });
     res.json({ success: true, data: { total, upcoming, ongoing, completed } });
   } catch (err) {
@@ -145,7 +147,7 @@ router.get("/summary", async (req, res) => {
 });
 
 // ── GET single ───────────────────────────────────────────────────────────────
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, hrOnly, async (req, res) => {
   try {
     const item = await Engagement.findById(req.params.id);
     if (!item) return res.status(404).json({ success: false, message: "Not found" });
@@ -156,7 +158,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // ── POST create ──────────────────────────────────────────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const item = new Engagement(req.body);
     await item.save();
@@ -167,7 +169,7 @@ router.post("/", async (req, res) => {
 });
 
 // ── PUT update ───────────────────────────────────────────────────────────────
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, hrOnly, async (req, res) => {
   try {
     const item = await Engagement.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!item) return res.status(404).json({ success: false, message: "Not found" });
@@ -178,7 +180,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // ── PATCH status only ────────────────────────────────────────────────────────
-router.patch("/:id/status", async (req, res) => {
+router.patch("/:id/status", auth, hrOnly, async (req, res) => {
   try {
     const item = await Engagement.findByIdAndUpdate(req.params.id, { status: req.body.status }, { new: true });
     if (!item) return res.status(404).json({ success: false, message: "Not found" });
@@ -189,7 +191,7 @@ router.patch("/:id/status", async (req, res) => {
 });
 
 // ── DELETE ───────────────────────────────────────────────────────────────────
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     await Engagement.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: "Deleted!" });
@@ -199,7 +201,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 // ── SEED route (run once) ────────────────────────────────────────────────────
-router.post("/seed/init", async (req, res) => {
+router.post("/seed/init", auth, hrOnly, async (req, res) => {
   try {
     await Engagement.deleteMany({});
     await Engagement.insertMany(SEED_DATA);

@@ -9,6 +9,8 @@ const PerformanceReview = require('../models/PerformanceReview');
 const Notification = require('../models/Notification');
 const Employee = require('../models/Employee');
 const { createNotification } = require('../helpers/notificationHelper');
+const auth = require("../middleware/auth");  
+const hrOnly = require("../middleware/hrOnly");
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER — score calculate
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,7 +130,7 @@ router.post('/', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/self-assessment/all — All assessments (HR panel)
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/all', async (req, res) => {
+router.get('/all', auth, hrOnly, async (req, res) => {
   try {
     const assessments = await SelfAssessment.find()
       .populate('employee_id', 'name email department designation')
@@ -269,7 +271,7 @@ router.get('/:employeeId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/self-assessment/review/:id — HR finalizes review
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/review/:id', async (req, res) => {
+router.put('/review/:id', auth, hrOnly, async (req, res) => {
   try {
     const { hr_final_score, hr_rating, hr_overall_comment, reviewed_by, items } = req.body;
 

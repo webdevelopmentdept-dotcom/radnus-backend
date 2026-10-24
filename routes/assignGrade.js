@@ -4,6 +4,8 @@ const express = require("express");
 const router  = express.Router();
 const Assign  = require("../models/AssignGrade");
 const Grade   = require("../models/gradeModel");
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 
 // ── helper: determine change type ──────────────────────────────────────────
 const getChangeType = (oldLevel, newLevel) => {
@@ -16,7 +18,7 @@ const getChangeType = (oldLevel, newLevel) => {
 };
 
 // ── POST /api/assign-grade  →  Create assignment ───────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", auth, hrOnly, async (req, res) => {
   try {
     const { employee_id, grade_id, effective_date, reason, salary_scale_point } = req.body;
 
@@ -107,7 +109,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // ── PUT /api/assign-grade/:id  →  Update (grade change = history entry) ───
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, hrOnly, async (req, res) => {
   try {
     const { employee_id, grade_id, effective_date, reason, salary_scale_point } = req.body;
 
@@ -167,7 +169,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // ── DELETE /api/assign-grade/:id  →  Remove assignment ────────────────────
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, hrOnly, async (req, res) => {
   try {
     const deleted = await Assign.findByIdAndDelete(req.params.id);
     if (!deleted)

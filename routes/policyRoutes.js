@@ -3,6 +3,8 @@ const router = express.Router();
 const multer = require("multer");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 
 const {
   createPolicy, updatePolicy, getAllPolicies,
@@ -39,10 +41,10 @@ const upload = multer({
 });
 
 router.get("/", getAllPolicies);
-router.post("/", upload.single("file"), createPolicy);
-router.put("/:id", upload.single("file"), updatePolicy);
+router.post("/", auth, hrOnly, upload.single("file"), createPolicy);
+router.put("/:id", auth, hrOnly, upload.single("file"), updatePolicy);
 router.post("/acknowledge", acknowledgePolicy);
-router.get("/:id/stats", getPolicyStats);
-router.delete("/:id", deletePolicy);
+router.get("/:id/stats", auth, hrOnly, getPolicyStats);
+router.delete("/:id", auth, hrOnly, deletePolicy);
 
 module.exports = router;

@@ -1,9 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const Internship = require("../models/Internship");
-
+const auth = require("../middleware/auth"); 
+const hrOnly = require("../middleware/hrOnly");
 // GET /api/internship/applications  -> list all (optionally ?status=New)
-router.get("/applications", async (req, res) => {
+router.get("/applications",  auth, hrOnly, async (req, res) => {
   try {
     const filter = {};
     if (req.query.status) filter.status = req.query.status;
@@ -16,7 +17,7 @@ router.get("/applications", async (req, res) => {
 });
 
 // GET /api/internship/applications/:id -> single record
-router.get("/applications/:id", async (req, res) => {
+router.get("/applications/:id",  auth, hrOnly, async (req, res) => {
   try {
     const record = await Internship.findById(req.params.id);
     if (!record) return res.status(404).json({ success: false, msg: "Not found" });
@@ -27,7 +28,7 @@ router.get("/applications/:id", async (req, res) => {
 });
 
 // PUT /api/internship/applications/:id/screen -> HR screening step
-router.put("/applications/:id/screen", async (req, res) => {
+router.put("/applications/:id/screen",  auth, hrOnly, async (req, res) => {
   try {
     const { status, hrRemarks, ratings } = req.body;
     const update = {};
@@ -44,7 +45,7 @@ router.put("/applications/:id/screen", async (req, res) => {
 });
 
 // PUT /api/internship/applications/:id/allocate -> project allocation
-router.put("/applications/:id/allocate", async (req, res) => {
+router.put("/applications/:id/allocate",  auth, hrOnly, async (req, res) => {
   try {
     const allocation = req.body; // { department, mentor, projectTitle, businessProblem, expectedDeliverable, startDate, endDate }
     const updated = await Internship.findByIdAndUpdate(
@@ -60,7 +61,7 @@ router.put("/applications/:id/allocate", async (req, res) => {
 });
 
 // PUT /api/internship/applications/:id/progress -> update/add a week's progress
-router.put("/applications/:id/progress", async (req, res) => {
+router.put("/applications/:id/progress",  auth, hrOnly, async (req, res) => {
   try {
     const { week, status, notes } = req.body;
     const record = await Internship.findById(req.params.id);
@@ -82,7 +83,7 @@ router.put("/applications/:id/progress", async (req, res) => {
 });
 
 // PUT /api/internship/applications/:id/final -> final evaluation & certificate
-router.put("/applications/:id/final", async (req, res) => {
+router.put("/applications/:id/final",  auth, hrOnly, async (req, res) => {
   try {
     const finalEvaluation = req.body; // { presentationDone, reportUrl, mentorFeedback, certificateStatus }
     const updated = await Internship.findByIdAndUpdate(
@@ -98,7 +99,7 @@ router.put("/applications/:id/final", async (req, res) => {
 });
 
 // DELETE /api/internship/applications/:id
-router.delete("/applications/:id", async (req, res) => {
+router.delete("/applications/:id",  auth, hrOnly, async (req, res) => {
   try {
     const deleted = await Internship.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ success: false, msg: "Not found" });

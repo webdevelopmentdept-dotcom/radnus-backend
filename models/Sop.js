@@ -39,6 +39,10 @@ const sopSchema = new mongoose.Schema(
       enum: ["active", "inactive"],
       default: "active",
     },
+
+    createdByName: { type: String, default: "" },
+updatedByName: { type: String, default: "" },
+
   },
   { timestamps: true }
 );

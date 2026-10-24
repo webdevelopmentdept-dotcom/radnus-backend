@@ -5,6 +5,8 @@ const FeedbackSubmission = require('../models/FeedbackSubmission');
 const FeedbackNomination = require('../models/FeedbackNomination');
 const FeedbackCycle = require('../models/Feedbackcycle');
 const FeedbackTask = require("../models/FeedbackTask");
+ const auth = require("../middleware/auth"); 
+ const hrOnly = require("../middleware/hrOnly"); 
 
 const calcOverallScore = (competencies = {}) => {
   const keys = ['communication', 'leadership', 'technicalSkills', 'goalAchievement', 'innovation', 'teamwork'];
@@ -96,7 +98,7 @@ router.get('/my-submitted/:reviewerId', async (req, res) => {
 // ─────────────────────────────────────────
 // GET /api/feedback-submissions/summary/:cycleId
 // ─────────────────────────────────────────
-router.get('/summary/:cycleId', async (req, res) => {
+router.get('/summary/:cycleId', auth, hrOnly, async (req, res) => {
   try {
     const { cycleId } = req.params;
 
@@ -218,7 +220,7 @@ router.get('/summary/:cycleId', async (req, res) => {
 // ─────────────────────────────────────────
 // GET /api/feedback-submissions/aggregated/:cycleId/:employeeId
 // ─────────────────────────────────────────
-router.get('/aggregated/:cycleId/:employeeId', async (req, res) => {
+router.get('/aggregated/:cycleId/:employeeId', auth, hrOnly, async (req, res) => {
   try {
     const { cycleId, employeeId } = req.params;
 
@@ -271,7 +273,7 @@ router.get('/aggregated/:cycleId/:employeeId', async (req, res) => {
 // ─────────────────────────────────────────
 // GET /api/feedback-submissions/cycle/:cycleId
 // ─────────────────────────────────────────
-router.get('/cycle/:cycleId', async (req, res) => {
+router.get('/cycle/:cycleId', auth, hrOnly, async (req, res) => {
   try {
     const submissions = await FeedbackSubmission.find({
       cycleId:     req.params.cycleId,
@@ -356,7 +358,7 @@ router.post('/', async (req, res) => {
 });
 
 // ✅ GET /api/feedback-submissions — Dashboard total count
-router.get("/", async (req, res) => {
+router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const submissions = await FeedbackSubmission.find({ isSubmitted: true });
     const pending = await FeedbackSubmission.find({ isSubmitted: false });

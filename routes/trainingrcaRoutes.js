@@ -1,5 +1,5 @@
 const express = require("express");
-const router  = express.Router();
+const router = express.Router();
 const {
   getAllPrograms, createProgram, updateProgram, deleteProgram, deleteAllPrograms, seedDefaultPrograms,
   backfillEquipmentPrograms, consolidateEquipmentPrograms, getProgramProducts,
@@ -14,6 +14,8 @@ const {
 const multer = require("multer");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
 
 const videoStorage = new CloudinaryStorage({
   cloudinary,
@@ -64,11 +66,11 @@ const certificateStorage = new CloudinaryStorage({
 const uploadCertificateFile = multer({ storage: certificateStorage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 // ── Programs (Master Data) ────────────────────────────────────
-router.get   ("/training/programs",        getAllPrograms);
+router.get("/training/programs", getAllPrograms);
 // ✅ NEW — signed params so the HR browser can upload big chapter videos
 // (100 MB+) straight to Cloudinary in chunks, bypassing this server.
 // API secret never leaves the server; only the signature is returned.
-router.get("/training/upload-signature", (req, res) => {
+router.get("/training/upload-signature", auth, hrOnly, (req, res) => {
   try {
     const isPdf = req.query.kind === "pdf"; // ✅ NEW — same endpoint, PDF chapters go to /raw/upload instead of /video/upload
     const timestamp = Math.round(Date.now() / 1000);
@@ -90,51 +92,61 @@ router.get("/training/upload-signature", (req, res) => {
     });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
-router.post("/training/programs", uploadTrainingFiles, createProgram);
-router.put ("/training/programs/:id", uploadTrainingFiles, updateProgram);
-router.delete("/training/programs/:id",    deleteProgram);
-router.delete("/training/programs",        deleteAllPrograms);
-router.post  ("/training/seed",            seedDefaultPrograms);
-router.post  ("/training/backfill-equipment", backfillEquipmentPrograms);
-router.post  ("/training/consolidate-equipment", consolidateEquipmentPrograms);
-router.get   ("/training/programs/:id/products", getProgramProducts);
-router.put   ("/training/programs/:id/mark-all-complete", markAllComplete);
+router.post("/training/programs", auth, hrOnly, uploadTrainingFiles, createProgram);
+router.put("/training/programs/:id", auth, hrOnly, uploadTrainingFiles, updateProgram);
+router.delete("/training/programs/:id", auth, hrOnly, deleteProgram);
+router.delete("/training/programs", auth, hrOnly, deleteAllPrograms);
+router.post("/training/seed", auth, hrOnly, seedDefaultPrograms);
+router.post("/training/backfill-equipment", auth, hrOnly, backfillEquipmentPrograms);
+router.post("/training/consolidate-equipment", auth, hrOnly, consolidateEquipmentPrograms);
+router.get("/training/programs/:id/products", getProgramProducts);
+router.put("/training/programs/:id/mark-all-complete", auth, hrOnly, markAllComplete);
 
 // ── HR Assignment ─────────────────────────────────────────────
-router.post  ("/training/assign",          assignTraining);
-router.post  ("/training/assign-bulk",     assignBulk);
-router.get   ("/training/records",         getAllRecords);
-router.get   ("/training/stats",           getStats);
-router.put   ("/training/records/:id",     updateRecord);
-router.put   ("/training/records/:id/lock",   lockRecord);   // ✅ NEW
-router.put   ("/training/records/:id/unlock", unlockRecord); // ✅ NEW
-router.delete("/training/records/:id",     deleteRecord);
-router.put   ("/training/records/:id/competency", updateCompetencyLevel);
-router.get   ("/training/compliance-log",  getComplianceLog);
+router.post("/training/assign", auth, hrOnly, assignTraining);
+router.post("/training/assign-bulk", auth, hrOnly, assignBulk);
+router.get("/training/records", auth, hrOnly, getAllRecords);
+router.get("/training/stats", auth, hrOnly, getStats);
+router.put("/training/records/:id", auth, hrOnly, updateRecord);
+router.put("/training/records/:id/lock", auth, hrOnly, lockRecord);   // ✅ NEW
+router.put("/training/records/:id/unlock", auth, hrOnly, unlockRecord); // ✅ NEW
+router.delete("/training/records/:id", auth, hrOnly, deleteRecord);
+router.delete("/training/compliance-log/:id", auth, hrOnly, async (req, res) => {
+  try {
+    const { ComplianceLog } = require("../models/TrainingRca");
+    const del = await ComplianceLog.findByIdAndDelete(req.params.id);
+    if (!del) return res.status(404).json({ message: "Log not found" });
+    res.json({ message: "Compliance log deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Delete failed" });
+  }
+});
+router.put("/training/records/:id/competency", auth, hrOnly, updateCompetencyLevel);
+router.get("/training/compliance-log", auth, hrOnly, getComplianceLog);
 
 // ── Quiz Question Bank (HR) ───────────────────────────────────
-router.get   ("/training/quiz-questions",        getQuizQuestions);
-router.post  ("/training/quiz-questions",        createQuizQuestion);
-router.put   ("/training/quiz-questions/:id",    updateQuizQuestion);
-router.delete("/training/quiz-questions/:id",    deleteQuizQuestion);
+router.get("/training/quiz-questions", getQuizQuestions);
+router.post("/training/quiz-questions", auth, hrOnly, createQuizQuestion);
+router.put("/training/quiz-questions/:id", auth, hrOnly, updateQuizQuestion);
+router.delete("/training/quiz-questions/:id", auth, hrOnly, deleteQuizQuestion);
 
 // ── Employee ──────────────────────────────────────────────────
-router.get   ("/training/my/:employeeId",              getMyTrainings);
-router.put   ("/training/my/:recordId/start",          markStarted);
-router.put   ("/training/my/:recordId/study-product",  markProductStudied);
-router.put   ("/training/my/:recordId/video-watched",  markVideoWatched);
-router.put   ("/training/my/:recordId/pdf-read",        markPdfRead);
-router.put   ("/training/my/:recordId/complete",       markProgramComplete);
-router.get   ("/training/my/:recordId/quiz",            getQuiz);
-router.post  ("/training/my/:recordId/quiz/submit",     submitQuiz);
+router.get("/training/my/:employeeId", getMyTrainings);
+router.put("/training/my/:recordId/start", markStarted);
+router.put("/training/my/:recordId/study-product", markProductStudied);
+router.put("/training/my/:recordId/video-watched", markVideoWatched);
+router.put("/training/my/:recordId/pdf-read", markPdfRead);
+router.put("/training/my/:recordId/complete", markProgramComplete);
+router.get("/training/my/:recordId/quiz", getQuiz);
+router.post("/training/my/:recordId/quiz/submit", submitQuiz);
 
 // ✅ NEW — multi-chapter course progress + certificate request/issue
-router.put   ("/training/my/:recordId/chapter/:chapterNo/watched", markChapterWatched);
-router.put   ("/training/my/:recordId/chapter/:chapterNo/heartbeat", markChapterHeartbeat); // ✅ server-side watch tracking
+router.put("/training/my/:recordId/chapter/:chapterNo/watched", markChapterWatched);
+router.put("/training/my/:recordId/chapter/:chapterNo/heartbeat", markChapterHeartbeat); // ✅ server-side watch tracking
 // ✅ NEW — optional per-chapter quiz (unlimited retries, gates only the next chapter)
-router.get   ("/training/my/:recordId/chapter/:chapterNo/quiz",        getChapterQuiz);
-router.post  ("/training/my/:recordId/chapter/:chapterNo/quiz/submit", submitChapterQuiz);
-router.put   ("/training/my/:recordId/certificate/request",        requestCertificate);
-router.put   ("/training/records/:id/certificate", uploadCertificateFile.fields([{ name: "certificate", maxCount: 1 }]), uploadCertificate);
+router.get("/training/my/:recordId/chapter/:chapterNo/quiz", getChapterQuiz);
+router.post("/training/my/:recordId/chapter/:chapterNo/quiz/submit", submitChapterQuiz);
+router.put("/training/my/:recordId/certificate/request", requestCertificate);
+router.put("/training/records/:id/certificate", auth, hrOnly, uploadCertificateFile.fields([{ name: "certificate", maxCount: 1 }]), uploadCertificate);
 
 module.exports = router;

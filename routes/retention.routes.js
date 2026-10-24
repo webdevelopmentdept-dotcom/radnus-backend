@@ -8,13 +8,15 @@ const {
   addReview,
   deletePlan,  
 } = require("../controllers/retentionController");
+ const auth = require("../middleware/auth"); 
+ const hrOnly = require("../middleware/hrOnly"); 
 
 router.get("/employee/:employeeId", getPlanByEmployee);
 
-router.get("/",                 getAllPlans);
-router.post("/",                createPlan);
-router.put("/:id",              updatePlan);
-router.delete("/:id",               deletePlan); 
-router.post("/:id/review",      addReview); 
+router.get("/", auth, hrOnly,                getAllPlans);
+router.post("/", auth, hrOnly,               createPlan);
+router.put("/:id", auth, hrOnly,             updatePlan);
+router.delete("/:id", auth, hrOnly,              deletePlan); 
+router.post("/:id/review", auth, hrOnly,     addReview); 
 
 module.exports = router;
