@@ -84,7 +84,7 @@ Return ONLY JSON:
     return {
       aiScore: 0,
       aiGrade: "C",
-      aiReason: "AI screening failed — manual review required",
+      aiReason: `AI screening failed — ${err.message}`,
       aiScreenedAt: new Date(),
     };
   }

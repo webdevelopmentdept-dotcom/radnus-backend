@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const router = express.Router();
 const multer = require("multer");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
@@ -12,11 +13,15 @@ const HR_ID = "hr_admin_001";
 // Cloudinary storage setup for resumes
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: async (req, file) => ({
-    folder: "resumes",
-    resource_type: "raw",
-    public_id: file.originalname.replace(/\.[^/.]+$/, ""),
-  }),
+  params: async (req, file) => {
+    const ext = path.extname(file.originalname);
+    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
+    return {
+      folder: "resumes",
+      resource_type: "raw",
+      public_id: `${base}_${Date.now()}${ext}`,
+    };
+  },
 });
 
 const upload = multer({ storage });

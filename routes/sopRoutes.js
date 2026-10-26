@@ -3,25 +3,27 @@ const router = express.Router();
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const cloudinary = require("../config/cloudinary");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const SOP = require("../models/Sop");
 const auth = require("../middleware/auth");
 const hrOnly = require("../middleware/hrOnly");
 
-// ── Multer Storage — saves to /uploads/sops/ ──────────────────────────────────
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = path.join(__dirname, "../uploads/sops");
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    // e.g. 1714201234567-Finance-SOP.docx
-    const safeName = file.originalname.replace(/\s+/g, "-");
-    cb(null, `${Date.now()}-${safeName}`);
+// ── Cloudinary Storage — SOP files ────────────────────────────────────────────
+const storage = new CloudinaryStorage({                              
+  cloudinary,
+  params: async (req, file) => {
+    const ext = path.extname(file.originalname);
+    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
+    return {
+      folder: "sops",
+      resource_type: "raw",
+      public_id: `${base}_${Date.now()}${ext}`,
+    };
   },
 });
 
-const fileFilter = (req, file, cb) => {
+const fileFilter = (req, file, cb) => {       
   const allowed = [
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -33,8 +35,7 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-const upload = multer({ storage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB max
-
+const upload = multer({ storage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } }); 
 
 // ══════════════════════════════════════════════════════
 //  HR ADMIN ROUTES
@@ -71,8 +72,8 @@ router.post("/", auth, hrOnly, upload.single("file"), async (req, res) => {
     const sop = await SOP.create({
       title: title.trim(),
       department: department.trim(),
-      designation: designation?.trim() || null,  // null = dept-level
-      fileUrl: req.file.filename,
+      designation: designation?.trim() || null,
+      fileUrl: req.file.path,
       fileName: req.file.originalname,
       status: status || "active",
       createdByName: req.actor?.name || "",
@@ -104,10 +105,12 @@ router.put("/:id", auth, hrOnly, upload.single("file"), async (req, res) => {
 
     // If new file uploaded — delete old file, save new one
     if (req.file) {
-      const oldPath = path.join(__dirname, "../uploads/sops", existing.fileUrl);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-
-      updateData.fileUrl = req.file.filename;
+      // old file was on disk (legacy) -> delete it; Cloudinary files are left as is
+      if (existing.fileUrl && !/^https?:\/\//i.test(existing.fileUrl)) {
+        const oldPath = path.join(__dirname, "../uploads/sops", existing.fileUrl);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      }
+      updateData.fileUrl = req.file.path;
       updateData.fileName = req.file.originalname;
     }
 
@@ -146,9 +149,10 @@ router.delete("/:id", auth, hrOnly, async (req, res) => {
     const sop = await SOP.findById(req.params.id);
     if (!sop) return res.status(404).json({ success: false, message: "SOP not found" });
 
-    // Delete file from disk
-    const filePath = path.join(__dirname, "../uploads/sops", sop.fileUrl);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    if (sop.fileUrl && !/^https?:\/\//i.test(sop.fileUrl)) {
+      const filePath = path.join(__dirname, "../uploads/sops", sop.fileUrl);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
 
     await SOP.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: "SOP deleted permanently" });
