@@ -13,109 +13,132 @@ const employeeSchema = new mongoose.Schema({
   },
 
   altMobile: { type: String, default: "" },
-  dob:       { type: String, default: "" },
-  address:   { type: String, default: "" },
+  dob: { type: String, default: "" },
+  address: { type: String, default: "" },
 
-  department:  String,
+  department: String,
   designation: String,
 
   essl_id: {
-    type:    String,
+    type: String,
     default: null,
   },
 
-   staffType: {
+  staffType: {
     type: String,
     enum: ["hrms", "machine_staff"],
     default: "hrms",
   },
 
   documentsCompleted: {
-    type:    Boolean,
+    type: Boolean,
     default: false
   },
 
   status: {
-    type:    String,
-    enum:    ["pending", "admin_pending", "approved", "rejected", "relieved", "fired", "active"],
+    type: String,
+    enum: ["pending", "admin_pending", "approved", "rejected", "relieved", "fired", "active"],
     default: "pending"
   },
 
   shift: {
-  start: { type: String, default: "10:00" },
-  end:   { type: String, default: "19:00" },
-},
+    start: { type: String, default: "10:00" },
+    end: { type: String, default: "19:00" },
+  },
 
-  exitType:          { type: String, enum: ['relieved', 'fired', null], default: null },
+  exitType: { type: String, enum: ['relieved', 'fired', null], default: null },
   accessDeactivated: { type: Boolean, default: false },
 
-  canManageProducts: { type: Boolean, default: false },
-  canManageLoanProcess: { type: Boolean, default: false }, 
-isLoanProcessHead: { type: Boolean, default: false },
-loanProcessReportAccess: { type: Boolean, default: false },
-canApproveLoanIncentive: { type: Boolean, default: false },
-canManageLoanFollowup: { type: Boolean, default: false },
+  // ── Exit details ──
+  relievingDate: { type: Date, default: null },
+  exitCategory: { type: String, enum: ['resigned', 'terminated', 'contract_end', 'retired', 'other', null], default: null },
+  exitReason: { type: String, default: "" },
+  noticePeriodServed: { type: Boolean, default: null },
+  rehireEligible: { type: Boolean, default: null },
+  relievedAt: { type: Date, default: null },
 
-    remarks: {
-    type:    String,
+  // ── Exit clearance ──
+  clearance: {
+    assets: [{
+      _id: false,
+      name: { type: String, required: true },
+      status: { type: String, enum: ['returned', 'pending', 'na', null], default: null },
+      remarks: { type: String, default: "" },
+    }],
+    settlementStatus: { type: String, enum: ['pending', 'processed', 'paid', null], default: null },
+    settlementAmount: { type: Number, default: null },
+    settlementDate: { type: Date, default: null },
+    settlementRemarks: { type: String, default: "" },
+    updatedAt: { type: Date, default: null },
+  },
+
+  canManageProducts: { type: Boolean, default: false },
+  canManageLoanProcess: { type: Boolean, default: false },
+  isLoanProcessHead: { type: Boolean, default: false },
+  loanProcessReportAccess: { type: Boolean, default: false },
+  canApproveLoanIncentive: { type: Boolean, default: false },
+  canManageLoanFollowup: { type: Boolean, default: false },
+
+  remarks: {
+    type: String,
     default: ""
   },
 
   hrRemarks: {
-    type:    String,
+    type: String,
     default: ""
   },
 
   mdRemarks: {
-    type:    String,
+    type: String,
     default: ""
   },
 
   reuploaded: {
-    type:    Boolean,
+    type: Boolean,
     default: false
   },
 
   profileImage: { type: String, default: "" },
 
-  resetPasswordToken:  { type: String, default: null },
+  resetPasswordToken: { type: String, default: null },
   resetPasswordExpiry: { type: Number, default: null },
 
   leadershipTrack: {
-    stage:          { type: Number, min: 1, max: 5, default: null },
-    stageLabel:     { type: String, default: "" },
-    targetRole:     { type: String, default: "" },
-    timeline:       { type: String, default: "" },
-    focusAreas:     [{ type: String }],
+    stage: { type: Number, min: 1, max: 5, default: null },
+    stageLabel: { type: String, default: "" },
+    targetRole: { type: String, default: "" },
+    timeline: { type: String, default: "" },
+    focusAreas: [{ type: String }],
     expectedOutput: { type: String, default: "" },
-    enrolledAt:     { type: Date },
-    isHiPo:         { type: Boolean, default: false },
+    enrolledAt: { type: Date },
+    isHiPo: { type: Boolean, default: false },
   },
 
   mentor: {
-    name:            { type: String, default: "" },
-    designation:     { type: String, default: "" },
-    employeeId:      { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
+    name: { type: String, default: "" },
+    designation: { type: String, default: "" },
+    employeeId: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
     lastSessionDate: { type: Date },
     nextSessionDate: { type: Date },
   },
 
   kpis: [
     {
-      metric:    { type: String },
-      target:    { type: String },
+      metric: { type: String },
+      target: { type: String },
       frequency: { type: String },
-      current:   { type: String, default: "" },
-      status:    { type: String, enum: ["on_track", "at_risk", "achieved"], default: "on_track" },
+      current: { type: String, default: "" },
+      status: { type: String, enum: ["on_track", "at_risk", "achieved"], default: "on_track" },
     }
   ],
 
   leadershipProgress: [
     {
-      date:    { type: Date, default: Date.now },
-      note:    { type: String },
+      date: { type: Date, default: Date.now },
+      note: { type: String },
       addedBy: { type: String },
-      type:    { type: String, enum: ["mentorship", "rotation", "training", "assessment", "milestone"], default: "milestone" },
+      type: { type: String, enum: ["mentorship", "rotation", "training", "assessment", "milestone"], default: "milestone" },
     }
   ],
 
