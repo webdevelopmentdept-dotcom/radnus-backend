@@ -229,8 +229,14 @@ router.patch('/:id/cancel', auth, hrOnly, async (req, res) => {
 });
 
 // GET /api/kpi-assignments/:employeeId
-router.get('/:employeeId', async (req, res) => {
+router.get('/:employeeId', auth, async (req, res) => {
   try {
+    // HR/Admin can view any employee's KPI; an employee can view only their own
+    const isStaff = req.user.role === 'hr' || req.user.role === 'admin';
+    if (!isStaff && String(req.user.id) !== String(req.params.employeeId)) {
+      return res.status(403).json({ success: false, message: 'FORBIDDEN' });
+    }
+
     const SelfAssessment = require('../models/SelfAssessment');
 
     const assignments = await KpiAssignment.find({

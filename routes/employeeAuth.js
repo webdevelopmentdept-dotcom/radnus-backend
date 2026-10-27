@@ -116,7 +116,7 @@ router.post('/register', async (req, res) => {
 
     // ✅ NEW — HR notification on new employee registration
     try {
-           await createNotification({
+      await createNotification({
         recipient_id: "hr_admin_001",
         recipient_role: "hr",
         type: "employee",
@@ -498,19 +498,47 @@ router.get('/employees/department-distribution', auth, hrOnly, async (req, res) 
   }
 });
 
+// ================= EXIT FORM VALIDATION (shared by relieve + fire) =================
+const EXIT_CATEGORIES = ['resigned', 'terminated', 'contract_end', 'retired', 'other'];
+
+function parseExitBody(body = {}) {
+  const { relievingDate, exitCategory, exitReason, noticePeriodServed, rehireEligible } = body;
+
+  if (!relievingDate || isNaN(new Date(relievingDate))) {
+    return { error: 'Relieving date is required' };
+  }
+  if (!EXIT_CATEGORIES.includes(exitCategory)) {
+    return { error: 'Exit type is required' };
+  }
+
+  return {
+    fields: {
+      relievingDate: new Date(relievingDate),
+      exitCategory,
+      exitReason: (exitReason || '').trim(),
+      noticePeriodServed: typeof noticePeriodServed === 'boolean' ? noticePeriodServed : null,
+      rehireEligible: typeof rehireEligible === 'boolean' ? rehireEligible : null,
+      relievedAt: new Date(),
+    },
+  };
+}
+
 // ================= RELIEVE EMPLOYEE =================
 router.patch('/employees/:id/relieve', auth, hrOnly, async (req, res) => {
   try {
     const emp = await Employee.findById(req.params.id);
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
 
+    const parsed = parseExitBody(req.body);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+
     await Employee.findByIdAndUpdate(req.params.id, {
       exitType: 'relieved',
       accessDeactivated: false,
       status: 'relieved',
+      ...parsed.fields,
     });
 
-    // Relieve aana employee-oda active KPI assignments-a cancel pannum
     await KpiAssignment.updateMany(
       { employee_id: req.params.id, status: 'active' },
       { $set: { status: 'cancelled', notes: 'Auto-cancelled: employee relieved' } }
@@ -529,10 +557,14 @@ router.patch('/employees/:id/fire', auth, hrOnly, async (req, res) => {
     const emp = await Employee.findById(req.params.id);
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
 
+    const parsed = parseExitBody(req.body);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+
     await Employee.findByIdAndUpdate(req.params.id, {
       exitType: 'fired',
       accessDeactivated: false,
       status: 'fired',
+      ...parsed.fields,
     });
 
     await KpiAssignment.updateMany(
@@ -563,6 +595,344 @@ router.patch('/employees/:id/deactivate-access', auth, hrOnly, async (req, res) 
     res.status(500).json({ message: 'Failed to deactivate access' });
   }
 });
+
+// ================= EDIT EXIT DETAILS =================
+router.patch('/employees/:id/exit-details', auth, hrOnly, async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+    if (!emp.exitType) return res.status(400).json({ message: 'Employee is not relieved/fired' });
+
+    const { relievingDate, exitCategory, exitReason, noticePeriodServed, rehireEligible } = req.body || {};
+
+    emp.relievingDate = relievingDate ? new Date(relievingDate) : null;
+    emp.exitCategory = exitCategory || null;
+    emp.exitReason = (exitReason || '').trim();
+    emp.noticePeriodServed = typeof noticePeriodServed === 'boolean' ? noticePeriodServed : null;
+    emp.rehireEligible = typeof rehireEligible === 'boolean' ? rehireEligible : null;
+    await emp.save();
+
+    res.json({ message: 'Exit details saved', data: emp });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to save exit details' });
+  }
+});
+
+// ================= WORK SUMMARY (relieved employee drawer) =================
+router.get('/employees/:id/work-summary', auth, hrOnly, async (req, res) => {
+  try {
+    const Attendance = require('../models/Attendance');
+    const MachineAttendance = require('../models/MachineAttendance');
+    const PerformanceReview = require('../models/PerformanceReview');
+    const IncentiveResult = require('../models/IncentiveResult');
+    const { EmployeeTraining } = require('../models/TrainingRca');
+
+    const emp = await Employee.findById(req.params.id)
+      .select('staffType essl_id relievingDate');
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    // Relieving date irundha adhu varaikkum mattum count pannum
+    const upTo = emp.relievingDate
+      ? emp.relievingDate.toISOString().slice(0, 10)
+      : null;
+
+    // ── Attendance ──
+    let match, Model;
+    if (emp.staffType === 'machine_staff' && emp.essl_id) {
+      Model = MachineAttendance;
+      match = { essl_id: emp.essl_id };
+    } else {
+      Model = Attendance;
+      match = { employee_id: emp._id };
+    }
+    if (upTo) match.date = { $lte: upTo };
+
+    const rows = await Model.aggregate([
+      { $match: match },
+      { $group: { _id: '$status', n: { $sum: 1 } } },
+    ]);
+    const attendance = { present: 0, late: 0, half_day: 0, leave: 0, absent: 0 };
+    rows.forEach((r) => { if (r._id in attendance) attendance[r._id] = r.n; });
+
+    // ── Performance (finalized reviews) ──
+    const reviews = await PerformanceReview
+      .find({ employee_id: emp._id, status: 'finalized' })
+      .sort({ createdAt: -1 })
+      .select('period final_score rating');
+    const scored = reviews.filter((r) => typeof r.final_score === 'number');
+    const performance = {
+      reviewCount: reviews.length,
+      last: reviews[0]
+        ? { period: reviews[0].period, score: reviews[0].final_score ?? null, rating: reviews[0].rating || '' }
+        : null,
+      avgScore: scored.length
+        ? Math.round((scored.reduce((s, r) => s + r.final_score, 0) / scored.length) * 10) / 10
+        : null,
+    };
+
+    // ── Training ──
+    const trainings = await EmployeeTraining.find({ employeeId: emp._id }).select('status');
+    const tCompleted = trainings.filter((t) => t.status === 'completed').length;
+    const tOverdue = trainings.filter((t) => t.status === 'overdue').length;
+    const tWaived = trainings.filter((t) => t.status === 'waived').length;
+    const training = {
+      total: trainings.length,
+      completed: tCompleted,
+      overdue: tOverdue,
+      pending: trainings.length - tCompleted - tOverdue - tWaived,
+    };
+
+    // ── Incentives paid ──
+    const paid = await IncentiveResult
+      .find({ employee_id: emp._id, status: 'paid' })
+      .select('calculated_amount completion_bonus');
+    const incentives = {
+      count: paid.length,
+      totalPaid: paid.reduce((s, r) => s + (r.calculated_amount || 0) + (r.completion_bonus || 0), 0),
+    };
+
+    res.json({ data: { attendance, performance, training, incentives } });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to load work summary' });
+  }
+});
+
+// ================= MONTH-WISE ATTENDANCE (relieved employee drawer) =================
+router.get('/employees/:id/attendance-monthly', auth, hrOnly, async (req, res) => {
+  try {
+    const Attendance = require('../models/Attendance');
+    const MachineAttendance = require('../models/MachineAttendance');
+    const Payslip = require('../models/Payslip');
+    const { computeAttendanceSummary } = require('../helpers/payrollCalculator');
+
+    const emp = await Employee.findById(req.params.id).select('staffType essl_id relievingDate');
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const isMachine = emp.staffType === 'machine_staff' && !!emp.essl_id;
+    const Model = isMachine ? MachineAttendance : Attendance;
+    const key = isMachine ? { essl_id: emp.essl_id } : { employee_id: emp._id };
+
+    const first = await Model.findOne(key).sort({ date: 1 }).select('date').lean();
+    if (!first) return res.json({ data: { machineStaff: isMachine, months: [] } });
+    const last = await Model.findOne(key).sort({ date: -1 }).select('date').lean();
+
+    // Last actual working day (Present / Late / Half Day)
+    const lastWorked = await Model.findOne({
+      ...key,
+      status: { $in: ['present', 'late', 'half_day'] },
+    }).sort({ date: -1 }).select('date').lean();
+
+    // Counting range: first attendance record → relieving date,
+    // or the last actual working day when relieving date is not set
+    const startDate = first.date;
+    const fallbackEnd = lastWorked ? lastWorked.date : last.date;
+    let endDate = emp.relievingDate
+      ? emp.relievingDate.toISOString().slice(0, 10)
+      : fallbackEnd;
+    if (endDate < startDate) endDate = fallbackEnd;
+
+    // month list
+    const monthList = [];
+    let y = +startDate.slice(0, 4), m = +startDate.slice(5, 7);
+    const endY = +endDate.slice(0, 4), endM = +endDate.slice(5, 7);
+    while (y < endY || (y === endY && m <= endM)) {
+      monthList.push({ y, m });
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+    }
+
+    let months;
+
+    if (isMachine) {
+      // Machine staff: payroll logic apply aagaadhu, simple counts mattum
+      const rows = await MachineAttendance.aggregate([
+        { $match: key },
+        { $group: { _id: { month: { $substr: ['$date', 0, 7] }, status: '$status' }, n: { $sum: 1 } } },
+      ]);
+      const map = {};
+      rows.forEach((r) => {
+        const mo = r._id.month;
+        map[mo] = map[mo] || { present: 0, late: 0, halfDay: 0, leave: 0, absent: 0 };
+        const st = r._id.status;
+        if (st === 'present') map[mo].present += r.n;
+        else if (st === 'late') { map[mo].present += r.n; map[mo].late += r.n; }
+        else if (st === 'half_day') map[mo].halfDay += r.n;
+        else if (st === 'leave') map[mo].leave += r.n;
+        else if (st === 'absent') map[mo].absent += r.n;
+      });
+      months = monthList.map(({ y, m }) => {
+        const ym = `${y}-${pad(m)}`;
+        const c = map[ym] || { present: 0, late: 0, halfDay: 0, leave: 0, absent: 0 };
+        return { month: ym, totalDays: null, ...c, holiday: 0, weekend: 0, lop: null, payable: null, payslip: null };
+      });
+    } else {
+      const lateRows = await Attendance.aggregate([
+        { $match: { employee_id: emp._id, status: 'late' } },
+        { $group: { _id: { $substr: ['$date', 0, 7] }, n: { $sum: 1 } } },
+      ]);
+      const lateMap = {};
+      lateRows.forEach((r) => { lateMap[r._id] = r.n; });
+
+      const slips = await Payslip.find({ employee_id: emp._id })
+        .select('month year status net_pay').lean();
+      const slipMap = {};
+      slips.forEach((p) => { slipMap[`${p.year}-${pad(p.month)}`] = p; });
+
+      months = await Promise.all(monthList.map(async ({ y, m }) => {
+        const ym = `${y}-${pad(m)}`;
+        const from = ym === startDate.slice(0, 7) ? startDate : null;
+        const upto = ym === endDate.slice(0, 7) ? endDate : null;
+        const s = await computeAttendanceSummary(emp._id, m, y, { from, upto });
+        const slip = slipMap[ym];
+        return {
+          month: ym,
+          totalDays: s.total_days_in_month,
+          countedFrom: from,
+          countedUpto: upto,
+          present: s.present_days,          // late-um ulla irukku (payroll rule)
+          late: lateMap[ym] || 0,
+          halfDay: s.half_days,
+          leave: s.paid_leave_days + s.unpaid_leave_days,
+          absent: s.absent_days,
+          holiday: s.holiday_days,
+          weekend: s.weekend_days,
+          lop: s.lop_days,
+          payable: s.payable_days,
+          overtimeMin: s.overtime_minutes,
+          payslip: slip ? { status: slip.status, netPay: slip.net_pay } : null,
+        };
+      }));
+    }
+
+    res.json({ data: { machineStaff: isMachine, startDate, endDate, months } });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to load monthly attendance' });
+  }
+});
+
+
+// ================= EXIT CLEARANCE: LOAD =================
+router.get('/employees/:id/clearance', auth, hrOnly, async (req, res) => {
+  try {
+    const Advance = require('../models/Advance');
+    const IncentiveResult = require('../models/IncentiveResult');
+
+    const emp = await Employee.findById(req.params.id).select('clearance');
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    const [approvedAdv, awaitingAdv, approvedInc, awaitingInc] = await Promise.all([
+      Advance.find({ employee_id: emp._id, status: 'approved' })
+        .select('amount reason recovery_month recovery_year').lean(),
+      Advance.countDocuments({ employee_id: emp._id, status: 'pending' }),
+      IncentiveResult.find({ employee_id: emp._id, status: 'approved' })
+        .select('calculated_amount completion_bonus').lean(),
+      IncentiveResult.countDocuments({ employee_id: emp._id, status: 'pending' }),
+    ]);
+
+    const DEFAULT_ASSETS = ['Laptop', 'ID Card', 'SIM Card', 'Other Assets'];
+    const c = emp.clearance || {};
+    const assets = c.assets && c.assets.length
+      ? c.assets.map((a) => ({ name: a.name, status: a.status || '', remarks: a.remarks || '' }))
+      : DEFAULT_ASSETS.map((name) => ({ name, status: '', remarks: '' }));
+
+    res.json({
+      data: {
+        advances: {
+          count: approvedAdv.length,
+          totalAmount: approvedAdv.reduce((s, a) => s + (a.amount || 0), 0),
+          items: approvedAdv.map((a) => ({
+            amount: a.amount,
+            reason: a.reason,
+            recoveryMonth: a.recovery_month || null,
+            recoveryYear: a.recovery_year || null,
+          })),
+          awaitingApproval: awaitingAdv,
+        },
+        incentives: {
+          approvedUnpaidCount: approvedInc.length,
+          approvedUnpaidAmount: approvedInc.reduce(
+            (s, r) => s + (r.calculated_amount || 0) + (r.completion_bonus || 0), 0
+          ),
+          awaitingApproval: awaitingInc,
+        },
+        assets,
+        settlement: {
+          status: c.settlementStatus || '',
+          amount: c.settlementAmount ?? '',
+          date: c.settlementDate ? c.settlementDate.toISOString().slice(0, 10) : '',
+          remarks: c.settlementRemarks || '',
+        },
+      },
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to load clearance' });
+  }
+});
+
+// ================= EXIT CLEARANCE: SAVE =================
+router.patch('/employees/:id/clearance', auth, hrOnly, async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+    if (!emp.exitType) return res.status(400).json({ message: 'Employee is not relieved/fired' });
+
+    const { assets, settlement } = req.body || {};
+    const assetStatuses = ['returned', 'pending', 'na'];
+    const settlementStatuses = ['pending', 'processed', 'paid'];
+
+    const cleanAssets = Array.isArray(assets)
+      ? assets
+        .filter((a) => a && String(a.name || '').trim())
+        .slice(0, 20)
+        .map((a) => ({
+          name: String(a.name).trim().slice(0, 60),
+          status: assetStatuses.includes(a.status) ? a.status : null,
+          remarks: String(a.remarks || '').trim().slice(0, 200),
+        }))
+      : [];
+
+    const s = settlement || {};
+    const amount = s.amount === '' || s.amount == null ? null : Number(s.amount);
+    if (amount !== null && (!Number.isFinite(amount) || amount < 0)) {
+      return res.status(400).json({ message: 'Invalid settlement amount' });
+    }
+
+    emp.clearance = {
+      assets: cleanAssets,
+      settlementStatus: settlementStatuses.includes(s.status) ? s.status : null,
+      settlementAmount: amount,
+      settlementDate: s.date ? new Date(s.date) : null,
+      settlementRemarks: String(s.remarks || '').trim().slice(0, 300),
+      updatedAt: new Date(),
+    };
+    await emp.save();
+
+    res.json({ message: 'Clearance saved' });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to save clearance' });
+  }
+});
+
+// ================= EMPLOYEE DOCUMENTS (exit + joining/HR) =================
+
+router.get('/employees/:id/documents', auth, hrOnly, async (req, res) => {
+  try {
+       const docs = await Document.find({ employeeId: req.params.id })
+      .select('docType fileUrl uploadedByName updatedAt').lean();
+
+    res.json({ data: docs });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: 'Failed to load documents' });
+  }
+});
+
 // ================= REACTIVATE EMPLOYEE =================
 router.patch('/employees/:id/reactivate', auth, hrOnly, async (req, res) => {
   try {
@@ -573,6 +943,12 @@ router.patch('/employees/:id/reactivate', auth, hrOnly, async (req, res) => {
       exitType: null,
       accessDeactivated: false,
       status: 'active',
+      relievingDate: null, exitCategory: null, exitReason: "",
+      noticePeriodServed: null, rehireEligible: null, relievedAt: null,
+      clearance: {
+        assets: [], settlementStatus: null, settlementAmount: null,
+        settlementDate: null, settlementRemarks: "", updatedAt: null
+      },
     });
 
     res.json({ message: 'Employee reactivated successfully' });
@@ -728,7 +1104,7 @@ router.post('/reset-password', async (req, res) => {
 });
 
 // ================= SECURE DOCUMENT VIEW =================
-router.get('/view-doc/:docId', async (req, res) => {
+router.get('/view-doc/:docId', auth , async (req, res) => {
   try {
     const doc = await Document.findById(req.params.docId);
     if (!doc) return res.status(404).json({ message: 'Document not found' });

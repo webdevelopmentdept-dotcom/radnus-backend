@@ -60,9 +60,20 @@ async function getWeekendDayNames() {
  * Reads Attendance.status (already computed elsewhere) for every day,
  * and for any day with NO attendance record, infers holiday/weekend/absent.
  */
-async function computeAttendanceSummary(employeeId, month, year) {
-  const dateList = buildDateList(month, year);
-  const totalDays = dateList.length;
+async function computeAttendanceSummary(employeeId, month, year, range = {}) {
+  const fullList = buildDateList(month, year);
+  const totalDays = fullList.length;   // per-day salary base maaraadhu
+  const dateList = fullList.filter(
+    (d) => (!range.from || d >= range.from) && (!range.upto || d <= range.upto)
+  );
+  if (dateList.length === 0) {
+    return {
+      total_days_in_month: totalDays, present_days: 0, half_days: 0,
+      paid_leave_days: 0, unpaid_leave_days: 0, absent_days: 0,
+      holiday_days: 0, weekend_days: 0, lop_days: 0, payable_days: 0,
+      overtime_minutes: 0,
+    };
+  }
 
   const [records, paidLeaveTypeNames, holidaySet, weekendDayNames] = await Promise.all([
     Attendance.find({

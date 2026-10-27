@@ -49,6 +49,9 @@ router.post("/upload-doc", auth, hrOnly, (req, res) => {
     try {
       const { employeeId, docType } = req.body;
 
+      const exited = await Employee.findById(employeeId).select('exitType').lean();
+      const shouldNotify = !exited?.exitType;
+
       if (!employeeId)
         return res.status(400).json({ success: false, message: "EMPLOYEE_ID_MISSING" });
 
@@ -69,14 +72,16 @@ router.post("/upload-doc", auth, hrOnly, (req, res) => {
         });
 
         // ✅ NEW — Employee notification on HR doc update
-        await createNotification({
-          recipient_id: employeeId,
-          recipient_role: "employee",
-          type: "hr",
-          title: "Document Updated",
-          message: `HR updated your "${docType}"`,
-          link: "/employee/documents",
-        });
+        if (shouldNotify) {
+          await createNotification({
+            recipient_id: employeeId,
+            recipient_role: "employee",
+            type: "hr",
+            title: "Document Updated",
+            message: `HR updated your "${docType}"`,
+            link: "/employee/documents",
+          });
+        }
 
         return res.json({ success: true, message: "Document updated", fileUrl: req.file.path });
       }
@@ -96,14 +101,16 @@ router.post("/upload-doc", auth, hrOnly, (req, res) => {
       });
 
       // ✅ NEW — Employee notification on new HR doc upload
-      await createNotification({
-        recipient_id: employeeId,
-        recipient_role: "employee",
-        type: "hr",
-        title: "New Document Available",
-        message: `HR uploaded a new document: "${docType}"`,
-        link: "/employee/documents",
-      });
+      if (shouldNotify) {
+        await createNotification({
+          recipient_id: employeeId,
+          recipient_role: "employee",
+          type: "hr",
+          title: "New Document Available",
+          message: `HR uploaded a new document: "${docType}"`,
+          link: "/employee/documents",
+        });
+      }
 
       res.json({ success: true, message: "Uploaded successfully", fileUrl: req.file.path });
     } catch (err) {
