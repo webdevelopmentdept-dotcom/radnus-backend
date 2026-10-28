@@ -144,6 +144,19 @@ const DOC_FIELDS = [
 
 const uploadDocs = upload.fields(DOC_FIELDS.map((name) => ({ name, maxCount: 1 })));
 
+// Family details: Marital Status mandatory; spouse fields only when Married
+const familyFields = (b) => {
+  const married = b.maritalStatus === "Married";
+  return {
+    fatherName: String(b.fatherName || "").trim(),
+    fatherOccupation: String(b.fatherOccupation || "").trim(),
+    maritalStatus: b.maritalStatus,
+    spouseName: married ? String(b.spouseName || "").trim() : "",
+    spouseOccupation: married ? String(b.spouseOccupation || "").trim() : "",
+  };
+};
+const MARITAL_OK = ["Married", "Unmarried"];
+
 // ══════════════════════════════════════════════════════
 //  TAB 1 — CREATE CUSTOMER (with document upload)
 //  POST /api/loan-process/create
@@ -184,6 +197,10 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
       return res.status(400).json({ success: false, message: "Customer name and contact number required" });
     }
 
+    if (!MARITAL_OK.includes(req.body.maritalStatus)) {
+      return res.status(400).json({ success: false, message: "Marital status (Married / Unmarried) is required" });
+    }
+
     // Build documents object from uploaded files (req.files)
     const documents = {};
     DOC_FIELDS.forEach((field) => {
@@ -213,6 +230,7 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
       mailId,
       bankName,
       ifscCode,
+      ...familyFields(req.body),
       staffId: req.user.id,
       staffName: staff?.name || "Unknown",
       documents,
@@ -401,7 +419,7 @@ router.get("/report", auth, canViewLoanProcessReport, async (req, res) => {
       { $sort: { revenue: -1 } },
     ]);
 
-       const { applicationBreakdown, followupBreakdown, followupUnassigned } = buildTeamSummaries(customers);
+    const { applicationBreakdown, followupBreakdown, followupUnassigned } = buildTeamSummaries(customers);
 
     res.json({
       success: true,
@@ -551,7 +569,7 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
         appDate:
           c.application?.status === "COMPLETED" && c.application?.completedAt
             ? new Date(c.application.completedAt).toLocaleDateString("en-IN") : "",
-             fuBy: c.followup?.status && c.followup.status !== "NONE" ? (c.followup.assignedTo?.name || "Unassigned") : "",
+        fuBy: c.followup?.status && c.followup.status !== "NONE" ? (c.followup.assignedTo?.name || "Unassigned") : "",
         fuStatus:
           c.followup?.status === "COMPLETED" ? "Sanctioned"
             : c.followup?.status === "PENDING"
@@ -562,7 +580,7 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
         fuSanction: c.followup?.loanSanctioned?.value === "YES" ? "Yes" : c.followup?.loanSanctioned?.value === "NO" ? "No" : "",
         fuDate: c.followup?.status === "COMPLETED" && c.followup?.completedAt
           ? new Date(c.followup.completedAt).toLocaleDateString("en-IN") : "",
-          });
+      });
     });
 
     sheet.getColumn("loanValue").numFmt = "₹#,##0";
@@ -623,7 +641,7 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
     staffSheet.getColumn("conversionRate").numFmt = '0"%"';
     staffSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: staffSheet.columns.length } };
 
-        // ── Application Team + Followup Team sheets ──
+    // ── Application Team + Followup Team sheets ──
     const { applicationBreakdown, followupBreakdown } = buildTeamSummaries(customers);
     const styleHeader = (ws) => {
       const h = ws.getRow(1);
@@ -1236,6 +1254,10 @@ router.put("/:id", auth, canManageLoanProcess, ownCustomerOnly, async (req, res)
       ifscCode,
     } = req.body;
 
+    if (!MARITAL_OK.includes(req.body.maritalStatus)) {
+      return res.status(400).json({ success: false, message: "Marital status (Married / Unmarried) is required" });
+    }
+
     const customer = await LoanCustomer.findByIdAndUpdate(
       req.params.id,
       {
@@ -1252,6 +1274,7 @@ router.put("/:id", auth, canManageLoanProcess, ownCustomerOnly, async (req, res)
         mailId,
         bankName,
         ifscCode,
+        ...familyFields(req.body),
       },
       { new: true }
     );

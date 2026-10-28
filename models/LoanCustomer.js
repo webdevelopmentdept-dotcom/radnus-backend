@@ -14,8 +14,14 @@ const loanCustomerSchema = new mongoose.Schema(
     loanDate: { type: Date, default: Date.now },
     communicationAddress: { type: String, default: "" },
     unitAddress: { type: String, default: "" },
+    // ── Family details ──
+    fatherName: { type: String, default: "", trim: true },
+    fatherOccupation: { type: String, default: "", trim: true },
+    maritalStatus: { type: String, enum: ["", "Married", "Unmarried"], default: "" },
+    spouseName: { type: String, default: "", trim: true },
+    spouseOccupation: { type: String, default: "", trim: true },
     businessType: { type: String, default: "" },
-     businessSubType: { type: String, default: "" },
+    businessSubType: { type: String, default: "" },
     scheme: {
       type: String,
       enum: ["PMEGP", "UYEGP", "AABCS", "NEEDS", "TABCEDCO", "TWEES", "PMFME"],
@@ -59,7 +65,7 @@ const loanCustomerSchema = new mongoose.Schema(
       completed: { type: Boolean, default: false },
     },
 
-     // Optional per-stage remark, one text field per checklist key
+    // Optional per-stage remark, one text field per checklist key
     checklistRemarks: {
       cibilVerification: { type: String, default: "" },
       documentCollection: { type: String, default: "" },
@@ -73,7 +79,7 @@ const loanCustomerSchema = new mongoose.Schema(
       completed: { type: String, default: "" },
     },
 
-        // Optional per-stage date — only used for documentPayment & courier on the UI,
+    // Optional per-stage date — only used for documentPayment & courier on the UI,
     // but kept for all keys so the pattern stays consistent with checklistRemarks
     checklistDates: {
       cibilVerification: { type: Date, default: null },
@@ -85,7 +91,7 @@ const loanCustomerSchema = new mongoose.Schema(
       finalisationVerification: { type: Date, default: null },
       finalSubmission: { type: Date, default: null },
       courier: { type: Date, default: null },
-            completed: { type: Date, default: null },
+      completed: { type: Date, default: null },
     },
 
     // Document Payment stage-la customer kitta vaangina amount (₹)
@@ -93,10 +99,10 @@ const loanCustomerSchema = new mongoose.Schema(
       documentPayment: { type: Number, default: null },
     },
 
-        // true = documentation vera idathula pannanga → amount illa, incentive illa
+    // true = documentation vera idathula pannanga → amount illa, incentive illa
     documentPaymentExternal: { type: Boolean, default: false },
 
-       processPercent: { type: Number, default: 0 },
+    processPercent: { type: Number, default: 0 },
     reasonForPending: { type: String, default: "" },
 
     status: {
@@ -109,7 +115,7 @@ const loanCustomerSchema = new mongoose.Schema(
     // "Online Loan Application" label re-uses checklist.applicationProcess,
     // "Projection Dispatch" label re-uses checklist.courier. Field names kept
     // as-is so existing saved records don't need a migration.
-        incentive: {
+    incentive: {
       eligibility: {
         type: String,
         enum: ["Not Eligible", "Eligible for Processing", "Paid", "Rejected", "Removed"],
@@ -132,13 +138,13 @@ const loanCustomerSchema = new mongoose.Schema(
       removedByName: { type: String, default: "" },
       removedRemark: { type: String, default: "" },
     },
-  // ── Followup team (handoff after employee marks checklist.completed) ──
+    // ── Followup team (handoff after employee marks checklist.completed) ──
     followup: {
       status: { type: String, enum: ["NONE", "PENDING", "COMPLETED"], default: "NONE" },
       handedOverAt: { type: Date, default: null },
       completedAt: { type: Date, default: null },
 
-       // Which Followup employee is handling this lead (claimed by employee, or set by admin)
+      // Which Followup employee is handling this lead (claimed by employee, or set by admin)
       assignedTo: {
         employeeId: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
         name: { type: String, default: "" },
@@ -157,7 +163,7 @@ const loanCustomerSchema = new mongoose.Schema(
         updatedAt: { type: Date, default: null },
         updatedByName: { type: String, default: "" },
       },
-           loanSanctioned: {
+      loanSanctioned: {
         value: { type: String, enum: ["", "YES", "NO"], default: "" },
         updatedAt: { type: Date, default: null },
         updatedByName: { type: String, default: "" },
@@ -188,17 +194,17 @@ loanCustomerSchema.pre("save", function (next) {
 
   // Auto-flip incentive eligibility based on the 2 mandatory activities.
   // Never downgrade automatically once it's "Paid" — manual/locked state.
-    // Never downgrade automatically once it's "Paid", "Rejected" or "Removed" — manual/locked state.
+  // Never downgrade automatically once it's "Paid", "Rejected" or "Removed" — manual/locked state.
   if (
     this.incentive.eligibility !== "Paid" &&
     this.incentive.eligibility !== "Rejected" &&
     this.incentive.eligibility !== "Removed"
   ) {
- 
-  const bothDone =
-    !!this.checklist.applicationProcess &&
-    !!this.checklist.courier &&
-    !this.documentPaymentExternal;
+
+    const bothDone =
+      !!this.checklist.applicationProcess &&
+      !!this.checklist.courier &&
+      !this.documentPaymentExternal;
     if (bothDone && this.incentive.eligibility !== "Eligible for Processing") {
       this.incentive.eligibility = "Eligible for Processing";
       this.incentive.eligibleAt = new Date();
