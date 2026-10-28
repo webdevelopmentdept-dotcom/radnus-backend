@@ -65,6 +65,37 @@ const canManageLoanProcess = async (req, res, next) => {
   }
 };
 
+// Telecaller OR Application person OR admin
+const canAccessLoanProcess = async (req, res, next) => {
+  try {
+    if (req.user?.role === "admin") return next();
+    if (req.user?.role === "hr") {
+      return res.status(403).json({ success: false, message: "HR does not have access to Loan Process module" });
+    }
+    const Employee = require("../models/Employee");
+    const emp = await Employee.findById(req.user?.id).select("canManageLoanProcess isLoanProcessHead");
+    if (emp && (emp.canManageLoanProcess || emp.isLoanProcessHead)) return next();
+    return res.status(403).json({ success: false, message: "You don't have access to Loan Process module" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Access check failed" });
+  }
+};
+
+// Write routes: telecaller own customer mattum thodalaam (admin bypass)
+const ownCustomerOnly = async (req, res, next) => {
+  try {
+    if (req.user?.role === "admin") return next();
+    const cust = await LoanCustomer.findById(req.params.id).select("staffId");
+    if (!cust) return res.status(404).json({ success: false, message: "Customer not found" });
+    if (String(cust.staffId) !== String(req.user?.id)) {
+      return res.status(403).json({ success: false, message: "You can only modify your own customers" });
+    }
+    next();
+  } catch (err) {
+    res.status(404).json({ success: false, message: "Customer not found" });
+  }
+};
+
 const canViewLoanProcessReport = async (req, res, next) => {
   try {
     if (req.user?.role === "admin") return next();
@@ -198,22 +229,27 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
 //  GET /api/loan-process/all
 //  Optional query: ?staffId=... to filter by telecaller
 // ══════════════════════════════════════════════════════
-router.get("/all", auth, canManageLoanProcess, async (req, res) => {
+router.get("/all", auth, canAccessLoanProcess, async (req, res) => {
   try {
     const filter = {};
 
     if (req.user?.role === "admin") {
       if (req.query.staffId) filter.staffId = req.query.staffId;
     } else {
-      // Check if this employee is the designated Loan Process Head
       const Employee = require("../models/Employee");
-      const employee = await Employee.findById(req.user.id).select("isLoanProcessHead");
+      const emp = await Employee.findById(req.user.id).select("canManageLoanProcess isLoanProcessHead");
 
-      if (employee?.isLoanProcessHead && req.query.viewAll === "true") {
-        // Head employee, "View Details" tab → every staff's data
+      if (req.query.viewAll === "true") {
+        // View Details tab: Application person mattum, ella telecaller data
+        if (!emp?.isLoanProcessHead) {
+          return res.status(403).json({ success: false, message: "You don't have Application access" });
+        }
         if (req.query.staffId) filter.staffId = req.query.staffId;
       } else {
-        // Normal employee, OR head employee's own "Customer Data" tab → own data only
+        // Customer Data / Checklist tab: Telecaller mattum, own data
+        if (!emp?.canManageLoanProcess) {
+          return res.status(403).json({ success: false, message: "You don't have Telecaller access" });
+        }
         filter.staffId = req.user.id;
       }
     }
@@ -222,12 +258,85 @@ router.get("/all", auth, canManageLoanProcess, async (req, res) => {
 
     const customers = await LoanCustomer.find(filter)
       .populate("staffId", "name email")
-      .sort({ createdAt: -1 });
+      .sort(req.query.viewAll === "true" ? { loanDate: 1, createdAt: 1 } : { createdAt: -1 });
     res.json({ success: true, data: customers, total: customers.length });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+router.get("/my-access", auth, async (req, res) => {
+  try {
+    if (req.user?.role === "admin") {
+      return res.json({ success: true, isTelecaller: true, isApplication: true });
+    }
+    if (req.user?.role === "hr") {
+      return res.json({ success: true, isTelecaller: false, isApplication: false });
+    }
+    const Employee = require("../models/Employee");
+    const emp = await Employee.findById(req.user?.id).select("canManageLoanProcess isLoanProcessHead");
+    res.json({
+      success: true,
+      isTelecaller: !!emp?.canManageLoanProcess,
+      isApplication: !!emp?.isLoanProcessHead,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── Application team + Followup team summaries (from the given customers) ──
+const buildTeamSummaries = (customers) => {
+  const appMap = {};
+  const fuMap = {};
+  let followupUnassigned = 0;
+
+  customers.forEach((c) => {
+    // Application
+    const ao = c.application?.assignedTo;
+    if (ao?.employeeId) {
+      const k = String(ao.employeeId);
+      if (!appMap[k]) appMap[k] = { _id: k, name: ao.name || "Unknown", taken: 0, inProgress: 0, completed: 0, completedValue: 0 };
+      appMap[k].taken += 1;
+      if (c.application?.status === "COMPLETED") {
+        appMap[k].completed += 1;
+        appMap[k].completedValue += c.loanValue || 0;
+      } else {
+        appMap[k].inProgress += 1;
+      }
+    }
+
+    // Followup
+    const fu = c.followup;
+    if (!fu?.status || fu.status === "NONE") return;
+    const fo = fu.assignedTo;
+    if (!fo?.employeeId) {
+      if (fu.status === "PENDING") followupUnassigned += 1;
+      return;
+    }
+    const k = String(fo.employeeId);
+    if (!fuMap[k]) fuMap[k] = { _id: k, name: fo.name || "Unknown", taken: 0, inProgress: 0, sanctioned: 0, notSanctioned: 0, sanctionedValue: 0 };
+    fuMap[k].taken += 1;
+    if (fu.status === "COMPLETED") {
+      fuMap[k].sanctioned += 1;
+      fuMap[k].sanctionedValue += c.loanValue || 0;
+    } else if (fu.loanSanctioned?.value === "NO") {
+      fuMap[k].notSanctioned += 1;
+    } else {
+      fuMap[k].inProgress += 1;
+    }
+  });
+
+  const applicationBreakdown = Object.values(appMap)
+    .map((s) => ({ ...s, completionRate: s.taken ? Math.round((s.completed / s.taken) * 100) : 0 }))
+    .sort((a, b) => b.completed - a.completed || b.taken - a.taken);
+
+  const followupBreakdown = Object.values(fuMap)
+    .map((s) => ({ ...s, sanctionRate: s.taken ? Math.round((s.sanctioned / s.taken) * 100) : 0 }))
+    .sort((a, b) => b.sanctioned - a.sanctioned || b.taken - a.taken);
+
+  return { applicationBreakdown, followupBreakdown, followupUnassigned };
+};
 
 
 router.get("/report", auth, canViewLoanProcessReport, async (req, res) => {
@@ -246,7 +355,14 @@ router.get("/report", auth, canViewLoanProcessReport, async (req, res) => {
       .populate("staffId", "name email")
       .sort({ createdAt: -1 });
 
+    // aggregate() la Mongoose auto-cast pannaadhu, so staffId-a ObjectId-a maathanum
+    const aggFilter = { ...filter };
+    if (filter.staffId && mongoose.Types.ObjectId.isValid(filter.staffId)) {
+      aggFilter.staffId = new mongoose.Types.ObjectId(filter.staffId);
+    }
+
     const staffBreakdown = await LoanCustomer.aggregate([
+      { $match: aggFilter },
       {
         $group: {
           _id: "$staffId",
@@ -285,7 +401,17 @@ router.get("/report", auth, canViewLoanProcessReport, async (req, res) => {
       { $sort: { revenue: -1 } },
     ]);
 
-    res.json({ success: true, data: customers, staffBreakdown, total: customers.length });
+       const { applicationBreakdown, followupBreakdown, followupUnassigned } = buildTeamSummaries(customers);
+
+    res.json({
+      success: true,
+      data: customers,
+      staffBreakdown,
+      applicationBreakdown,
+      followupBreakdown,
+      followupUnassigned,
+      total: customers.length,
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -328,11 +454,11 @@ const stageRowData = (c) => {
     out[`${st.key}_remark`] = c.checklistRemarks?.[st.key] || "";
   });
   const amt = c.checklistAmounts?.documentPayment;
-  out.documentPayment_amount = amt != null ? Number(amt) : "";
+  out.documentPayment_amount = c.documentPaymentExternal ? "Elsewhere" : amt != null ? Number(amt) : "";
   return out;
 };
 
-router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) => {
+router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) => {
   try {
     const filter = {};
     if (req.query.staffId) filter.staffId = req.query.staffId;
@@ -348,10 +474,18 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
       filter.customerName = { $regex: req.query.search, $options: "i" };
     }
 
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
+    if (ids) filter._id = { $in: ids };
+
     const customers = await LoanCustomer.find(filter)
       .select("-documents")
       .populate("staffId", "name email")
       .sort({ createdAt: -1 });
+
+    if (ids) {
+      const pos = new Map(ids.map((id, i) => [String(id), i]));
+      customers.sort((a, b) => pos.get(String(a._id)) - pos.get(String(b._id)));
+    }
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "Radnus Connect";
@@ -375,6 +509,15 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
       { header: "Progress %", key: "processPercent", width: 12 },
       ...STAGE_COLUMNS,
       { header: "Reason For Pending", key: "reasonForPending", width: 26 },
+      { header: "Application Handled By", key: "appBy", width: 22 },
+      { header: "Application Status", key: "appStatus", width: 18 },
+      { header: "Application Date", key: "appDate", width: 16 },
+      { header: "Followup Handled By", key: "fuBy", width: 22 },
+      { header: "Followup Status", key: "fuStatus", width: 20 },
+      { header: "DIC Office", key: "fuDic", width: 16 },
+      { header: "Bank Process", key: "fuBank", width: 16 },
+      { header: "Loan Sanctioned", key: "fuSanction", width: 16 },
+      { header: "Followup Completed Date", key: "fuDate", width: 20 },
     ];
 
     const headerRow = sheet.getRow(1);
@@ -401,7 +544,25 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
         processPercent: c.processPercent ?? 0,
         ...stageRowData(c),
         reasonForPending: c.reasonForPending || "",
-      });
+        appBy: c.application?.assignedTo?.name || "",
+        appStatus:
+          c.application?.status === "COMPLETED" ? "Completed"
+            : c.application?.assignedTo?.employeeId ? "In Progress" : "Not Taken",
+        appDate:
+          c.application?.status === "COMPLETED" && c.application?.completedAt
+            ? new Date(c.application.completedAt).toLocaleDateString("en-IN") : "",
+             fuBy: c.followup?.status && c.followup.status !== "NONE" ? (c.followup.assignedTo?.name || "Unassigned") : "",
+        fuStatus:
+          c.followup?.status === "COMPLETED" ? "Sanctioned"
+            : c.followup?.status === "PENDING"
+              ? (c.followup?.loanSanctioned?.value === "NO" ? "Not Sanctioned" : "With Followup")
+              : "",
+        fuDic: c.followup?.dicOffice?.state === "COMPLETED" ? "Completed" : c.followup?.dicOffice?.state === "NOT_COMPLETED" ? "Not Completed" : "",
+        fuBank: c.followup?.bank?.state === "COMPLETED" ? "Completed" : c.followup?.bank?.state === "NOT_COMPLETED" ? "Not Completed" : "",
+        fuSanction: c.followup?.loanSanctioned?.value === "YES" ? "Yes" : c.followup?.loanSanctioned?.value === "NO" ? "No" : "",
+        fuDate: c.followup?.status === "COMPLETED" && c.followup?.completedAt
+          ? new Date(c.followup.completedAt).toLocaleDateString("en-IN") : "",
+          });
     });
 
     sheet.getColumn("loanValue").numFmt = "₹#,##0";
@@ -462,6 +623,48 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
     staffSheet.getColumn("conversionRate").numFmt = '0"%"';
     staffSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: staffSheet.columns.length } };
 
+        // ── Application Team + Followup Team sheets ──
+    const { applicationBreakdown, followupBreakdown } = buildTeamSummaries(customers);
+    const styleHeader = (ws) => {
+      const h = ws.getRow(1);
+      h.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      h.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2A3EB1" } };
+      h.alignment = { vertical: "middle", horizontal: "left" };
+      h.height = 20;
+      ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columns.length } };
+    };
+
+    const appSheet = workbook.addWorksheet("Application Team Summary", { views: [{ state: "frozen", ySplit: 1 }] });
+    appSheet.columns = [
+      { header: "Rank", key: "rank", width: 8 },
+      { header: "Employee", key: "name", width: 22 },
+      { header: "Applications Taken", key: "taken", width: 18 },
+      { header: "In Progress", key: "inProgress", width: 14 },
+      { header: "Completed", key: "completed", width: 12 },
+      { header: "Completion %", key: "completionRate", width: 14 },
+      { header: "Completed Loan Value (₹)", key: "completedValue", width: 24 },
+    ];
+    applicationBreakdown.forEach((s, i) => appSheet.addRow({ rank: i + 1, ...s }));
+    appSheet.getColumn("completedValue").numFmt = "₹#,##0";
+    appSheet.getColumn("completionRate").numFmt = '0"%"';
+    styleHeader(appSheet);
+
+    const fuSheet = workbook.addWorksheet("Followup Team Summary", { views: [{ state: "frozen", ySplit: 1 }] });
+    fuSheet.columns = [
+      { header: "Rank", key: "rank", width: 8 },
+      { header: "Employee", key: "name", width: 22 },
+      { header: "Leads Taken", key: "taken", width: 14 },
+      { header: "In Progress", key: "inProgress", width: 14 },
+      { header: "Sanctioned", key: "sanctioned", width: 14 },
+      { header: "Not Sanctioned", key: "notSanctioned", width: 16 },
+      { header: "Sanction %", key: "sanctionRate", width: 12 },
+      { header: "Sanctioned Loan Value (₹)", key: "sanctionedValue", width: 26 },
+    ];
+    followupBreakdown.forEach((s, i) => fuSheet.addRow({ rank: i + 1, ...s }));
+    fuSheet.getColumn("sanctionedValue").numFmt = "₹#,##0";
+    fuSheet.getColumn("sanctionRate").numFmt = '0"%"';
+    styleHeader(fuSheet);
+
     const fileName = `loan-process-report-${new Date().toISOString().slice(0, 10)}.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
@@ -477,22 +680,30 @@ router.get("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
 //  GET SINGLE CUSTOMER (full details)
 //  GET /api/loan-process/:id
 // ══════════════════════════════════════════════════════
-router.get("/:id", auth, canManageLoanProcess, async (req, res) => {
+router.get("/:id", auth, canAccessLoanProcess, async (req, res) => {
   try {
     const customer = await LoanCustomer.findById(req.params.id);
     if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
+
+    // Telecaller-only → own customer mattum. Application person / admin → ellam.
+    if (req.user?.role !== "admin") {
+      const Employee = require("../models/Employee");
+      const emp = await Employee.findById(req.user.id).select("isLoanProcessHead");
+      if (!emp?.isLoanProcessHead && String(customer.staffId) !== String(req.user.id)) {
+        return res.status(403).json({ success: false, message: "Not your customer" });
+      }
+    }
     res.json({ success: true, data: customer });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
 // ══════════════════════════════════════════════════════
 //  UPDATE CHECKLIST (tick/untick a process stage)
 //  PATCH /api/loan-process/:id/checklist
 //  Body: { field: "cibilVerification", value: true, reasonForPending?: "..." }
 // ══════════════════════════════════════════════════════
-router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
+router.patch("/:id/checklist", auth, canManageLoanProcess, ownCustomerOnly, async (req, res) => {
   try {
     const { field, value, reasonForPending, remark, date, amount } = req.body;
     const validFields = [
@@ -569,22 +780,39 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
       if (!finalRemark.trim()) finalValue = false; // safety net
     }
 
-    // ── Document Payment: amount must be 5000 / 10000, and mandatory to tick ──
+    // ── Document Payment: ₹5,000 / ₹10,000, or "ELSEWHERE" (no amount, no incentive) ──
+    let externalFlag = !!customer.documentPaymentExternal;
     if (field === "documentPayment") {
       let finalAmount = customer.checklistAmounts?.documentPayment ?? null;
+
       if (amount !== undefined) {
-        finalAmount = amount === "" || amount === null ? null : Number(amount);
-        if (finalAmount !== null && !DOC_PAYMENT_ALLOWED.includes(finalAmount)) {
+        if (amount === "ELSEWHERE") {
+          externalFlag = true;
+          finalAmount = null;
+        } else {
+          externalFlag = false;
+          finalAmount = amount === "" || amount === null ? null : Number(amount);
+          if (finalAmount !== null && !DOC_PAYMENT_ALLOWED.includes(finalAmount)) {
+            return res.status(400).json({
+              success: false,
+              message: "Select document payment amount (₹5,000 or ₹10,000)",
+            });
+          }
+        }
+
+        // Incentive already paid → payment mode maatha koodaadhu
+        if (customer.incentive?.eligibility === "Paid" && externalFlag !== !!customer.documentPaymentExternal) {
           return res.status(400).json({
             success: false,
-            message: "Select document payment amount (₹5,000 or ₹10,000)",
+            message: "Incentive already paid for this loan — Document Payment can't be changed anymore.",
           });
         }
       }
-      if (finalValue && !DOC_PAYMENT_ALLOWED.includes(Number(finalAmount))) {
+
+      if (finalValue && !externalFlag && !DOC_PAYMENT_ALLOWED.includes(Number(finalAmount))) {
         return res.status(400).json({
           success: false,
-          message: "Select document payment amount (₹5,000 or ₹10,000) before ticking Document Payment.",
+          message: "Select document payment amount (₹5,000 or ₹10,000), or 'Done elsewhere', before ticking Document Payment.",
         });
       }
     }
@@ -604,7 +832,8 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, async (req, res) => {
     }
     if (amount !== undefined && field === "documentPayment") {
       customer.checklistAmounts.documentPayment =
-        amount === "" || amount === null ? null : Number(amount);
+        amount === "" || amount === null || amount === "ELSEWHERE" ? null : Number(amount);
+      customer.documentPaymentExternal = externalFlag;
       customer.markModified("checklistAmounts");
     }
 
@@ -783,6 +1012,13 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
       });
     }
 
+    if (customer.documentPaymentExternal) {
+      return res.status(400).json({
+        success: false,
+        message: "Document Payment was done elsewhere — this loan is not eligible for incentive.",
+      });
+    }
+
     // ── Incentive amount = based on Document Payment (server-side) ──
     const docAmt = Number(customer.checklistAmounts?.documentPayment);
     const amt = DOC_PAYMENT_INCENTIVE_MAP[docAmt];
@@ -955,7 +1191,7 @@ router.post("/:id/incentive/remove", auth, canApproveLoanIncentive, async (req, 
 //  PATCH /api/loan-process/:id/documents
 //  multipart form-data, field name = doc key (e.g. "aadharCard")
 // ══════════════════════════════════════════════════════
-router.patch("/:id/documents", auth, canManageLoanProcess, uploadDocs, async (req, res) => {
+router.patch("/:id/documents", auth, canManageLoanProcess, ownCustomerOnly, uploadDocs, async (req, res) => {
   try {
     const customer = await LoanCustomer.findById(req.params.id);
     if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
@@ -982,7 +1218,7 @@ router.patch("/:id/documents", auth, canManageLoanProcess, uploadDocs, async (re
 //  UPDATE BASIC DETAILS (Tab 1 edit, no file)
 //  PUT /api/loan-process/:id
 // ══════════════════════════════════════════════════════
-router.put("/:id", auth, canManageLoanProcess, async (req, res) => {
+router.put("/:id", auth, canManageLoanProcess, ownCustomerOnly, async (req, res) => {
   try {
     const {
       customerName,
@@ -1031,11 +1267,91 @@ router.put("/:id", auth, canManageLoanProcess, async (req, res) => {
 //  DELETE CUSTOMER
 //  DELETE /api/loan-process/:id
 // ══════════════════════════════════════════════════════
-router.delete("/:id", auth, canManageLoanProcess, async (req, res) => {
+router.delete("/:id", auth, canManageLoanProcess, ownCustomerOnly, async (req, res) => {
   try {
     const deleted = await LoanCustomer.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ success: false, message: "Customer not found" });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+//  APPLICATION PERSON — take / release / complete
+// ══════════════════════════════════════════════════════
+const isApplicationPerson = async (req, res, next) => {
+  try {
+    const Employee = require("../models/Employee");
+    const emp = await Employee.findById(req.user?.id).select("name isLoanProcessHead");
+    if (!emp?.isLoanProcessHead) {
+      return res.status(403).json({ success: false, message: "You don't have Application access" });
+    }
+    req.appEmp = emp;
+    next();
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Access check failed" });
+  }
+};
+
+// POST /api/loan-process/:id/application/claim
+router.post("/:id/application/claim", auth, isApplicationPerson, async (req, res) => {
+  try {
+    const emp = req.appEmp;
+    const claimed = await LoanCustomer.findOneAndUpdate(
+      { _id: req.params.id, "application.status": { $ne: "COMPLETED" }, "application.assignedTo.employeeId": null },
+      {
+        $set: {
+          "application.assignedTo.employeeId": emp._id,
+          "application.assignedTo.name": emp.name,
+          "application.assignedTo.assignedAt": new Date(),
+        },
+      },
+      { new: true }
+    );
+    if (!claimed) {
+      const c = await LoanCustomer.findById(req.params.id).select("application");
+      if (!c) return res.status(404).json({ success: false, message: "Customer not found" });
+      if (c.application?.assignedTo?.employeeId) {
+        return res.status(409).json({ success: false, message: `Already taken by ${c.application.assignedTo.name}.` });
+      }
+      return res.status(400).json({ success: false, message: "This application is already completed." });
+    }
+    res.json({ success: true, customer: claimed });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/loan-process/:id/application/release
+router.post("/:id/application/release", auth, isApplicationPerson, async (req, res) => {
+  try {
+    const released = await LoanCustomer.findOneAndUpdate(
+      { _id: req.params.id, "application.status": { $ne: "COMPLETED" }, "application.assignedTo.employeeId": req.appEmp._id },
+      { $set: { "application.assignedTo": { employeeId: null, name: "", assignedAt: null } } },
+      { new: true }
+    );
+    if (!released) return res.status(403).json({ success: false, message: "You can release only your own pending application." });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PATCH /api/loan-process/:id/application/complete   Body: { date: "YYYY-MM-DD" }
+router.patch("/:id/application/complete", auth, isApplicationPerson, async (req, res) => {
+  try {
+    const when = req.body.date ? new Date(req.body.date) : new Date();
+    if (isNaN(when.getTime())) return res.status(400).json({ success: false, message: "Invalid date" });
+    if (when.getTime() > Date.now()) return res.status(400).json({ success: false, message: "Future date is not allowed" });
+
+    const done = await LoanCustomer.findOneAndUpdate(
+      { _id: req.params.id, "application.status": { $ne: "COMPLETED" }, "application.assignedTo.employeeId": req.appEmp._id },
+      { $set: { "application.status": "COMPLETED", "application.completedAt": when } },
+      { new: true }
+    );
+    if (!done) return res.status(403).json({ success: false, message: "Take this application first (or it's already completed)." });
+    res.json({ success: true, customer: done });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

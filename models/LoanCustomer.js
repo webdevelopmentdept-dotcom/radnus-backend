@@ -93,6 +93,9 @@ const loanCustomerSchema = new mongoose.Schema(
       documentPayment: { type: Number, default: null },
     },
 
+        // true = documentation vera idathula pannanga → amount illa, incentive illa
+    documentPaymentExternal: { type: Boolean, default: false },
+
        processPercent: { type: Number, default: 0 },
     reasonForPending: { type: String, default: "" },
 
@@ -154,10 +157,21 @@ const loanCustomerSchema = new mongoose.Schema(
         updatedAt: { type: Date, default: null },
         updatedByName: { type: String, default: "" },
       },
-      loanSanctioned: {
+           loanSanctioned: {
         value: { type: String, enum: ["", "YES", "NO"], default: "" },
         updatedAt: { type: Date, default: null },
         updatedByName: { type: String, default: "" },
+      },
+    },
+
+    // ── Application person (Loan Process → View Details) ──  ⬅ INDHA BLOCK PUDHUSU
+    application: {
+      status: { type: String, enum: ["PENDING", "COMPLETED"], default: "PENDING" },
+      completedAt: { type: Date, default: null },
+      assignedTo: {
+        employeeId: { type: mongoose.Schema.Types.ObjectId, ref: "Employee", default: null },
+        name: { type: String, default: "" },
+        assignedAt: { type: Date, default: null },
       },
     },
   },
@@ -180,7 +194,11 @@ loanCustomerSchema.pre("save", function (next) {
     this.incentive.eligibility !== "Rejected" &&
     this.incentive.eligibility !== "Removed"
   ) {
-  const bothDone = !!this.checklist.applicationProcess && !!this.checklist.courier;
+ 
+  const bothDone =
+    !!this.checklist.applicationProcess &&
+    !!this.checklist.courier &&
+    !this.documentPaymentExternal;
     if (bothDone && this.incentive.eligibility !== "Eligible for Processing") {
       this.incentive.eligibility = "Eligible for Processing";
       this.incentive.eligibleAt = new Date();

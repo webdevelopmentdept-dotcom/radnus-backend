@@ -1,17 +1,17 @@
 
 const express = require("express");
 const router = express.Router();
-const auth = require("../middleware/auth"); 
-const adminOnly = require("../middleware/adminOnly"); 
+const auth = require("../middleware/auth");
+const adminOnly = require("../middleware/adminOnly");
 
-const Applicant    = require("../models/Applicant");
-const Partner      = require("../models/Partner");
-const Lead         = require("../models/Lead");
-const Employee     = require("../models/Employee");
-const Advance      = require("../models/Advance");
+const Applicant = require("../models/Applicant");
+const Partner = require("../models/Partner");
+const Lead = require("../models/Lead");
+const Employee = require("../models/Employee");
+const Advance = require("../models/Advance");
 const LoanCustomer = require("../models/LoanCustomer");
-const ShopOwner    = require("../models/ShopOwner");
-const Technician   = require("../models/Technician");
+const ShopOwner = require("../models/ShopOwner");
+const Technician = require("../models/Technician");
 const { buildModeFilter } = require("../utils/loanMode");
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -56,13 +56,13 @@ router.get("/stats", auth, adminOnly, async (req, res) => {
     const loanMode = await buildModeFilter(req.query.mode); // "bde" | "marketing" | undefined
 
     const yearStart = new Date(year, 0, 1);
-    const yearEnd   = new Date(year + 1, 0, 1);
+    const yearEnd = new Date(year + 1, 0, 1);
     const staleDate = new Date(now.getTime() - 3 * DAY);
     const monthBegin = new Date(now.getFullYear(), now.getMonth(), 1);
 
     // {field: {$gte: from}} or {} for all-time
     const inRange = (field) => (from ? { [field]: { $gte: from } } : {});
-    const inPrev  = (field) => ({ [field]: { $gte: prevFrom, $lt: from } });
+    const inPrev = (field) => ({ [field]: { $gte: prevFrom, $lt: from } });
 
     // { total (all-time), current (selected range), previous (period before) }
     const counts = async (Model, field, extra = {}) => {
@@ -126,8 +126,12 @@ router.get("/stats", auth, adminOnly, async (req, res) => {
       safe("topPartners", async () => {
         const rows = await Lead.aggregate([
           { $match: inRange("createdAt") },
-          { $group: { _id: "$partnerId", name: { $first: "$partnerName" }, leads: { $sum: 1 }, advance: { $sum: "$advance" },
-                      converted: { $sum: { $cond: [{ $eq: ["$status", "CONVERTED"] }, 1, 0] } } } },
+          {
+            $group: {
+              _id: "$partnerId", name: { $first: "$partnerName" }, leads: { $sum: 1 }, advance: { $sum: "$advance" },
+              converted: { $sum: { $cond: [{ $eq: ["$status", "CONVERTED"] }, 1, 0] } }
+            }
+          },
           { $sort: { leads: -1, advance: -1 } },
           { $limit: 5 },
         ]);
@@ -208,7 +212,12 @@ router.get("/stats", auth, adminOnly, async (req, res) => {
         // expression helpers for $group
         const loanIn = (extra) =>
           from ? { $and: [{ $gte: ["$loanDate", from] }, extra] } : extra;
-        const docPaid = { $eq: ["$checklist.documentPayment", true] };
+        const docPaid = {
+          $and: [
+            { $eq: ["$checklist.documentPayment", true] },
+            { $ne: ["$documentPaymentExternal", true] },
+          ]
+        };
         const payIn = from
           ? { $and: [docPaid, { $gte: ["$checklistDates.documentPayment", from] }] }
           : docPaid;
@@ -219,46 +228,66 @@ router.get("/stats", auth, adminOnly, async (req, res) => {
         const [summaryArr, funnelRaw, schemes, staff, reasons, docMonthly, prevTotal, prevDoc] = await Promise.all([
           LoanCustomer.aggregate([
             { $match: loanMode },
-            { $group: {
+            {
+              $group: {
                 _id: null,
                 /* ---- follow the selected range ---- */
-                total:          { $sum: { $cond: [loanIn(true), 1, 0] } },
-                value:          { $sum: { $cond: [loanIn(true), "$loanValue", 0] } },
-                completed:      { $sum: { $cond: [loanIn(isDone), 1, 0] } },
+                total: { $sum: { $cond: [loanIn(true), 1, 0] } },
+                value: { $sum: { $cond: [loanIn(true), "$loanValue", 0] } },
+                completed: { $sum: { $cond: [loanIn(isDone), 1, 0] } },
                 completedValue: { $sum: { $cond: [loanIn(isDone), "$loanValue", 0] } },
-                inProgress:     { $sum: { $cond: [loanIn(isProg), 1, 0] } },
-                progressSum:    { $sum: { $cond: [loanIn(true), { $ifNull: ["$processPercent", 0] }, 0] } },
-                docPaidCount:   { $sum: { $cond: [payIn, 1, 0] } },
-                docCollected:   { $sum: { $cond: [payIn, amt, 0] } },
-                sanctioned:      { $sum: { $cond: [loanIn({ $eq: ["$followup.status", "COMPLETED"] }), 1, 0] } },
+                inProgress: { $sum: { $cond: [loanIn(isProg), 1, 0] } },
+                progressSum: { $sum: { $cond: [loanIn(true), { $ifNull: ["$processPercent", 0] }, 0] } },
+                docPaidCount: { $sum: { $cond: [payIn, 1, 0] } },
+                docCollected: { $sum: { $cond: [payIn, amt, 0] } },
+                sanctioned: { $sum: { $cond: [loanIn({ $eq: ["$followup.status", "COMPLETED"] }), 1, 0] } },
                 sanctionedValue: { $sum: { $cond: [loanIn({ $eq: ["$followup.status", "COMPLETED"] }), "$loanValue", 0] } },
                 /* ---- always live (all-time) ---- */
-                docCollectedThisMonth: { $sum: { $cond: [
-                  { $and: [docPaid, { $gte: ["$checklistDates.documentPayment", monthBegin] }] }, amt, 0] } },
-                docPendingCount: { $sum: { $cond: [
-                  { $and: [{ $ne: ["$checklist.documentPayment", true] }, isProg] }, 1, 0] } },
-                pendingWithReason: { $sum: { $cond: [
-                  { $and: [isProg, { $ne: [{ $ifNull: ["$reasonForPending", ""] }, ""] }] }, 1, 0] } },
+                docCollectedThisMonth: {
+                  $sum: {
+                    $cond: [
+                      { $and: [docPaid, { $gte: ["$checklistDates.documentPayment", monthBegin] }] }, amt, 0]
+                  }
+                },
+                docPendingCount: {
+                  $sum: {
+                    $cond: [
+                      { $and: [{ $ne: ["$checklist.documentPayment", true] }, isProg] }, 1, 0]
+                  }
+                },
+                pendingWithReason: {
+                  $sum: {
+                    $cond: [
+                      { $and: [isProg, { $ne: [{ $ifNull: ["$reasonForPending", ""] }, ""] }] }, 1, 0]
+                  }
+                },
                 followupPending: { $sum: { $cond: [{ $eq: ["$followup.status", "PENDING"] }, 1, 0] } },
-                incentiveCount:  { $sum: { $cond: [{ $eq: ["$incentive.eligibility", "Eligible for Processing"] }, 1, 0] } },
+                incentiveCount: { $sum: { $cond: [{ $eq: ["$incentive.eligibility", "Eligible for Processing"] }, 1, 0] } },
                 incentiveAmount: { $sum: { $cond: [{ $eq: ["$incentive.eligibility", "Eligible for Processing"] }, { $ifNull: ["$incentive.amount", 0] }, 0] } },
-            } },
+              }
+            },
           ]),
           LoanCustomer.aggregate([{ $facet: funnelFacet }]),
           LoanCustomer.aggregate([
             { $match: { ...loanRange, scheme: { $nin: ["", null] } } },
-            { $group: { _id: "$scheme", count: { $sum: 1 },
-                        completed: { $sum: { $cond: [isDone, 1, 0] } } } },
+            {
+              $group: {
+                _id: "$scheme", count: { $sum: 1 },
+                completed: { $sum: { $cond: [isDone, 1, 0] } }
+              }
+            },
             { $sort: { count: -1 } },
           ]),
           LoanCustomer.aggregate([
             { $match: loanMode },
-            { $group: {
+            {
+              $group: {
                 _id: "$staffId", name: { $first: "$staffName" },
-                total:        { $sum: { $cond: [loanIn(true), 1, 0] } },
-                completed:    { $sum: { $cond: [loanIn(isDone), 1, 0] } },
+                total: { $sum: { $cond: [loanIn(true), 1, 0] } },
+                completed: { $sum: { $cond: [loanIn(isDone), 1, 0] } },
                 docCollected: { $sum: { $cond: [payIn, amt, 0] } },
-            } },
+              }
+            },
             { $match: { $or: [{ total: { $gt: 0 } }, { docCollected: { $gt: 0 } }] } },
             { $sort: { completed: -1, total: -1 } },
             { $limit: 5 },
@@ -271,12 +300,14 @@ router.get("/stats", auth, adminOnly, async (req, res) => {
           ]),
           // monthly doc payment trend – last 6 months (independent of the range filter)
           LoanCustomer.aggregate([
-            { $match: { ...loanMode, "checklist.documentPayment": true, "checklistDates.documentPayment": { $ne: null } } },
-            { $group: {
+            { $match: { ...loanMode, "checklist.documentPayment": true, documentPaymentExternal: { $ne: true }, "checklistDates.documentPayment": { $ne: null } } },
+            {
+              $group: {
                 _id: { y: { $year: "$checklistDates.documentPayment" }, m: { $month: "$checklistDates.documentPayment" } },
                 amount: { $sum: amt },
                 count: { $sum: 1 },
-            } },
+              }
+            },
             { $sort: { "_id.y": -1, "_id.m": -1 } },
             { $limit: 6 },
           ]),
@@ -284,15 +315,15 @@ router.get("/stats", auth, adminOnly, async (req, res) => {
           from ? LoanCustomer.countDocuments({ ...loanMode, ...inPrev("loanDate") }) : Promise.resolve(null),
           from
             ? LoanCustomer.aggregate([
-                { $match: { ...loanMode, "checklist.documentPayment": true, ...inPrev("checklistDates.documentPayment") } },
-                { $group: { _id: null, sum: { $sum: amt } } },
-              ])
+              { $match: { ...loanMode, "checklist.documentPayment": true, documentPaymentExternal: { $ne: true }, ...inPrev("checklistDates.documentPayment") } },
+              { $group: { _id: null, sum: { $sum: amt } } },
+            ])
             : Promise.resolve(null),
         ]);
 
         const sm = summaryArr[0] || {};
         const fc = funnelRaw[0] || {};
-        const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         return {
           total: sm.total || 0,
           totalPrev: prevTotal,

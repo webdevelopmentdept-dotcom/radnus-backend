@@ -2,8 +2,8 @@ const express = require("express");
 const router = express.Router();
 const LoanCustomer = require("../models/LoanCustomer");
 const { buildModeFilter } = require("../utils/loanMode");
-const auth = require("../middleware/auth"); 
-const adminOnly = require("../middleware/adminOnly");  
+const auth = require("../middleware/auth");
+const adminOnly = require("../middleware/adminOnly");
 
 const STAGE_ORDER = [
   { key: "cibilVerification", label: "CIBIL Verification" },
@@ -48,6 +48,30 @@ router.get("/overview", auth, adminOnly, async (req, res) => {
           pendingCount: {
             $sum: {
               $cond: [{ $and: [{ $ne: ["$reasonForPending", ""] }, { $ne: ["$reasonForPending", null] }] }, 1, 0],
+            },
+          },
+          // ── Document Payment ──
+          docPaymentTotal: {
+            $sum: { $cond: [{ $eq: ["$checklist.documentPayment", true] }, { $ifNull: ["$checklistAmounts.documentPayment", 0] }, 0] },
+          },
+          docPaymentCount: {
+            $sum: {
+              $cond: [{
+                $and: [
+                  { $eq: ["$checklist.documentPayment", true] },
+                  { $gt: [{ $ifNull: ["$checklistAmounts.documentPayment", 0] }, 0] },
+                ]
+              }, 1, 0]
+            },
+          },
+          docPaymentElsewhere: {
+            $sum: {
+              $cond: [{
+                $and: [
+                  { $eq: ["$checklist.documentPayment", true] },
+                  { $eq: ["$documentPaymentExternal", true] },
+                ]
+              }, 1, 0]
             },
           },
         },
@@ -151,7 +175,12 @@ router.get("/overview", auth, adminOnly, async (req, res) => {
           avgMs: {
             $avg: {
               $cond: [
-                { $eq: ["$followup.status", "COMPLETED"] },
+                {
+                  $and: [
+                    { $eq: ["$followup.status", "COMPLETED"] },
+                    { $gte: ["$followup.completedAt", "$followup.assignedTo.assignedAt"] },
+                  ]
+                },
                 { $subtract: ["$followup.completedAt", "$followup.assignedTo.assignedAt"] },
                 null,
               ],
@@ -175,6 +204,85 @@ router.get("/overview", auth, adminOnly, async (req, res) => {
       bankCompleted: s.bankCompleted,
       sanctionRate: s.taken ? Math.round((s.sanctioned / s.taken) * 100) : 0,
       avgDaysToSanction:
+        typeof s.avgMs === "number" ? Math.round((s.avgMs / 86400000) * 10) / 10 : null,
+    }));
+
+    // ── Application team: summary + employee-wise ──
+    const [appSum] = await LoanCustomer.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: null,
+          completed: { $sum: { $cond: [{ $eq: ["$application.status", "COMPLETED"] }, 1, 0] } },
+          inProgress: {
+            $sum: {
+              $cond: [{
+                $and: [
+                  { $ne: ["$application.status", "COMPLETED"] },
+                  { $ne: [{ $ifNull: ["$application.assignedTo.employeeId", null] }, null] },
+                ]
+              }, 1, 0]
+            },
+          },
+          notTaken: {
+            $sum: {
+              $cond: [{
+                $and: [
+                  { $ne: ["$application.status", "COMPLETED"] },
+                  { $eq: [{ $ifNull: ["$application.assignedTo.employeeId", null] }, null] },
+                ]
+              }, 1, 0]
+            },
+          },
+        },
+      },
+    ]);
+    const applicationSummary = {
+      completed: appSum?.completed || 0,
+      inProgress: appSum?.inProgress || 0,
+      notTaken: appSum?.notTaken || 0,
+    };
+
+    const applicationStaffRaw = await LoanCustomer.aggregate([
+      { $match: { ...match, "application.assignedTo.employeeId": { $ne: null } } },
+      {
+        $group: {
+          _id: "$application.assignedTo.employeeId",
+          name: { $first: "$application.assignedTo.name" },
+          taken: { $sum: 1 },
+          pending: { $sum: { $cond: [{ $ne: ["$application.status", "COMPLETED"] }, 1, 0] } },
+          completed: { $sum: { $cond: [{ $eq: ["$application.status", "COMPLETED"] }, 1, 0] } },
+          completedValue: {
+            $sum: { $cond: [{ $eq: ["$application.status", "COMPLETED"] }, "$loanValue", 0] },
+          },
+          avgMs: {
+            $avg: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$application.status", "COMPLETED"] },
+                    { $gte: ["$application.completedAt", "$application.assignedTo.assignedAt"] },
+                  ]
+                },
+                { $subtract: ["$application.completedAt", "$application.assignedTo.assignedAt"] },
+                null,
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { completed: -1, taken: -1 } },
+    ]);
+
+    const applicationStaff = applicationStaffRaw.map((s) => ({
+      employeeId: String(s._id),
+      name: s.name || "Unknown",
+      taken: s.taken,
+      pending: s.pending,
+      completed: s.completed,
+      completedValue: s.completedValue || 0,
+      completionRate: s.taken ? Math.round((s.completed / s.taken) * 100) : 0,
+      avgDaysToComplete:
         typeof s.avgMs === "number" ? Math.round((s.avgMs / 86400000) * 10) / 10 : null,
     }));
 
@@ -303,9 +411,14 @@ router.get("/overview", auth, adminOnly, async (req, res) => {
           inProgressCount: summary?.inProgressCount || 0,
           avgProgress: summary?.avgProgress ? Math.round(summary.avgProgress) : 0,
           pendingCount: summary?.pendingCount || 0,
+          docPaymentTotal: summary?.docPaymentTotal || 0,
+          docPaymentCount: summary?.docPaymentCount || 0,
+          docPaymentElsewhere: summary?.docPaymentElsewhere || 0,
         },
         followup,
         followupStaff,
+        applicationSummary,
+        applicationStaff,
         schemeBreakdown,
         staffBreakdown,
         funnel,

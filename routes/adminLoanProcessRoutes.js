@@ -92,10 +92,10 @@ router.get("/metrics", async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.get("/all", async (req, res) => {
   try {
-   const filter = {};
-if (req.query.staffId) filter.staffId = req.query.staffId;
-else Object.assign(filter, await buildModeFilter(req.query.mode));   // ← NEW
-if (req.query.status) filter.status = req.query.status;
+    const filter = {};
+    if (req.query.staffId) filter.staffId = req.query.staffId;
+    else Object.assign(filter, await buildModeFilter(req.query.mode));   // ← NEW
+    if (req.query.status) filter.status = req.query.status;
     if (req.query.search) {
       filter.customerName = { $regex: req.query.search, $options: "i" };
     }
@@ -143,7 +143,7 @@ router.patch("/:id/checklist", async (req, res) => {
     const customer = await LoanCustomer.findById(req.params.id);
     if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
 
-        customer.checklist[field] = !!value;
+    customer.checklist[field] = !!value;
     customer.markModified("checklist");
     if (reasonForPending !== undefined) customer.reasonForPending = reasonForPending;
     await customer.save();
@@ -160,9 +160,9 @@ router.patch("/:id/checklist", async (req, res) => {
 // ══════════════════════════════════════════════════════
 router.get("/meta/staff-list", async (req, res) => {
   try {
-   // OLD: const staff = await LoanCustomer.distinct("staffId");
-const modeFilter = await buildModeFilter(req.query.mode);
-const staff = await LoanCustomer.distinct("staffId", modeFilter);
+    // OLD: const staff = await LoanCustomer.distinct("staffId");
+    const modeFilter = await buildModeFilter(req.query.mode);
+    const staff = await LoanCustomer.distinct("staffId", modeFilter);
     const Employee = require("../models/Employee");
     const list = await Employee.find({ _id: { $in: staff } }).select("name email");
     res.json({ success: true, data: list });
@@ -177,9 +177,9 @@ const staff = await LoanCustomer.distinct("staffId", modeFilter);
 //  Optional query (same filters as the admin dashboard):
 //    ?staffId=...&status=...&search=...&fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD&scheme=...
 // ══════════════════════════════════════════════════════
-router.get("/export/excel", async (req, res) => {
+router.all("/export/excel", async (req, res) => {
   try {
-        const filter = {};
+    const filter = {};
     if (req.query.staffId) filter.staffId = req.query.staffId;
     else Object.assign(filter, await buildModeFilter(req.query.mode));
     if (req.query.status) filter.status = req.query.status;
@@ -193,9 +193,18 @@ router.get("/export/excel", async (req, res) => {
       if (req.query.toDate) filter.loanDate.$lte = new Date(`${req.query.toDate}T23:59:59`);
     }
 
+        // Frontend anuppura "screen-la theriyura customers" mattum export pannanum
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
+    if (ids) filter._id = { $in: ids };
+
     const customers = await LoanCustomer.find(filter)
       .populate("staffId", "name email")
       .sort({ createdAt: -1 });
+
+          if (ids) {
+      const pos = new Map(ids.map((id, i) => [String(id), i]));
+      customers.sort((a, b) => pos.get(String(a._id)) - pos.get(String(b._id)));
+    }
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "Radnus Connect";
@@ -232,6 +241,9 @@ router.get("/export/excel", async (req, res) => {
       { header: "Courier", key: "courier", width: 12 },
       { header: "Completed", key: "completed", width: 12 },
       { header: "Reason For Pending", key: "reasonForPending", width: 26 },
+      { header: "Application Handled By", key: "appBy", width: 22 },
+      { header: "Application Status", key: "appStatus", width: 18 },
+      { header: "Application Date", key: "appDate", width: 16 },
     ];
 
     // ── Header row styling ────────────────────────────────────────────
@@ -271,8 +283,15 @@ router.get("/export/excel", async (req, res) => {
         finalisationVerification: c.checklist?.finalisationVerification ? "Yes" : "No",
         finalSubmission: c.checklist?.finalSubmission ? "Yes" : "No",
         courier: c.checklist?.courier ? "Yes" : "No",
-        completed: c.checklist?.completed ? "Yes" : "No",
-        reasonForPending: c.reasonForPending || "",
+         completed: c.checklist?.completed ? "Yes" : "No",
+                reasonForPending: c.reasonForPending || "",
+        appBy: c.application?.assignedTo?.name || "",
+        appStatus:
+          c.application?.status === "COMPLETED" ? "Completed"
+            : c.application?.assignedTo?.employeeId ? "In Progress" : "Not Taken",
+        appDate:
+          c.application?.status === "COMPLETED" && c.application?.completedAt
+            ? new Date(c.application.completedAt).toLocaleDateString("en-IN") : "",
       });
     });
 
@@ -331,10 +350,10 @@ router.get("/access/employees", async (req, res) => {
       filter.department = req.query.department;
     }
 
-        const employees = await Employee.find(filter)
-     .select("name email department canManageLoanProcess isLoanProcessHead loanProcessReportAccess canManageLoanFollowup")
+    const employees = await Employee.find(filter)
+      .select("name email department canManageLoanProcess isLoanProcessHead loanProcessReportAccess canManageLoanFollowup")
       .sort({ name: 1 });
-      
+
     res.json({ success: true, data: employees });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -374,10 +393,10 @@ router.patch("/access/:id/head", async (req, res) => {
   try {
     const { isHead } = req.body;
 
-    if (isHead) {
-      // oru employee dhan head — matha yaaravadhu head-a irundha off pannidu
-      await Employee.updateMany({}, { isLoanProcessHead: false });
-    }
+    // if (isHead) {
+    //   // oru employee dhan head — matha yaaravadhu head-a irundha off pannidu
+    //   await Employee.updateMany({}, { isLoanProcessHead: false });
+    // }
 
     const employee = await Employee.findByIdAndUpdate(
       req.params.id,
