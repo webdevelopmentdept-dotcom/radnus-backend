@@ -25,7 +25,7 @@ const canManageLoanFollowup = async (req, res, next) => {
 // Followup team sees ONLY customer details — no documents, no checklist.
 const CUSTOMER_FIELDS =
   "customerName contactNo mailId loanDate scheme loanValue businessType businessSubType " +
-  "communicationAddress unitAddress bankName ifscCode staffName followup createdAt";
+  "communicationAddress unitAddress fatherName fatherOccupation maritalStatus spouseName spouseOccupation bankName ifscCode staffName followup createdAt";
 
 const actorName = (req) => req.followupEmployee?.name || (req.user?.role === "admin" ? "Admin" : "Unknown");
 const myIdOf = (req) => (req.user?.role === "admin" ? null : req.followupEmployee?._id || null);

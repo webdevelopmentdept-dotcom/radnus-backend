@@ -193,7 +193,7 @@ router.all("/export/excel", async (req, res) => {
       if (req.query.toDate) filter.loanDate.$lte = new Date(`${req.query.toDate}T23:59:59`);
     }
 
-        // Frontend anuppura "screen-la theriyura customers" mattum export pannanum
+    // Frontend anuppura "screen-la theriyura customers" mattum export pannanum
     const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
     if (ids) filter._id = { $in: ids };
 
@@ -201,7 +201,7 @@ router.all("/export/excel", async (req, res) => {
       .populate("staffId", "name email")
       .sort({ createdAt: -1 });
 
-          if (ids) {
+    if (ids) {
       const pos = new Map(ids.map((id, i) => [String(id), i]));
       customers.sort((a, b) => pos.get(String(a._id)) - pos.get(String(b._id)));
     }
@@ -228,6 +228,11 @@ router.all("/export/excel", async (req, res) => {
       { header: "IFSC Code", key: "ifscCode", width: 14 },
       { header: "Communication Address", key: "communicationAddress", width: 30 },
       { header: "Unit Address", key: "unitAddress", width: 30 },
+      { header: "Father Name", key: "fatherName", width: 20 },
+      { header: "Father Occupation", key: "fatherOccupation", width: 20 },
+      { header: "Marital Status", key: "maritalStatus", width: 14 },
+      { header: "Spouse Name", key: "spouseName", width: 20 },
+      { header: "Spouse Occupation", key: "spouseOccupation", width: 20 },
       { header: "Status", key: "status", width: 14 },
       { header: "Progress %", key: "processPercent", width: 12 },
       { header: "CIBIL Verification", key: "cibilVerification", width: 16 },
@@ -272,6 +277,11 @@ router.all("/export/excel", async (req, res) => {
         ifscCode: c.ifscCode || "",
         communicationAddress: c.communicationAddress || "",
         unitAddress: c.unitAddress || "",
+        fatherName: c.fatherName || "",
+        fatherOccupation: c.fatherOccupation || "",
+        maritalStatus: c.maritalStatus || "",
+        spouseName: c.spouseName || "",
+        spouseOccupation: c.spouseOccupation || "",
         status: c.status === "COMPLETED" ? "Completed" : "In Progress",
         processPercent: c.processPercent ?? 0,
         cibilVerification: c.checklist?.cibilVerification ? "Yes" : "No",
@@ -283,8 +293,8 @@ router.all("/export/excel", async (req, res) => {
         finalisationVerification: c.checklist?.finalisationVerification ? "Yes" : "No",
         finalSubmission: c.checklist?.finalSubmission ? "Yes" : "No",
         courier: c.checklist?.courier ? "Yes" : "No",
-         completed: c.checklist?.completed ? "Yes" : "No",
-                reasonForPending: c.reasonForPending || "",
+        completed: c.checklist?.completed ? "Yes" : "No",
+        reasonForPending: c.reasonForPending || "",
         appBy: c.application?.assignedTo?.name || "",
         appStatus:
           c.application?.status === "COMPLETED" ? "Completed"
