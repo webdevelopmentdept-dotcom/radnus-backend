@@ -225,10 +225,46 @@ router.patch("/:id/sanction", auth, canManageLoanFollowup, async (req, res) => {
       updatedAt: value ? new Date() : null,
       updatedByName: value ? actorName(req) : "",
     };
-    if (value === "YES") {
-      c.followup.status = "COMPLETED";   // Pending tab → Completed tab
-      c.followup.completedAt = new Date();
+    // if (value === "YES") {
+    //   c.followup.status = "COMPLETED";   // Pending tab → Completed tab
+    //   c.followup.completedAt = new Date();
+    // }
+    c.markModified("followup");
+    await c.save();
+    res.json({ success: true, customer: c });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PATCH /api/loan-followup/:id/complete   Body: { date: "YYYY-MM-DD" }
+router.patch("/:id/complete", auth, canManageLoanFollowup, async (req, res) => {
+  try {
+    const c = await LoanCustomer.findById(req.params.id);
+    if (!c) return res.status(404).json({ success: false, message: "Customer not found" });
+    if (c.followup.status !== "PENDING") {
+      return res.status(400).json({ success: false, message: "This customer is not in the pending list" });
     }
+    const ownErr = ownershipError(c, req);
+    if (ownErr) return res.status(403).json({ success: false, message: ownErr });
+
+    if (
+      c.followup.dicOffice?.state !== "COMPLETED" ||
+      c.followup.bank?.state !== "COMPLETED" ||
+      c.followup.loanSanctioned?.value !== "YES"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "DIC Office, Bank Process must be Completed and Loan Sanctioned = Yes before submitting.",
+      });
+    }
+
+    const when = req.body.date ? new Date(req.body.date) : new Date();
+    if (isNaN(when.getTime())) return res.status(400).json({ success: false, message: "Invalid date" });
+    if (when.getTime() > Date.now()) return res.status(400).json({ success: false, message: "Future date is not allowed" });
+
+    c.followup.status = "COMPLETED";
+    c.followup.completedAt = when;
     c.markModified("followup");
     await c.save();
     res.json({ success: true, customer: c });
