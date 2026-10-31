@@ -55,7 +55,7 @@ app.use(
 
 // const helmet = require("helmet");
 // const mongoSanitize = require("express-mongo-sanitize");
- 
+
 // app.use(helmet());           // XSS, clickjacking, MIME sniff block
 // app.use(mongoSanitize());
 
@@ -96,7 +96,7 @@ const okrDashboard = require('./routes/okrdashboardRoutes');
 const gradeRoutes = require("./routes/gradeRoutes");
 const okrRoutes = require('./routes/okr');
 const FeedbackCycle = require('./routes/FeedbackCycle');
-const variablePayRoutes = require("./routes/variablePay"); 
+const variablePayRoutes = require("./routes/variablePay");
 const feedbackSubmission = require("./routes/feedbacksubmission");
 
 const feedbackTaskRoutes = require("./routes/feedbackTask.routes");
@@ -129,7 +129,7 @@ const employeeTicketsRoutes = require('./routes/employeeTicketsRoutes');
 const productRoutes = require("./routes/productRoutes");
 const walkinRoutes = require("./routes/walkinApplicants");
 
-const employeeFeedbackRoutes =require('./routes/employeeFeedbackRoutes')
+const employeeFeedbackRoutes = require('./routes/employeeFeedbackRoutes')
 const hrFeedbackRoutes = require('./routes/hrFeedbackRoutes');
 const loanProcessRoutes = require('./routes/loanprocessRoutes')
 /* --------------------------------------------------
@@ -142,13 +142,13 @@ app.use("/api/partners", partnerRoutes);
 app.use("/api/life-growth", require("./routes/Lifegrowthroutes"));
 app.use("/api/payments", paymentRoutes);
 app.use("/api/employee", employeeAuth);
-app.use("/api", employeeAuth);  
+app.use("/api", employeeAuth);
 app.use('/api', require('./routes/esslhrRoutes'));
 app.use("/api/hr/machine-staff", require("./routes/machineStaffRoutes"));
 // app.use("/api/shifts", require("./routes/shifts"));
 // Public job board API (no auth required)
 app.use("/api/connect", jobsPublicRoutes);
- 
+
 // Poster management (admin)
 app.use("/api/posters", posterRoutes);
 // Lead Correct Route (only one)
@@ -162,7 +162,7 @@ app.use('/api/okr', okrRoutes);
 app.use('/api/feedback-cycles', FeedbackCycle);
 app.use("/api/variable-pay", variablePayRoutes);
 app.use("/api/feedback-submissions", feedbackSubmission);
-app.use("/api/feedback-nominations", feedbackNominationRoutes); 
+app.use("/api/feedback-nominations", feedbackNominationRoutes);
 app.use("/api/employee-awards", employeeAwardRoutes);
 app.use("/api/feedback-tasks", feedbackTaskRoutes);
 app.use("/api/esop", esopRoutes);
@@ -196,9 +196,9 @@ app.use('/api/wellnesshr', require('./routes/wellnesshr'));
 app.use('/api/wellnessemployee', require('./routes/wellnessemployee'));
 app.use('/api/employee-auth', require('./routes/employeeAuth'));
 app.use("/api/appraisals", appraisalRoutes);
-app.use("/api/incentive-plans",       require("./routes/incentivePlans"));
+app.use("/api/incentive-plans", require("./routes/incentivePlans"));
 app.use("/api/incentive-assignments", require("./routes/incentiveAssignments"));
-app.use("/api/incentive-results",     require("./routes/incentiveResults"));
+app.use("/api/incentive-results", require("./routes/incentiveResults"));
 app.use("/api/policies", policyRoutes);
 app.use("/api/sops", sopRoutes);
 // app.use("/api/hr-induction", require("./routes/hrinductionRoutes"));
@@ -210,10 +210,12 @@ app.use("/api/payroll", require("./routes/payrollRoutes"));
 app.use('/api/hr', hrTicketsRoutes);
 app.use("/api/advance", require("./routes/advanceRoutes"));
 app.use("/api/products", productRoutes);
-app.use("/api/loan-process",  loanProcessRoutes);
+app.use("/api/loan-process", loanProcessRoutes);
 app.use("/api/loan-followup", require("./routes/loanFollowupRoutes"));
 app.use("/api/admin-loan-process", require("./routes/adminLoanProcessRoutes"));
 app.use("/api/admin-loan-analytics", require("./routes/adminLoanAnalyticsRoutes"));
+app.use("/api/admission", require("./routes/admissionRoutes"));
+app.use("/api/admin-admission", require("./routes/adminAdmissionRoutes"));
 app.use("/api/admin-dashboard", require("./routes/adminDashboardRoutes"));
 app.use("/api/admin-hr-dashboard", require("./routes/adminHrDashboardRoutes"));
 

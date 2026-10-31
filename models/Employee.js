@@ -78,6 +78,8 @@ const employeeSchema = new mongoose.Schema({
   loanProcessReportAccess: { type: Boolean, default: false },
   canApproveLoanIncentive: { type: Boolean, default: false },
   canManageLoanFollowup: { type: Boolean, default: false },
+  canManageAdmission: { type: Boolean, default: false },
+  admissionReportAccess: { type: Boolean, default: false },
 
   remarks: {
     type: String,
