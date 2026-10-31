@@ -76,8 +76,24 @@ router.post('/', async (req, res) => {
     const { employee_id, assignment_id, period, items, overall_comment } = req.body;
     const existing = await SelfAssessment.findOne({ employee_id, assignment_id });
 
-    // ✅ NEW — fetch employee name for notification
+    // fetch employee name for notification
     const emp = await Employee.findById(employee_id).select('name');
+
+    const notifyHr = async () => {
+      try {
+        await createNotification({
+          recipient_id:   "hr_admin_001",
+          recipient_role: "hr",
+          type:           "employee",
+          title:          "Self Assessment Submitted",
+          message:        `${emp?.name || "An employee"} submitted self assessment for ${period}`,
+          link:           "",
+          dedupeUnread:   true,
+        });
+      } catch (notifErr) {
+        console.error("Self-assessment notification error:", notifErr.message);
+      }
+    };
 
     if (existing) {
       existing.items           = items;
@@ -86,19 +102,7 @@ router.post('/', async (req, res) => {
       await existing.save();
       await updateOkrProgress(assignment_id, items);
 
-      // ✅ NEW — HR notification on self-assessment submit (update case)
-            try {
-        await createNotification({
-          recipient_id:   "hr_admin_001",
-          recipient_role: "hr",
-          type:           "employee",
-          title:          "Self Assessment Submitted",
-          message:        `${emp?.name || "An employee"} submitted self assessment for ${period}`,
-          link:           "",
-        });
-      } catch (notifErr) {
-        console.error("Self-assessment notification error:", notifErr.message);
-      }
+      await notifyHr();
 
       return res.json({ success: true, data: existing, updated: true });
     }
@@ -107,19 +111,7 @@ router.post('/', async (req, res) => {
     await assessment.save();
     await updateOkrProgress(assignment_id, items);
 
-    // ✅ NEW — HR notification on self-assessment submit (new case)
-       try {
-      await createNotification({
-        recipient_id:   "hr_admin_001",
-        recipient_role: "hr",
-        type:           "employee",
-        title:          "Self Assessment Submitted",
-        message:        `${emp?.name || "An employee"} submitted self assessment for ${period}`,
-        link:           "",
-      });
-    } catch (notifErr) {
-      console.error("Self-assessment notification error:", notifErr.message);
-    }
+    await notifyHr();
 
     res.status(201).json({ success: true, data: assessment });
   } catch (err) {

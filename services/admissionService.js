@@ -128,6 +128,13 @@ async function buildPdf(student) {
   return generateAdmissionPdf(plain);
 }
 
+const COMPANY_NAME = "Radnus Communication";
+const WEBSITE_URL = "https://www.radnus.in/";
+const WEBSITE_LABEL = "www.radnus.in";
+
+const escapeHtml = (v) =>
+  String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
 // Emails the PDF to the student via Resend (same provider as employeeAuth.js)
 async function sendApplicationEmail(student) {
   if (!student.email) throw new Error("Student has no email address");
@@ -135,19 +142,24 @@ async function sendApplicationEmail(student) {
   const resend = new Resend(process.env.RESEND_API_KEY);
   const pdf = await buildPdf(student);
 
+  const name = escapeHtml(student.fullName);
+  const appNo = escapeHtml(student.applicationNo);
+
   const result = await resend.emails.send({
-    from: "Radnus <noreply@service.radnus.in>",
+    from: `${COMPANY_NAME} <noreply@service.radnus.in>`,
     to: student.email,
     subject: `Your Radnus Admission Application - ${student.applicationNo}`,
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:28px;border:1px solid #e5e7eb;border-radius:12px">
         <h2 style="color:#c8102e;margin-top:0">Radnus Application Form</h2>
-        <p>Hi <strong>${student.fullName}</strong>,</p>
-        <p>Thank you for applying at <strong>Radnus Mobile Pvt Ltd</strong>. Your application
-        (<strong>${student.applicationNo}</strong>) is attached as a PDF.</p>
+        <p>Hi <strong>${name}</strong>,</p>
+        <p>Thank you for applying at <strong>${COMPANY_NAME}</strong>. Your application
+        (<strong>${appNo}</strong>) is attached as a PDF.</p>
         <p style="color:#6b7280;font-size:13px">Please keep this copy and pay the booking amount / installments on or before the scheduled dates.</p>
-        <hr style="border:none;border-top:1px solid #e5e7eb">
-        <p style="color:#9ca3af;font-size:12px">Radnus Mobile Pvt Ltd, 242/244 Sinnaya Plaza, MG Road, Puducherry - 605001</p>
+        <p style="margin:18px 0 0"><a href="${WEBSITE_URL}" style="color:#c8102e;font-weight:600;text-decoration:none">${WEBSITE_LABEL}</a></p>
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:18px 0">
+        <p style="color:#9ca3af;font-size:12px;margin:0">${COMPANY_NAME}, 242/244 Sinnaya Plaza, MG Road, Puducherry - 605001<br>
+        <a href="${WEBSITE_URL}" style="color:#9ca3af">${WEBSITE_LABEL}</a></p>
       </div>`,
     attachments: [{ filename: `${student.applicationNo}.pdf`, content: pdf }],
   });
