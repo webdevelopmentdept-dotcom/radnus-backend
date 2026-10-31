@@ -431,6 +431,8 @@ router.get('/me/:id', async (req, res) => {
       loanProcessReportAccess: user.loanProcessReportAccess,
       canApproveLoanIncentive: user.canApproveLoanIncentive,
       canManageLoanFollowup: user.canManageLoanFollowup,
+      canManageAdmission: user.canManageAdmission,
+      admissionReportAccess: user.admissionReportAccess,
       documents,
     });
   } catch {
@@ -923,7 +925,7 @@ router.patch('/employees/:id/clearance', auth, hrOnly, async (req, res) => {
 
 router.get('/employees/:id/documents', auth, hrOnly, async (req, res) => {
   try {
-       const docs = await Document.find({ employeeId: req.params.id })
+    const docs = await Document.find({ employeeId: req.params.id })
       .select('docType fileUrl uploadedByName updatedAt').lean();
 
     res.json({ data: docs });
@@ -1104,7 +1106,7 @@ router.post('/reset-password', async (req, res) => {
 });
 
 // ================= SECURE DOCUMENT VIEW =================
-router.get('/view-doc/:docId', auth , async (req, res) => {
+router.get('/view-doc/:docId', auth, async (req, res) => {
   try {
     const doc = await Document.findById(req.params.docId);
     if (!doc) return res.status(404).json({ message: 'Document not found' });
