@@ -332,7 +332,8 @@ router.put("/:id", auth, loadStudent(true), withUpload, async (req, res) => {
 
 // ══════════════════════════════════════════════════════
 //  COMPLETE   POST /api/admission/:id/complete
-//  Validates → assigns Application No → status APPLICATION_COMPLETED → emails PDF
+//  Validates → assigns Application No → status APPLICATION_COMPLETED
+//  (Email is sent manually from the Completed tab)
 // ══════════════════════════════════════════════════════
 router.post("/:id/complete", auth, loadStudent(true), async (req, res) => {
   try {
@@ -348,19 +349,7 @@ router.post("/:id/complete", auth, loadStudent(true), async (req, res) => {
     s.applicationDate = new Date();
     await s.save();
 
-    // Email is best-effort: a mail failure never blocks the completion
-    if (s.email) {
-      try {
-        await sendApplicationEmail(s);
-        s.emailStatus = "SENT";
-        s.emailSentAt = new Date();
-      } catch (e) {
-        s.emailStatus = "FAILED";
-        s.emailError = e.message;
-      }
-      await s.save();
-    }
-    res.json({ success: true, data: s, emailStatus: s.emailStatus });
+    res.json({ success: true, data: s });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

@@ -10,19 +10,21 @@ const createNotification = async ({
   type,
   title,
   message,
-  link = ""
+  link = "",
+  dedupeUnread = false, // true → same notification still UNREAD irundha, puthusa create pannaadhu
 }) => {
   try {
-    // ✅ Duplicate guard — if the exact same notification (same recipient,
-    // title, message) was already created in the last 10 seconds, skip it.
-    const tenSecondsAgo = new Date(Date.now() - 10_000);
-    const dupe = await Notification.findOne({
-      recipient_id,
-      recipient_role,
-      title,
-      message,
-      createdAt: { $gte: tenSecondsAgo }
-    });
+    // Duplicate guard
+    //  - default: last 10 seconds-la same notification irundha skip
+    //  - dedupeUnread: true → time limit illa, innum unread-ah irundha skip
+    const query = { recipient_id, recipient_role, title, message };
+    if (dedupeUnread) {
+      query.isRead = false;
+    } else {
+      query.createdAt = { $gte: new Date(Date.now() - 10_000) };
+    }
+
+    const dupe = await Notification.findOne(query);
     if (dupe) return dupe;
 
     await Notification.create({

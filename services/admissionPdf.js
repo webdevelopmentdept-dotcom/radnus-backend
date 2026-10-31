@@ -1,4 +1,6 @@
-// Radnus Admission Application PDF (A4, 2 pages) — built with pdfkit
+// Radnus Admission Application PDF (A4) — built with pdfkit
+// Redesigned layout: header → reference strip → I Course & Fee → II Personal → III Academic
+//                    → IV Documents → (Payments, only if any) → V Terms → VI Declaration & Signatures
 // npm i pdfkit
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
@@ -6,13 +8,15 @@ const path = require("path");
 
 const RED = "#c8102e";
 const INK = "#111111";
-const GREY = "#555555";
-const LINE = "#999999";
+const GREY = "#666666";
+const LINE = "#b5b5b5";
+const SOFT = "#f4f4f4";
 
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
-const M = 28; // outer margin
+const M = 32; // outer margin
 const CW = PAGE_W - M * 2;
+const BOTTOM = PAGE_H - M - 14; // content must stay above the footer
 
 // Optional Tamil support: drop NotoSansTamil-Regular.ttf (and -Bold) in services/fonts/
 const TAMIL_REG = path.join(__dirname, "fonts", "NotoSansTamil-Regular.ttf");
@@ -20,8 +24,12 @@ const TAMIL_BOLD = path.join(__dirname, "fonts", "NotoSansTamil-Bold.ttf");
 const hasTamil = fs.existsSync(TAMIL_REG);
 const TAMIL_RE = /[\u0B80-\u0BFF]/;
 
+// Radnus logo: services/assets/radnus-logo.png (used in header + faint watermark)
+const LOGO_CANDIDATES = ["radnus-logo.png", "radnus-logo.jpg", "radnus-logo.jpeg"].map((f) => path.join(__dirname, "assets", f));
+const LOGO_PATH = LOGO_CANDIDATES.find((f) => fs.existsSync(f)) || null;
+
 const COMPANY = {
-  name: "Radnus Mobile Pvt Ltd",
+  name: "Radnus Communication",
   addr: "242/244, Sinnaya Plaza, MG Road, Puducherry-605001",
   phone: "+91 9940973030; +91 9894436987",
 };
@@ -37,7 +45,6 @@ const DECLARATION =
   "including: non-refundable booking amount, payment schedules, training & accommodation policies, and responsibility " +
   "for my belongings. I consent to the use of my information for official purposes.";
 
-// Layout of the course checkboxes on page 1 (same grid as the paper form)
 const COURSE_GRID = [
   ["SEMP A-Z", "STEP (Basic)", "SEMP eMMC"],
   ["LEMP A-Z", "LEMP Basic", "LEMP eMMC"],
@@ -58,8 +65,8 @@ const maskAadhaar = (a) => {
   return `XXXX XXXX ${d.slice(-4)}`;
 };
 
-function font(doc, text, bold = false) {
-  if (hasTamil && TAMIL_RE.test(String(text || ""))) {
+function font(doc, str, bold = false) {
+  if (hasTamil && TAMIL_RE.test(String(str || ""))) {
     doc.font(bold && fs.existsSync(TAMIL_BOLD) ? "TamilBold" : "Tamil");
   } else {
     doc.font(bold ? "Helvetica-Bold" : "Helvetica");
@@ -67,35 +74,57 @@ function font(doc, text, bold = false) {
 }
 
 function text(doc, str, x, y, opts = {}) {
-  const { size = 9, bold = false, color = INK, width, align = "left" } = opts;
+  const { size = 9, bold = false, color = INK, width, align = "left", characterSpacing = 0 } = opts;
   const s = str == null ? "" : String(str);
   font(doc, s, bold);
-  doc.fillColor(color).fontSize(size).text(s, x, y, { width, align, lineBreak: width != null });
+  doc.fillColor(color).fontSize(size).text(s, x, y, { width, align, lineBreak: width != null, characterSpacing });
 }
 
-// "Label ........ value" with an underline
-function field(doc, label, value, x, y, w, opts = {}) {
-  const { labelW = 70, size = 9 } = opts;
-  text(doc, label, x, y + 2, { size: 8.5, color: GREY, width: labelW });
-  const vx = x + labelW;
-  const vw = w - labelW;
-  doc.moveTo(vx, y + 12).lineTo(vx + vw, y + 12).lineWidth(0.5).strokeColor(LINE).stroke();
-  text(doc, value, vx + 2, y + 1, { size, width: vw - 4 });
+function heightOf(doc, str, width, size, bold = false) {
+  const s = str == null ? "" : String(str);
+  font(doc, s, bold);
+  doc.fontSize(size);
+  return s ? doc.heightOfString(s, { width }) : 0;
 }
 
-function checkbox(doc, x, y, checked, label, opts = {}) {
-  const { size = 8.5 } = opts;
-  doc.lineWidth(0.7).strokeColor(INK).rect(x, y + 1, 9, 9).stroke();
+// label (small, grey) above a value with an underline. Returns used height.
+function cell(doc, label, value, x, y, w, { size = 9.5, bold = false, minH = 25, color = INK } = {}) {
+  text(doc, label, x, y, { size: 7.2, color: GREY, width: w });
+  const vh = Math.max(heightOf(doc, value, w - 4, size, bold), 11);
+  text(doc, value, x + 2, y + 9.5, { size, bold, color, width: w - 4 });
+  const ly = y + 9.5 + vh + 2;
+  doc.moveTo(x, ly).lineTo(x + w, ly).lineWidth(0.5).strokeColor(LINE).stroke();
+  return Math.max(minH, ly - y + 5);
+}
+
+function checkbox(doc, x, y, checked, label, { size = 8.8 } = {}) {
+  doc.lineWidth(0.7).strokeColor(INK).rect(x, y, 9, 9).stroke();
   if (checked) {
-    doc.lineWidth(1.4).strokeColor(RED)
-      .moveTo(x + 1.8, y + 5.8).lineTo(x + 4, y + 8.2).lineTo(x + 8, y + 2.6).stroke();
+    doc.lineWidth(1.5).strokeColor(RED).moveTo(x + 1.8, y + 4.8).lineTo(x + 4, y + 7.2).lineTo(x + 8, y + 1.6).stroke();
   }
-  text(doc, label, x + 14, y + 1.5, { size });
+  text(doc, label, x + 13.5, y + 0.6, { size, bold: !!checked });
 }
 
-function sectionTitle(doc, num, title, y) {
-  text(doc, `${num}.`, M + 6, y, { size: 9.5, bold: true });
-  text(doc, title, M + 26, y, { size: 9.5, bold: true });
+// label + inline checkbox options, underline-less. Returns row height.
+function optionRow(doc, label, options, x, y, w, { gap = 14 } = {}) {
+  text(doc, label, x, y, { size: 7.2, color: GREY, width: w });
+  let cx = x + 2;
+  options.forEach(([val, checked]) => {
+    checkbox(doc, cx, y + 9.2, checked, val);
+    font(doc, val, true);
+    doc.fontSize(8.8);
+    cx += 13.5 + doc.widthOfString(val) + gap;
+  });
+  return 26;
+}
+
+function sectionBar(doc, num, title, y, note) {
+  doc.rect(M, y, CW, 17).fill(SOFT);
+  doc.rect(M, y, 3, 17).fill(RED);
+  if (num) text(doc, `${num}.`, M + 10, y + 4.5, { size: 9.5, bold: true, color: RED });
+  text(doc, title, M + (num ? 28 : 10), y + 4.5, { size: 9.5, bold: true });
+  if (note) text(doc, note, M + 150, y + 5.5, { size: 7.5, color: GREY, width: CW - 160, align: "right" });
+  return y + 17 + 7;
 }
 
 async function fetchImage(url) {
@@ -109,13 +138,39 @@ async function fetchImage(url) {
   }
 }
 
+function drawWatermark(doc) {
+  doc.save();
+  doc.opacity(0.05);
+  if (LOGO_PATH) {
+    const boxW = 380, boxH = 280;
+    try {
+      doc.image(LOGO_PATH, (PAGE_W - boxW) / 2, (PAGE_H - boxH) / 2 + 20, { fit: [boxW, boxH], align: "center", valign: "center" });
+    } catch { /* skip */ }
+  } else {
+    doc.font("Helvetica-Bold").fontSize(96).fillColor(RED)
+      .text("RADNUS", 0, PAGE_H / 2 - 50, { width: PAGE_W, align: "center", lineBreak: false });
+    doc.font("Helvetica-Bold").fontSize(22).fillColor(GREY)
+      .text("SINCE 2003", 0, PAGE_H / 2 + 56, { width: PAGE_W, align: "center", lineBreak: false, characterSpacing: 6 });
+  }
+  doc.restore();
+}
+
+function pageChrome(doc) {
+  doc.lineWidth(0.8).strokeColor(INK).rect(M - 10, M - 10, PAGE_W - (M - 10) * 2, PAGE_H - (M - 10) * 2).stroke();
+  drawWatermark(doc);
+}
+
 // ── main ──────────────────────────────────────────────────
-// student: AdmissionStudent doc/lean object
 async function generateAdmissionPdf(student) {
   const photoBuf = await fetchImage(student.documents?.photo?.url);
 
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 0, info: { Title: `Radnus Application ${student.applicationNo || ""}`, Author: "Radnus Mobile Pvt Ltd" } });
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: 0,
+      bufferPages: true,
+      info: { Title: `Radnus Application ${student.applicationNo || ""}`, Author: "Radnus Mobile Pvt Ltd" },
+    });
     if (hasTamil) {
       doc.registerFont("Tamil", TAMIL_REG);
       if (fs.existsSync(TAMIL_BOLD)) doc.registerFont("TamilBold", TAMIL_BOLD);
@@ -126,9 +181,9 @@ async function generateAdmissionPdf(student) {
     doc.on("error", reject);
 
     try {
-      frame(doc);
-      const endY = drawPage1(doc, student, photoBuf);
-      drawRest(doc, student, endY);
+      pageChrome(doc);
+      build(doc, student, photoBuf);
+      drawFooters(doc, student);
       doc.end();
     } catch (e) {
       reject(e);
@@ -136,23 +191,110 @@ async function generateAdmissionPdf(student) {
   });
 }
 
-function frame(doc) {
-  doc.lineWidth(1).strokeColor(INK).rect(M - 8, M - 8, PAGE_W - (M - 8) * 2, PAGE_H - (M - 8) * 2).stroke();
+// start a new page if the next block would run past the footer
+function ensure(doc, y, h) {
+  if (y + h <= BOTTOM) return y;
+  doc.addPage();
+  pageChrome(doc);
+  return M + 6;
 }
 
-function drawPage1(doc, s, photoBuf) {
+function build(doc, s, photoBuf) {
+  // ── Header ──────────────────────────────────────────────
+  let logoDrawn = false;
+  if (LOGO_PATH) {
+    try { doc.image(LOGO_PATH, M, M - 2, { fit: [120, 34] }); logoDrawn = true; } catch { /* fallback */ }
+  }
+  if (!logoDrawn) text(doc, "RADNUS", M, M + 2, { size: 22, bold: true, color: RED });
+  text(doc, COMPANY.name, M, M + 35, { size: 9, bold: true });
+  text(doc, COMPANY.addr, M, M + 46, { size: 7.8, color: GREY });
+  text(doc, COMPANY.phone, M, M + 56, { size: 7.8, color: GREY });
 
-  // top row
-  text(doc, `Register No: ${s.registerNo || ""}`, M, M + 4, { size: 8.5, bold: true });
-  text(doc, "BATCH NO:", M + 250, M + 4, { size: 8.5, bold: true });
-  doc.moveTo(M + 305, M + 14).lineTo(M + 365, M + 14).lineWidth(0.5).strokeColor(LINE).stroke();
-  text(doc, s.batchNo || "", M + 308, M + 3, { size: 9, width: 56 });
-  text(doc, "BILL NO:", M + 372, M + 4, { size: 8.5, bold: true });
-  doc.moveTo(M + 415, M + 14).lineTo(M + 455, M + 14).stroke();
-  text(doc, s.billNo || "", M + 417, M + 3, { size: 9, width: 38 });
+  text(doc, "RADNUS APPLICATION FORM", M + 200, M + 2, { size: 15, bold: true, width: CW - 200, align: "right" });
+  text(doc, s.applicationNo ? `Application No: ${s.applicationNo}` : "DRAFT — Application No not yet assigned", M + 200, M + 24,
+    { size: 10.5, bold: true, color: RED, width: CW - 200, align: "right" });
+  text(doc, `Date: ${fmtDate(s.applicationDate)}`, M + 200, M + 40, { size: 8.5, color: GREY, width: CW - 200, align: "right" });
 
-  // photo box (top-right corner)
-  const px = PAGE_W - M - 92, py = M + 22, pw = 92, ph = 112;
+  let y = M + 68;
+  doc.moveTo(M, y).lineTo(PAGE_W - M, y).lineWidth(1.6).strokeColor(RED).stroke();
+
+  // ── Reference strip ─────────────────────────────────────
+  y += 8;
+  const refs = [
+    ["REGISTER NO", s.registerNo, 168],
+    ["BATCH NO", s.batchNo, 80],
+    ["BILL NO", s.billNo, 80],
+    ["BDA / COUNSELLOR", s.staffName, CW - 168 - 80 - 80],
+  ];
+  doc.rect(M, y, CW, 26).fill(SOFT);
+  let rx = M;
+  refs.forEach(([l, v, w], i) => {
+    text(doc, l, rx + 8, y + 4, { size: 6.8, color: GREY, width: w - 10 });
+    text(doc, v || "", rx + 8, y + 13, { size: 9.2, bold: true, width: w - 12 });
+    if (i < refs.length - 1) doc.moveTo(rx + w, y + 5).lineTo(rx + w, y + 21).lineWidth(0.5).strokeColor(LINE).stroke();
+    rx += w;
+  });
+  y += 26 + 9;
+
+  // ── I. Course & Fee ─────────────────────────────────────
+  y = sectionBar(doc, "I", "Course Details*", y);
+  const leftW = CW - 172;
+  const colW = leftW / 3;
+  const selectedName = (s.course?.name || "").trim().toLowerCase();
+
+  text(doc, "Course Taken*", M, y, { size: 7.2, color: GREY });
+  COURSE_GRID.forEach((row, r) => {
+    row.forEach((name, c) => {
+      checkbox(doc, M + 2 + c * colW, y + 11 + r * 15, name.toLowerCase() === selectedName, name);
+    });
+  });
+  let ly = y + 11 + COURSE_GRID.length * 15 + 2;
+  checkbox(doc, M + 2, ly, !!s.scheme?.name, "Government Scheme");
+  doc.moveTo(M + colW, ly + 10.5).lineTo(M + leftW, ly + 10.5).lineWidth(0.5).strokeColor(LINE).stroke();
+  text(doc, s.scheme?.name || "", M + colW + 3, ly + 0.5, { size: 9, bold: true, width: leftW - colW - 4 });
+  ly += 22;
+
+  // Fee box (right)
+  const fx = M + leftW + 14, fw = CW - leftW - 14, fy = y - 2;
+  doc.lineWidth(0.8).strokeColor(INK).rect(fx, fy, fw, 94).stroke();
+  doc.rect(fx, fy, fw, 15).fill(INK);
+  text(doc, "FEE SUMMARY", fx, fy + 4, { size: 7.5, bold: true, color: "#ffffff", width: fw, align: "center", characterSpacing: 1 });
+  const feeRow = (label, val, yy, o = {}) => {
+    text(doc, label, fx + 8, yy, { size: 8.3, color: o.color || GREY, bold: !!o.bold });
+    text(doc, val, fx + 8, yy, { size: o.big ? 10.5 : 9, bold: true, color: o.color || INK, width: fw - 16, align: "right" });
+  };
+  feeRow("Fees Amount", money(s.courseFee), fy + 24);
+  feeRow("Discount", s.discount ? `- ${money(s.discount)}` : "", fy + 40);
+  doc.moveTo(fx + 8, fy + 56).lineTo(fx + fw - 8, fy + 56).lineWidth(0.6).strokeColor(LINE).stroke();
+  feeRow("Total Fees*", money(s.totalFees), fy + 64, { big: true, color: RED, bold: true });
+  text(doc, "Total = Fees Amount - Discount", fx + 8, fy + 80, { size: 6.6, color: GREY, width: fw - 16 });
+
+  // Accommodation | Mode of Course (side by side)
+  const half = leftW / 2;
+  optionRow(doc, "Accommodation", [["Without", s.accommodation === "WITHOUT"], ["With", s.accommodation === "WITH"]], M, ly, half);
+  optionRow(doc, "Mode of Course*", [["Regular", s.modeOfCourse === "Regular"], ["Hybrid", s.modeOfCourse === "Hybrid"]], M + half, ly, half);
+  ly += 27;
+  if (s.modeOfCourse === "Hybrid" && s.hybridNote) {
+    text(doc, "Hybrid details", M, ly, { size: 7.2, color: GREY });
+    const hh = Math.max(heightOf(doc, s.hybridNote, leftW - 4, 8.8), 11);
+    text(doc, s.hybridNote, M + 2, ly + 9.5, { size: 8.8, width: leftW - 4 });
+    doc.moveTo(M, ly + 9.5 + hh + 2).lineTo(M + leftW, ly + 9.5 + hh + 2).lineWidth(0.5).strokeColor(LINE).stroke();
+    ly += hh + 17;
+  }
+  y = Math.max(ly, fy + 94 + 6);
+
+  // Timing | Date of joining
+  const hw = (CW - 16) / 2;
+  const h1 = cell(doc, "Timing", s.timing, M, y, hw);
+  cell(doc, "Date of Joining", fmtDate(s.dateOfJoining), M + hw + 16, y, hw);
+  y += h1 + 4;
+
+  // ── II. Personal ────────────────────────────────────────
+  y = ensure(doc, y, 240);
+  y = sectionBar(doc, "II", "Personal Details*", y);
+
+  // photo (right)
+  const pw = 84, ph = 106, px = PAGE_W - M - pw, py = y;
   doc.lineWidth(0.8).strokeColor(INK).rect(px, py, pw, ph).stroke();
   if (photoBuf) {
     try {
@@ -164,157 +306,118 @@ function drawPage1(doc, s, photoBuf) {
     text(doc, "Paste Photo here", px, py + ph / 2 - 5, { size: 8, color: GREY, width: pw, align: "center" });
   }
 
-  // title
-  const tx = M, ty = M + 30, tw = PAGE_W - M * 2 - pw - 12;
-  doc.lineWidth(1).strokeColor(INK).rect(tx, ty, tw, 24).stroke();
-  text(doc, "RADNUS APPLICATION FORM", tx, ty + 7, { size: 12, bold: true, width: tw, align: "center" });
+  const lw = CW - pw - 16; // left block next to the photo
+  const g = 12;
+  let py2 = y;
+  py2 += cell(doc, "Full Name*", s.fullName, M, py2, lw, { size: 11, bold: true });
+  const w3 = (lw - g * 2) / 3;
+  const dobW = 112, bgW = 78, gW = lw - dobW - bgW - g * 2;
+  const a = cell(doc, "Date of Birth*", fmtDate(s.dateOfBirth), M, py2, dobW);
+  optionRow(doc, "Gender", [["Male", s.gender === "Male"], ["Female", s.gender === "Female"], ["Others", s.gender === "Others"]], M + dobW + g, py2, gW, { gap: 9 });
+  cell(doc, "Blood Group*", s.bloodGroup, M + dobW + g + gW + g, py2, bgW);
+  py2 += Math.max(a, 26);
+  const w2 = (lw - g * 2) / 3;
+  const b = cell(doc, "Aadhaar No", maskAadhaar(s.aadhaarNo), M, py2, w2);
+  cell(doc, "Mobile No", s.mobileNo, M + w2 + g, py2, w2);
+  cell(doc, "Emergency Mobile", s.emergencyMobile, M + (w2 + g) * 2, py2, w2);
+  py2 += b;
+  py2 += cell(doc, "Email", s.email, M, py2, lw);
+  y = Math.max(py2, py + ph + 4);
 
-  // company block + fee box
-  text(doc, "RADNUS", M, M + 66, { size: 15, bold: true, color: RED });
-  text(doc, COMPANY.name, M, M + 86, { size: 9, bold: true });
-  text(doc, COMPANY.addr, M, M + 98, { size: 8, width: 250 });
-  text(doc, COMPANY.phone, M, M + 108, { size: 8, width: 250 });
+  // Full-width rows
+  const dh = optionRow(doc, "Differently Abled", [["Yes", s.differentlyAbled === "Yes"], ["No", s.differentlyAbled === "No"], ["Not applicable", s.differentlyAbled === "Not applicable"]], M, y, CW / 2, { gap: 16 });
+  cell(doc, "Shop Name*", s.shopName, M + CW / 2 + 8, y, CW / 2 - 8);
+  y += dh;
+  y += cell(doc, "Postal Address", s.postalAddress, M, y, CW);
+  const t3 = (CW - 24) / 3;
+  const d1 = cell(doc, "District", s.district, M, y, t3);
+  cell(doc, "State", s.state, M + t3 + 12, y, t3);
+  cell(doc, "Pin Code", s.pincode, M + (t3 + 12) * 2, y, t3);
+  y += d1 + 6;
 
-  const bx = M + 262, by = M + 62, bw = tw - 262 + 0, bh = 58;
-  doc.lineWidth(0.8).rect(bx, by, bw, bh).stroke();
-  text(doc, "Fees Amount", bx + 6, by + 6, { size: 8.5, bold: true });
-  text(doc, money(s.courseFee), bx + 80, by + 6, { size: 9, width: bw - 84 });
-  text(doc, "Discount", bx + 6, by + 22, { size: 8.5, bold: true });
-  text(doc, s.discount ? money(s.discount) : "", bx + 80, by + 22, { size: 9, width: bw - 84 });
-  text(doc, "BDA:", bx + 6, by + 40, { size: 8.5, bold: true });
-  text(doc, s.staffName || "", bx + 32, by + 40, { size: 8.5, width: 70 });
-  text(doc, "Date:", bx + 104, by + 40, { size: 8.5, bold: true });
-  text(doc, fmtDate(s.applicationDate), bx + 128, by + 40, { size: 8.5, width: bw - 130 });
-
-  // I. Personal Details
-  let y = M + 146;
-  sectionTitle(doc, "I", "Personal Details*", y);
-  text(doc, "Date of Joining", M + 300, y, { size: 8.5, color: GREY });
-  doc.moveTo(M + 372, y + 10).lineTo(PAGE_W - M, y + 10).lineWidth(0.5).strokeColor(LINE).stroke();
-  text(doc, fmtDate(s.dateOfJoining), M + 376, y - 1, { size: 9 });
-
-  y += 22;
-  field(doc, "Full Name*", s.fullName, M, y, CW);
-
-  // Course taken
-  y += 22;
-  text(doc, "Course Taken*", M, y + 2, { size: 8.5, color: GREY });
-  const selectedName = (s.course?.name || "").trim();
-  const colX = [M + 80, M + 80 + 150, M + 80 + 300];
-  COURSE_GRID.forEach((row, r) => {
-    row.forEach((name, c) => {
-      checkbox(doc, colX[c], y + r * 17, name.toLowerCase() === selectedName.toLowerCase(), name);
-    });
-  });
-  y += COURSE_GRID.length * 17 + 2;
-
-  // Government scheme
-  checkbox(doc, colX[0], y, !!s.scheme?.name, "Government Scheme");
-  doc.moveTo(colX[1] - 10, y + 11).lineTo(PAGE_W - M, y + 11).lineWidth(0.5).strokeColor(LINE).stroke();
-  text(doc, s.scheme?.name || "", colX[1] - 6, y + 1, { size: 9, bold: true, width: 280 });
-
-  // Accommodation (only meaningful for courses that offer it)
-  y += 20;
-  text(doc, "Accommodation", M, y + 2, { size: 8.5, color: GREY });
-  checkbox(doc, colX[0], y, s.accommodation === "WITHOUT", "Without");
-  checkbox(doc, colX[1], y, s.accommodation === "WITH", "With");
-
-  // Mode of course
-  y += 22;
-  text(doc, "Mode of Course*", M, y + 2, { size: 8.5, color: GREY });
-  checkbox(doc, colX[0], y, s.modeOfCourse === "Regular", "Regular");
-  checkbox(doc, colX[1], y, s.modeOfCourse === "Hybrid", "Hybrid");
-  if (s.modeOfCourse === "Hybrid" && s.hybridNote) {
-    doc.moveTo(colX[2] - 40, y + 11).lineTo(PAGE_W - M, y + 11).lineWidth(0.5).strokeColor(LINE).stroke();
-    text(doc, s.hybridNote, colX[2] - 36, y + 1, { size: 8.5, width: 190 });
-  }
-
-  y += 22;
-  field(doc, "Timing", s.timing, M, y, CW / 2 - 6);
-  field(doc, "Total amount*", money(s.totalFees), M + CW / 2 + 6, y, CW / 2 - 6, { labelW: 76 });
-
-  y += 22;
-  field(doc, "Shop Name*", s.shopName, M, y, CW);
-  y += 22;
-  field(doc, "Aadhaar No", maskAadhaar(s.aadhaarNo), M, y, CW / 2 - 6);
-  field(doc, "Date of Birth*", fmtDate(s.dateOfBirth), M + CW / 2 + 6, y, CW / 2 - 6, { labelW: 76 });
-  y += 22;
-  field(doc, "Postal Address", s.postalAddress, M, y, CW);
-  y += 22;
-  field(doc, "District", s.district, M, y, CW / 2 - 6);
-  field(doc, "State", s.state, M + CW / 2 + 6, y, CW / 2 - 6, { labelW: 76 });
-  y += 22;
-  field(doc, "Pin code", s.pincode, M, y, CW / 2 - 6);
-  field(doc, "Mobile No", s.mobileNo, M + CW / 2 + 6, y, CW / 2 - 6, { labelW: 76 });
-  y += 22;
-  text(doc, "Gender", M, y + 2, { size: 8.5, color: GREY });
-  checkbox(doc, colX[0] - 10, y, s.gender === "Male", "Male");
-  checkbox(doc, colX[0] + 60, y, s.gender === "Female", "Female");
-  checkbox(doc, colX[0] + 140, y, s.gender === "Others", "Others");
-  field(doc, "Blood Group*", s.bloodGroup, M + CW / 2 + 90, y, CW / 2 - 90, { labelW: 70 });
-  y += 22;
-  field(doc, "Email", s.email, M, y, CW);
-  y += 22;
-  text(doc, "Differently Abled", M, y + 2, { size: 8.5, color: GREY });
-  checkbox(doc, M + 90, y, s.differentlyAbled === "Yes", "Yes");
-  checkbox(doc, M + 150, y, s.differentlyAbled === "No", "No");
-  checkbox(doc, M + 205, y, s.differentlyAbled === "Not applicable", "Not applicable");
-  field(doc, "Emergency Mobile", s.emergencyMobile, M + CW / 2 + 20, y, CW / 2 - 20, { labelW: 88 });
-
-  return y + 28;
-}
-
-function drawRest(doc, s, startY) {
-  let y = startY;
-
-  // II. Academic
-  sectionTitle(doc, "II", "Academic Details*", y);
-  y += 17;
+  // ── III. Academic ───────────────────────────────────────
+  y = ensure(doc, y, 60);
+  y = sectionBar(doc, "III", "Academic Details*", y);
   const levels = ["10th", "12th", "Graduation", "ITI", "Polytechnic", "Others"];
-  let x = M + 8;
+  let ax = M + 2;
   levels.forEach((l) => {
-    checkbox(doc, x, y, s.academic?.level === l, l);
-    x += l === "Graduation" || l === "Polytechnic" ? 92 : 62;
+    checkbox(doc, ax, y, s.academic?.level === l, l);
+    font(doc, l, true); doc.fontSize(8.8);
+    ax += 13.5 + doc.widthOfString(l) + 22;
   });
   if (s.academic?.level === "Others" && s.academic?.others) {
-    doc.moveTo(x, y + 11).lineTo(PAGE_W - M, y + 11).lineWidth(0.5).strokeColor(LINE).stroke();
-    text(doc, s.academic.others, x + 2, y + 1, { size: 8.5, width: PAGE_W - M - x - 4 });
+    doc.moveTo(ax - 4, y + 10.5).lineTo(PAGE_W - M, y + 10.5).lineWidth(0.5).strokeColor(LINE).stroke();
+    text(doc, s.academic.others, ax - 2, y + 0.5, { size: 8.8, width: PAGE_W - M - ax });
+  }
+  y += 22;
+
+  // ── IV. Documents ───────────────────────────────────────
+  y = ensure(doc, y, 50);
+  y = sectionBar(doc, "IV", "Document Checklist*", y, "Documents to be provided with this registration form");
+  checkbox(doc, M + 2, y, !!s.documents?.aadhaar?.url, "Proof of residence - Aadhaar Card");
+  checkbox(doc, M + 240, y, !!s.documents?.photo?.url, "Passport size photo");
+  y += 22;
+
+  // ── Payments (only when recorded) ───────────────────────
+  const pays = s.payments || [];
+  if (pays.length) {
+    y = ensure(doc, y, 40 + pays.length * 14 + 40);
+    y = sectionBar(doc, "", "Payment Details", y);
+    const cols = [[ "Date", 70 ], [ "Type", 110 ], [ "Mode", 60 ], [ "Ref No", 150 ], [ "Amount", CW - 398 ]];
+    let cx = M + 4;
+    cols.forEach(([n, w], i) => { text(doc, n, cx, y, { size: 7.5, bold: true, color: GREY, width: w, align: i === 4 ? "right" : "left" }); cx += w; });
+    y += 11;
+    doc.moveTo(M, y).lineTo(PAGE_W - M, y).lineWidth(0.5).strokeColor(LINE).stroke();
+    y += 3;
+    pays.forEach((p) => {
+      y = ensure(doc, y, 14);
+      let x2 = M + 4;
+      [fmtDate(p.paidDate), p.type, p.mode, p.refNo, money(p.amount)].forEach((v, i) => {
+        text(doc, v, x2, y, { size: 8.5, width: cols[i][1] - 4, align: i === 4 ? "right" : "left" });
+        x2 += cols[i][1];
+      });
+      y += 13;
+    });
+    doc.moveTo(M, y + 1).lineTo(PAGE_W - M, y + 1).lineWidth(0.5).strokeColor(LINE).stroke();
+    y += 6;
+    text(doc, `Paid: ${money(s.paidAmount)}`, M + 4, y, { size: 9, bold: true });
+    text(doc, `Balance: ${money(s.balance)}`, M + 4, y, { size: 9, bold: true, color: s.balance ? RED : INK, width: CW - 8, align: "right" });
+    y += 20;
   }
 
-  // III. Documents
-  y += 26;
-  sectionTitle(doc, "III", "Document Checklist* Please provide the following documents with this registration form.", y);
-  y += 17;
-  checkbox(doc, M + 8, y, !!s.documents?.aadhaar?.url, "Proof of residence - Aadhaar Card");
-  checkbox(doc, M + 230, y, !!s.documents?.photo?.url, "Passport size photo");
-
-  // IV. Terms
-  y += 28;
-  sectionTitle(doc, "IV", "Terms & Conditions*", y);
-  y += 15;
+  // ── V. Terms ────────────────────────────────────────────
+  y = ensure(doc, y, 90);
+  y = sectionBar(doc, "V", "Terms & Conditions*", y);
   TERMS.forEach((t, i) => {
-    text(doc, `${String.fromCharCode(97 + i)}.`, M + 30, y, { size: 8.5 });
-    text(doc, t, M + 44, y, { size: 8.5, width: CW - 60 });
-    y += 13;
+    text(doc, `${String.fromCharCode(97 + i)}.`, M + 8, y, { size: 8.3, bold: true, color: RED });
+    const th = heightOf(doc, t, CW - 34, 8.3);
+    text(doc, t, M + 24, y, { size: 8.3, width: CW - 34 });
+    y += th + 2;
   });
+  y += 4;
 
-  // V. Declaration
-  y += 8;
-  sectionTitle(doc, "V", "Declaration Statement*", y);
-  y += 15;
-  doc.font("Helvetica").fontSize(8.5);
-  const dh = doc.heightOfString(DECLARATION, { width: CW - 24 });
-  text(doc, DECLARATION, M + 12, y, { size: 8.5, width: CW - 24 });
-  y += dh + 20;
+  // ── VI. Declaration + signatures ───────────────────────
+  const declH = heightOf(doc, DECLARATION, CW - 20, 8.3);
+  y = ensure(doc, y, 17 + 7 + declH + 27 + 14);
+  y = sectionBar(doc, "VI", "Declaration Statement*", y);
+  text(doc, DECLARATION, M + 10, y, { size: 8.3, width: CW - 20 });
+  y += declH + 27;
 
-  // Signature
-  text(doc, "Signature & Date", M + 8, y, { size: 9, bold: true });
-  doc.moveTo(M + 100, y + 11).lineTo(M + 280, y + 11).lineWidth(0.6).strokeColor(INK).stroke();
-  text(doc, "Counsellor (BDA)", M + 330, y, { size: 8, color: GREY });
-  text(doc, s.staffName || "", M + 410, y, { size: 8.5, bold: true, width: 120 });
+  const sw = (CW - 40) / 2;
+  doc.moveTo(M + 6, y).lineTo(M + 6 + sw, y).lineWidth(0.6).strokeColor(INK).stroke();
+  text(doc, "Student Signature & Date", M + 6, y + 3, { size: 8, bold: true });
+  const sx = M + 6 + sw + 28;
+  doc.moveTo(sx, y).lineTo(sx + sw, y).stroke();
+  text(doc, `Counsellor (BDA): ${s.staffName || ""}`, sx, y + 3, { size: 8, bold: true, width: sw });
+}
 
-  text(doc, "*Conditions Apply RADNUS 2025", M, PAGE_H - M - 24, { size: 8.5, bold: true });
-  text(doc, `Application No: ${s.applicationNo || ""}`, M + 8, PAGE_H - M - 10, { size: 7.5, color: GREY });
+function drawFooters(doc) {
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    text(doc, "*Conditions Apply   |   RADNUS 2026", M, PAGE_H - M - 12, { size: 7.5, bold: true, color: GREY });
+    text(doc, `Page ${i + 1} of ${range.count}`, M, PAGE_H - M - 12, { size: 7.5, color: GREY, width: CW, align: "right" });
+  }
 }
 
 module.exports = { generateAdmissionPdf };

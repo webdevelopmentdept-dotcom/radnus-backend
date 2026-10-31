@@ -883,24 +883,26 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, ownCustomerOnly, asyn
       } catch (e) { console.error("Followup notify error:", e.message); }
     }
 
-    const nowEligible = customer.incentive.eligibility === "Eligible for Processing";
+        const nowEligible = customer.incentive.eligibility === "Eligible for Processing";
 
     if (!wasEligible && nowEligible) {
-      createNotification({
+      await createNotification({
         recipient_id: String(customer.staffId),
         recipient_role: "employee",
         type: "incentive_review",
         title: "Eligible for loan incentive",
         message: `You're eligible for incentive processing on ${customer.customerName}'s loan — Online Loan Application & Projection Dispatch both done.`,
         link: "/employee/dashboard/loan-process",
+        dedupeUnread: true,
       });
-      createNotification({
+      await createNotification({
         recipient_id: null,
         recipient_role: "hr",
         type: "incentive_review",
         title: "Loan incentive pending approval",
         message: `${customer.staffName} completed both activities for ${customer.customerName}'s loan — pending your approval.`,
         link: "/hr/dashboard/incentives/loan-payouts",
+        dedupeUnread: true,
       });
     }
 
