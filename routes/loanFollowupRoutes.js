@@ -158,19 +158,22 @@ router.post("/:id/release", auth, canManageLoanFollowup, async (req, res) => {
   }
 });
 
-// PATCH /api/loan-followup/:id/step   Body: { step: "dicOffice"|"bank", state: ""|"COMPLETED"|"NOT_COMPLETED", reason }
-// state "" = Clear (back to blank)
+const DIC_STATES = ["PENDING", "REJECTED", "FORWARDED"];
+const BANK_STATES = ["PENDING", "PROCESS", "SANCTIONED", "REJECTED"];
+const DIC_DONE = ["FORWARDED", "COMPLETED"];
+// PATCH /api/loan-followup/:id/step   Body: { step: "dicOffice"|"bank", state, reason }
+// state "" = Clear
 router.patch("/:id/step", auth, canManageLoanFollowup, async (req, res) => {
   try {
     const { step, state, reason } = req.body;
-    if (!["dicOffice", "bank"].includes(step)) {
-      return res.status(400).json({ success: false, message: "Invalid step" });
-    }
-    if (!["", "COMPLETED", "NOT_COMPLETED"].includes(state)) {
+    const allowed = step === "dicOffice" ? DIC_STATES : step === "bank" ? BANK_STATES : null;
+    if (!allowed) return res.status(400).json({ success: false, message: "Invalid step" });
+    if (state !== "" && !allowed.includes(state)) {
       return res.status(400).json({ success: false, message: "Invalid state" });
     }
-    if (state === "NOT_COMPLETED" && !String(reason || "").trim()) {
-      return res.status(400).json({ success: false, message: "Reason is required when not completed" });
+    const cleanReason = String(reason || "").trim();
+    if (state === "REJECTED" && !cleanReason) {
+      return res.status(400).json({ success: false, message: "Reason is required when Rejected" });
     }
 
     const c = await LoanCustomer.findById(req.params.id);
@@ -181,12 +184,31 @@ router.patch("/:id/step", auth, canManageLoanFollowup, async (req, res) => {
     const ownErr = ownershipError(c, req);
     if (ownErr) return res.status(403).json({ success: false, message: ownErr });
 
+    // Bank unlocks only after DIC Forwarded
+       if (step === "bank" && state && !DIC_DONE.includes(c.followup.dicOffice?.state)) {
+      return res.status(400).json({ success: false, message: "DIC Office must be Forwarded before Bank Process" });
+    }
+    // DIC can't be moved away from Forwarded once bank has started
+    if (step === "dicOffice" && state !== "FORWARDED" && c.followup.bank?.state) {
+      return res.status(400).json({ success: false, message: "Clear the Bank Process first, then change DIC Office" });
+    }
+
+    const now = new Date();
+    const by = actorName(req);
     c.followup[step] = {
       state,
-      reason: state === "NOT_COMPLETED" ? String(reason).trim() : "",
-      updatedAt: state ? new Date() : null,
-      updatedByName: state ? actorName(req) : "",
+      reason: state ? cleanReason : "",
+      updatedAt: state ? now : null,
+      updatedByName: state ? by : "",
     };
+    c.followup.history.push({ step, state, reason: cleanReason, at: now, byName: by });
+
+    // Bank Sanctioned = lead Completed (Pending tab -> Completed tab)
+    if (step === "bank" && state === "SANCTIONED") {
+      c.followup.status = "COMPLETED";
+      c.followup.completedAt = now;
+    }
+
     c.markModified("followup");
     await c.save();
     res.json({ success: true, customer: c });
@@ -197,80 +219,80 @@ router.patch("/:id/step", auth, canManageLoanFollowup, async (req, res) => {
 
 // PATCH /api/loan-followup/:id/sanction   Body: { value: ""|"YES"|"NO" }
 // value "" = Clear (back to blank)
-router.patch("/:id/sanction", auth, canManageLoanFollowup, async (req, res) => {
-  try {
-    const { value } = req.body;
-    if (!["", "YES", "NO"].includes(value)) {
-      return res.status(400).json({ success: false, message: "Invalid value" });
-    }
-    const c = await LoanCustomer.findById(req.params.id);
-    if (!c) return res.status(404).json({ success: false, message: "Customer not found" });
-    if (c.followup.status !== "PENDING") {
-      return res.status(400).json({ success: false, message: "This customer is not in the pending list" });
-    }
-    const ownErr = ownershipError(c, req);
-    if (ownErr) return res.status(403).json({ success: false, message: ownErr });
+// router.patch("/:id/sanction", auth, canManageLoanFollowup, async (req, res) => {
+//   try {
+//     const { value } = req.body;
+//     if (!["", "YES", "NO"].includes(value)) {
+//       return res.status(400).json({ success: false, message: "Invalid value" });
+//     }
+//     const c = await LoanCustomer.findById(req.params.id);
+//     if (!c) return res.status(404).json({ success: false, message: "Customer not found" });
+//     if (c.followup.status !== "PENDING") {
+//       return res.status(400).json({ success: false, message: "This customer is not in the pending list" });
+//     }
+//     const ownErr = ownershipError(c, req);
+//     if (ownErr) return res.status(403).json({ success: false, message: ownErr });
 
-    if (value === "YES") {
-      if (c.followup.dicOffice?.state !== "COMPLETED" || c.followup.bank?.state !== "COMPLETED") {
-        return res.status(400).json({
-          success: false,
-          message: "DIC Office and Bank Process must both be Completed before marking Loan Sanctioned = Yes",
-        });
-      }
-    }
+//     if (value === "YES") {
+//       if (c.followup.dicOffice?.state !== "COMPLETED" || c.followup.bank?.state !== "COMPLETED") {
+//         return res.status(400).json({
+//           success: false,
+//           message: "DIC Office and Bank Process must both be Completed before marking Loan Sanctioned = Yes",
+//         });
+//       }
+//     }
 
-    c.followup.loanSanctioned = {
-      value,
-      updatedAt: value ? new Date() : null,
-      updatedByName: value ? actorName(req) : "",
-    };
-    // if (value === "YES") {
-    //   c.followup.status = "COMPLETED";   // Pending tab → Completed tab
-    //   c.followup.completedAt = new Date();
-    // }
-    c.markModified("followup");
-    await c.save();
-    res.json({ success: true, customer: c });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+//     c.followup.loanSanctioned = {
+//       value,
+//       updatedAt: value ? new Date() : null,
+//       updatedByName: value ? actorName(req) : "",
+//     };
+//     // if (value === "YES") {
+//     //   c.followup.status = "COMPLETED";   // Pending tab → Completed tab
+//     //   c.followup.completedAt = new Date();
+//     // }
+//     c.markModified("followup");
+//     await c.save();
+//     res.json({ success: true, customer: c });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
 
 // PATCH /api/loan-followup/:id/complete   Body: { date: "YYYY-MM-DD" }
-router.patch("/:id/complete", auth, canManageLoanFollowup, async (req, res) => {
-  try {
-    const c = await LoanCustomer.findById(req.params.id);
-    if (!c) return res.status(404).json({ success: false, message: "Customer not found" });
-    if (c.followup.status !== "PENDING") {
-      return res.status(400).json({ success: false, message: "This customer is not in the pending list" });
-    }
-    const ownErr = ownershipError(c, req);
-    if (ownErr) return res.status(403).json({ success: false, message: ownErr });
+// router.patch("/:id/complete", auth, canManageLoanFollowup, async (req, res) => {
+//   try {
+//     const c = await LoanCustomer.findById(req.params.id);
+//     if (!c) return res.status(404).json({ success: false, message: "Customer not found" });
+//     if (c.followup.status !== "PENDING") {
+//       return res.status(400).json({ success: false, message: "This customer is not in the pending list" });
+//     }
+//     const ownErr = ownershipError(c, req);
+//     if (ownErr) return res.status(403).json({ success: false, message: ownErr });
 
-    if (
-      c.followup.dicOffice?.state !== "COMPLETED" ||
-      c.followup.bank?.state !== "COMPLETED" ||
-      c.followup.loanSanctioned?.value !== "YES"
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "DIC Office, Bank Process must be Completed and Loan Sanctioned = Yes before submitting.",
-      });
-    }
+//     if (
+//       c.followup.dicOffice?.state !== "COMPLETED" ||
+//       c.followup.bank?.state !== "COMPLETED" ||
+//       c.followup.loanSanctioned?.value !== "YES"
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "DIC Office, Bank Process must be Completed and Loan Sanctioned = Yes before submitting.",
+//       });
+//     }
 
-    const when = req.body.date ? new Date(req.body.date) : new Date();
-    if (isNaN(when.getTime())) return res.status(400).json({ success: false, message: "Invalid date" });
-    if (when.getTime() > Date.now()) return res.status(400).json({ success: false, message: "Future date is not allowed" });
+//     const when = req.body.date ? new Date(req.body.date) : new Date();
+//     if (isNaN(when.getTime())) return res.status(400).json({ success: false, message: "Invalid date" });
+//     if (when.getTime() > Date.now()) return res.status(400).json({ success: false, message: "Future date is not allowed" });
 
-    c.followup.status = "COMPLETED";
-    c.followup.completedAt = when;
-    c.markModified("followup");
-    await c.save();
-    res.json({ success: true, customer: c });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+//     c.followup.status = "COMPLETED";
+//     c.followup.completedAt = when;
+//     c.markModified("followup");
+//     await c.save();
+//     res.json({ success: true, customer: c });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
 
 module.exports = router;

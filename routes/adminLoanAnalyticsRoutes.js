@@ -18,6 +18,13 @@ const STAGE_ORDER = [
   { key: "completed", label: "Completed" },
 ];
 
+const REJECTED_EXPR = {
+  $or: [
+    { $eq: ["$followup.dicOffice.state", "REJECTED"] },
+    { $eq: ["$followup.bank.state", "REJECTED"] },
+  ],
+};
+
 // ══════════════════════════════════════════════════════
 //  GET /api/admin-loan-analytics/overview
 //  One combined payload for the whole Loan Analytics page.
@@ -111,17 +118,29 @@ router.get("/overview", auth, adminOnly, async (req, res) => {
             $sum: { $cond: [{ $eq: ["$followup.status", "COMPLETED"] }, "$loanValue", 0] },
           },
           // Loan Sanctioned = No (still sitting in Pending)
-          notSanctioned: {
-            $sum: {
-              $cond: [
-                { $and: [{ $eq: ["$followup.status", "PENDING"] }, { $eq: ["$followup.loanSanctioned.value", "NO"] }] },
-                1,
-                0,
-              ],
-            },
+          rejected: {
+            $sum: { $cond: [{ $and: [{ $eq: ["$followup.status", "PENDING"] }, REJECTED_EXPR] }, 1, 0] },
           },
-          dicCompleted: { $sum: { $cond: [{ $eq: ["$followup.dicOffice.state", "COMPLETED"] }, 1, 0] } },
-          bankCompleted: { $sum: { $cond: [{ $eq: ["$followup.bank.state", "COMPLETED"] }, 1, 0] } },
+          dicForwarded: {
+            $sum: {
+              $cond: [{
+                $or: [
+                  { $eq: ["$followup.status", "COMPLETED"] },
+                  { $in: ["$followup.dicOffice.state", ["FORWARDED", "COMPLETED"]] },
+                ]
+              }, 1, 0]
+            }
+          },
+          bankReached: {
+            $sum: {
+              $cond: [{
+                $or: [
+                  { $eq: ["$followup.status", "COMPLETED"] },
+                  { $in: ["$followup.bank.state", ["PROCESS", "SANCTIONED", "COMPLETED"]] },
+                ]
+              }, 1, 0]
+            }
+          },
         },
       },
     ]);
@@ -133,10 +152,10 @@ router.get("/overview", auth, adminOnly, async (req, res) => {
       pending: fu?.pending || 0,
       unassigned: fu?.unassigned || 0,
       sanctioned,
-      notSanctioned: fu?.notSanctioned || 0,
       sanctionedRevenue: fu?.sanctionedRevenue || 0,
-      dicCompleted: fu?.dicCompleted || 0,
-      bankCompleted: fu?.bankCompleted || 0,
+      rejected: fu?.rejected || 0,
+      dicForwarded: fu?.dicForwarded || 0,
+      bankReached: fu?.bankReached || 0,
       sanctionRate: handedOver ? Math.round((sanctioned / handedOver) * 100) : 0,
     };
 
@@ -160,17 +179,29 @@ router.get("/overview", auth, adminOnly, async (req, res) => {
           sanctionedRevenue: {
             $sum: { $cond: [{ $eq: ["$followup.status", "COMPLETED"] }, "$loanValue", 0] },
           },
-          notSanctioned: {
-            $sum: {
-              $cond: [
-                { $and: [{ $eq: ["$followup.status", "PENDING"] }, { $eq: ["$followup.loanSanctioned.value", "NO"] }] },
-                1,
-                0,
-              ],
-            },
+          rejected: {
+            $sum: { $cond: [{ $and: [{ $eq: ["$followup.status", "PENDING"] }, REJECTED_EXPR] }, 1, 0] },
           },
-          dicCompleted: { $sum: { $cond: [{ $eq: ["$followup.dicOffice.state", "COMPLETED"] }, 1, 0] } },
-          bankCompleted: { $sum: { $cond: [{ $eq: ["$followup.bank.state", "COMPLETED"] }, 1, 0] } },
+          dicForwarded: {
+            $sum: {
+              $cond: [{
+                $or: [
+                  { $eq: ["$followup.status", "COMPLETED"] },
+                  { $in: ["$followup.dicOffice.state", ["FORWARDED", "COMPLETED"]] },
+                ]
+              }, 1, 0]
+            }
+          },
+          bankReached: {
+            $sum: {
+              $cond: [{
+                $or: [
+                  { $eq: ["$followup.status", "COMPLETED"] },
+                  { $in: ["$followup.bank.state", ["PROCESS", "SANCTIONED", "COMPLETED"]] },
+                ]
+              }, 1, 0]
+            }
+          },
           // average time (ms) from "taken" to "sanctioned" — only sanctioned leads contribute
           avgMs: {
             $avg: {
@@ -199,9 +230,9 @@ router.get("/overview", auth, adminOnly, async (req, res) => {
       pending: s.pending,
       sanctioned: s.sanctioned,
       sanctionedRevenue: s.sanctionedRevenue || 0,
-      notSanctioned: s.notSanctioned,
-      dicCompleted: s.dicCompleted,
-      bankCompleted: s.bankCompleted,
+      rejected: s.rejected,
+      dicForwarded: s.dicForwarded,
+      bankReached: s.bankReached,
       sanctionRate: s.taken ? Math.round((s.sanctioned / s.taken) * 100) : 0,
       avgDaysToSanction:
         typeof s.avgMs === "number" ? Math.round((s.avgMs / 86400000) * 10) / 10 : null,

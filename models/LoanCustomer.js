@@ -151,23 +151,28 @@ const loanCustomerSchema = new mongoose.Schema(
         assignedAt: { type: Date, default: null },
       },
 
-      dicOffice: {
-        state: { type: String, enum: ["", "COMPLETED", "NOT_COMPLETED"], default: "" },
+            dicOffice: {
+        state: { type: String,enum: ["", "PENDING", "REJECTED", "FORWARDED", "COMPLETED", "NOT_COMPLETED"], default: "" },
         reason: { type: String, default: "" },
         updatedAt: { type: Date, default: null },
         updatedByName: { type: String, default: "" },
       },
       bank: {
-        state: { type: String, enum: ["", "COMPLETED", "NOT_COMPLETED"], default: "" },
+        state: { type: String, enum: ["", "PENDING", "PROCESS", "SANCTIONED", "REJECTED", "COMPLETED", "NOT_COMPLETED"], default: "" },
         reason: { type: String, default: "" },
         updatedAt: { type: Date, default: null },
         updatedByName: { type: String, default: "" },
       },
-      loanSanctioned: {
-        value: { type: String, enum: ["", "YES", "NO"], default: "" },
-        updatedAt: { type: Date, default: null },
-        updatedByName: { type: String, default: "" },
-      },
+      // every change + reason (admin timeline-ku)
+      history: [
+        {
+          step: { type: String, default: "" },   // "dicOffice" | "bank"
+          state: { type: String, default: "" },  // "" = cleared
+          reason: { type: String, default: "" },
+          at: { type: Date, default: Date.now },
+          byName: { type: String, default: "" },
+        },
+      ],
     },
 
     // ── Application person (Loan Process → View Details) ──  ⬅ INDHA BLOCK PUDHUSU
