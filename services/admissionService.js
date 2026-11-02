@@ -95,7 +95,6 @@ function validateForComplete(s) {
   if (!s.course?.courseId && !s.scheme?.courseId) errs.push("Select a Course or a Government Scheme");
   if (!s.modeOfCourse) errs.push("Mode of Course is required");
   if (s.modeOfCourse === "Hybrid" && !s.hybridNote) errs.push("Enter the Hybrid details");
-  if (!s.shopName) errs.push("Shop Name is required");
   if (!/^\d{12}$/.test(s.aadhaarNo || "")) errs.push("Aadhaar No must be 12 digits");
   if (!s.dateOfBirth) errs.push("Date of Birth is required");
   if (!s.bloodGroup) errs.push("Blood Group is required");

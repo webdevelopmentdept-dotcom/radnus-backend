@@ -12,7 +12,8 @@ const { createNotification } = require("../helpers/notificationHelper");
 // ── Document payment → incentive mapping (server is the source of truth) ──
 const DOC_PAYMENT_INCENTIVE_MAP = { 5000: 150, 10000: 400 };
 const DOC_PAYMENT_ALLOWED = Object.keys(DOC_PAYMENT_INCENTIVE_MAP).map(Number);
-
+const FU_TEXT = { PENDING: "Pending", PROCESS: "Process", SANCTIONED: "Sanctioned", REJECTED: "Rejected", FORWARDED: "Forwarded", COMPLETED: "Completed", NOT_COMPLETED: "Not Completed" };
+const isFuRejected = (c) => c.followup?.dicOffice?.state === "REJECTED" || c.followup?.bank?.state === "REJECTED";
 // ── Loan Incentive approval — HR (fixed login) or Admin only ──
 // Deliberately separate from canManageLoanProcess: HR is blocked from the
 // general Loan Process module, but HR does approve/pay loan incentives.
@@ -180,7 +181,6 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
     const {
       customerName,
       loanDate,
-
       communicationAddress,
       unitAddress,
       businessType,
@@ -333,15 +333,14 @@ const buildTeamSummaries = (customers) => {
       return;
     }
     const k = String(fo.employeeId);
-    if (!fuMap[k]) fuMap[k] = { _id: k, name: fo.name || "Unknown", taken: 0, inProgress: 0, sanctioned: 0, notSanctioned: 0, sanctionedValue: 0 };
+    if (!fuMap[k]) fuMap[k] = { _id: k, name: fo.name || "Unknown", taken: 0, pending: 0, rejected: 0, sanctioned: 0, sanctionedValue: 0 };
     fuMap[k].taken += 1;
     if (fu.status === "COMPLETED") {
       fuMap[k].sanctioned += 1;
       fuMap[k].sanctionedValue += c.loanValue || 0;
-    } else if (fu.loanSanctioned?.value === "NO") {
-      fuMap[k].notSanctioned += 1;
     } else {
-      fuMap[k].inProgress += 1;
+      fuMap[k].pending += 1; // Rejected-um pending kulla dhaan
+      if (fu.dicOffice?.state === "REJECTED" || fu.bank?.state === "REJECTED") fuMap[k].rejected += 1;
     }
   });
 
@@ -533,8 +532,9 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
       { header: "Followup Handled By", key: "fuBy", width: 22 },
       { header: "Followup Status", key: "fuStatus", width: 20 },
       { header: "DIC Office", key: "fuDic", width: 16 },
+      { header: "DIC Reason", key: "fuDicReason", width: 28 },
       { header: "Bank Process", key: "fuBank", width: 16 },
-      { header: "Loan Sanctioned", key: "fuSanction", width: 16 },
+      { header: "Bank Reason", key: "fuBankReason", width: 28 },
       { header: "Followup Completed Date", key: "fuDate", width: 20 },
     ];
 
@@ -572,12 +572,12 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
         fuBy: c.followup?.status && c.followup.status !== "NONE" ? (c.followup.assignedTo?.name || "Unassigned") : "",
         fuStatus:
           c.followup?.status === "COMPLETED" ? "Sanctioned"
-            : c.followup?.status === "PENDING"
-              ? (c.followup?.loanSanctioned?.value === "NO" ? "Not Sanctioned" : "With Followup")
+            : c.followup?.status === "PENDING" ? (isFuRejected(c) ? "Rejected" : "Pending")
               : "",
-        fuDic: c.followup?.dicOffice?.state === "COMPLETED" ? "Completed" : c.followup?.dicOffice?.state === "NOT_COMPLETED" ? "Not Completed" : "",
-        fuBank: c.followup?.bank?.state === "COMPLETED" ? "Completed" : c.followup?.bank?.state === "NOT_COMPLETED" ? "Not Completed" : "",
-        fuSanction: c.followup?.loanSanctioned?.value === "YES" ? "Yes" : c.followup?.loanSanctioned?.value === "NO" ? "No" : "",
+        fuDic: FU_TEXT[c.followup?.dicOffice?.state] || "",
+        fuDicReason: c.followup?.dicOffice?.reason || "",
+        fuBank: FU_TEXT[c.followup?.bank?.state] || "",
+        fuBankReason: c.followup?.bank?.reason || "",
         fuDate: c.followup?.status === "COMPLETED" && c.followup?.completedAt
           ? new Date(c.followup.completedAt).toLocaleDateString("en-IN") : "",
       });
@@ -672,11 +672,11 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
       { header: "Rank", key: "rank", width: 8 },
       { header: "Employee", key: "name", width: 22 },
       { header: "Leads Taken", key: "taken", width: 14 },
-      { header: "In Progress", key: "inProgress", width: 14 },
-      { header: "Sanctioned", key: "sanctioned", width: 14 },
-      { header: "Not Sanctioned", key: "notSanctioned", width: 16 },
+      { header: "Pending", key: "pending", width: 14 },
+      { header: "Rejected (in Pending)", key: "rejected", width: 20 },
+      { header: "Completed (Sanctioned)", key: "sanctioned", width: 22 },
       { header: "Sanction %", key: "sanctionRate", width: 12 },
-      { header: "Sanctioned Loan Value (₹)", key: "sanctionedValue", width: 26 },
+      { header: "Sanctioned Loan Value (INR)", key: "sanctionedValue", width: 26 },
     ];
     followupBreakdown.forEach((s, i) => fuSheet.addRow({ rank: i + 1, ...s }));
     fuSheet.getColumn("sanctionedValue").numFmt = "₹#,##0";
@@ -883,7 +883,7 @@ router.patch("/:id/checklist", auth, canManageLoanProcess, ownCustomerOnly, asyn
       } catch (e) { console.error("Followup notify error:", e.message); }
     }
 
-        const nowEligible = customer.incentive.eligibility === "Eligible for Processing";
+    const nowEligible = customer.incentive.eligibility === "Eligible for Processing";
 
     if (!wasEligible && nowEligible) {
       await createNotification({
