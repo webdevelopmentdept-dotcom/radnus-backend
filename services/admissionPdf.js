@@ -354,15 +354,33 @@ function build(doc, s, photoBuf) {
   text(doc, "15.  Course Taken*", M, cy, { size: 9.6 });
   let gy;
   if (isScheme) {
-    // Government scheme selected: hide the normal course grid, highlight the scheme instead
+    // Government scheme selected: hide the normal course grid, show a split highlight card instead
     const bh = 16 + 21 * 3 - 18;
     const by = cy + 18;
-    doc.rect(M, by, gw, bh).fill("#eef1f8");
-    doc.lineWidth(0.9).strokeColor(NAVY).rect(M, by, gw, bh).stroke();
-    doc.rect(M, by, 5, bh).fill(NAVY);
-    checkbox(doc, M + 16, by + 9, true, "Government Scheme", { size: 10.5 });
-    text(doc, "Scheme Name", M + 16, by + 27, { size: 7.6, color: GREY });
-    text(doc, s.scheme.name, M + 16, by + 36, { size: 15, bold: true, color: NAVY, width: gw - 28 });
+    const panelW = 112;
+    doc.rect(M, by, gw, bh).fill("#ffffff");
+    doc.lineWidth(1.4).strokeColor(NAVY).rect(M, by, gw, bh).stroke();
+    doc.rect(M, by, panelW, bh).fill(NAVY);
+    // green tick in a white circle
+    doc.circle(M + panelW / 2, by + 19, 11).fill("#ffffff");
+    doc.lineWidth(2.2).strokeColor(GREEN)
+      .moveTo(M + panelW / 2 - 5, by + 19.5).lineTo(M + panelW / 2 - 1.6, by + 23).lineTo(M + panelW / 2 + 5, by + 15).stroke();
+    text(doc, "GOVERNMENT", M, by + 36, { size: 8.8, bold: true, color: "#ffffff", width: panelW, align: "center", characterSpacing: 1.6 });
+    text(doc, "SCHEME", M, by + 47, { size: 8.8, bold: true, color: SAFFRON, width: panelW, align: "center", characterSpacing: 1.6 });
+    text(doc, "SELECTED SCHEME", M + panelW + 14, by + 9, { size: 7.6, color: GREY, characterSpacing: 1.2 });
+    // long scheme names: shrink to one line (down to 13pt), else wrap to two smaller lines
+    const nameW = gw - panelW - 26;
+    let nameSize = 20;
+    font(doc, s.scheme.name, true);
+    while (nameSize > 13 && doc.fontSize(nameSize).widthOfString(s.scheme.name) > nameW) nameSize -= 0.5;
+    if (doc.fontSize(nameSize).widthOfString(s.scheme.name) <= nameW) {
+      text(doc, s.scheme.name, M + panelW + 14, by + 21 + (20 - nameSize) / 2, { size: nameSize, bold: true, color: NAVY, width: nameW + 4 });
+    } else {
+      nameSize = 12;
+      while (nameSize > 9 && heightOf(doc, s.scheme.name, nameW, nameSize, true) > 29) nameSize -= 0.5;
+      text(doc, s.scheme.name, M + panelW + 14, by + 19, { size: nameSize, bold: true, color: NAVY, width: nameW });
+    }
+    doc.moveTo(M + panelW + 14, by + 49).lineTo(M + gw - 12, by + 49).lineWidth(1.6).strokeColor(SAFFRON).stroke();
     gy = cy + 60;
   } else {
     COURSE_GRID.forEach((row, ri) => {
