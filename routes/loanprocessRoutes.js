@@ -234,7 +234,28 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
       staffId: req.user.id,
       staffName: staff?.name || "Unknown",
       documents,
-    });
+    });    // ── Notify Application team (bell + web push)
+    try {
+      const heads = await Employee.find({
+        isLoanProcessHead: true,
+        _id: { $ne: req.user.id },   // customer add panravar thaane head-na avarukku venam
+      }).select("_id");
+
+      await Promise.all(
+        heads.map((h) =>
+          createNotification({
+            recipient_id: String(h._id),
+            recipient_role: "employee",
+            type: "loan_application",
+            title: "New application received",
+            message: `${customer.customerName} (${customer.scheme || "—"}, ₹${(customer.loanValue || 0).toLocaleString("en-IN")}) added by ${customer.staffName} — take this application.`,
+            link: "/employee/loan-process",
+          })
+        )
+      );
+    } catch (e) {
+      console.error("Application notify error:", e.message);
+    }
 
     res.json({ success: true, customer });
   } catch (err) {
