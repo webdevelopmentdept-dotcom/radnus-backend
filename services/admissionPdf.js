@@ -24,10 +24,22 @@ const TAMIL_BOLD = path.join(__dirname, "fonts", "NotoSansTamil-Bold.ttf");
 const hasTamil = fs.existsSync(TAMIL_REG);
 const TAMIL_RE = /[\u0B80-\u0BFF]/;
 
-const findAsset = (names) => names.map((f) => path.join(__dirname, "assets", f)).find((f) => fs.existsSync(f)) || null;
+// Case-insensitive asset lookup. Ignores "_" and "-" too, so "Emblem_of_India.png",
+// "emblem-of-india.png" and "EMBLEM_OF_INDIA.PNG" all match (Linux servers are case-sensitive).
+const ASSET_DIR = path.join(__dirname, "assets");
+const normName = (n) => String(n).toLowerCase().replace(/[^a-z0-9.]/g, "");
+const findAsset = (names) => {
+  let files = [];
+  try { files = fs.readdirSync(ASSET_DIR); } catch { return null; }
+  for (const n of names) {
+    const hit = files.find((f) => normName(f) === normName(n));
+    if (hit) return path.join(ASSET_DIR, hit);
+  }
+  return null;
+};
 const LOGO_PATH = findAsset(["radnus-logo.png", "radnus-logo.jpg", "radnus-logo.jpeg"]);
-const EMBLEM_PATH = findAsset(["emblem_of_india.png"]);
-const KVIC_PATH = findAsset(["kvic-logo.png"]);
+const EMBLEM_PATH = findAsset(["emblem-of-india.png", "emblem-of-india.jpg", "emblem-of-india.jpeg"]);
+const KVIC_PATH = findAsset(["kvic-logo.png", "kvic-logo.jpg", "kvic-logo.jpeg"]);
 
 const COMPANY = {
   name: "Radnus Communication",
@@ -249,7 +261,7 @@ function build(doc, s, photoBuf) {
     text(doc, "In association with", bx, y0 + 1, { size: 8, italic: true, color: GREY, width: blockW, align: "center" });
     let lx = bx + (blockW - total) / 2;
     partners.forEach(([file, w]) => {
-      try { doc.image(file, lx, y0 + 14, { fit: [w, lh], align: "center", valign: "center" }); } catch { /* skip bad file */ }
+      try { doc.image(file, lx, y0 + 14, { fit: [w, lh], align: "center", valign: "center" }); } catch (e) { console.warn(`[admissionPdf] could not draw logo ${path.basename(file)}: ${e.message}`); }
       lx += w + gap;
     });
   }
