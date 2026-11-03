@@ -3,6 +3,7 @@ const router = express.Router();
 const LoanCustomer = require("../models/LoanCustomer");
 const Employee = require("../models/Employee");
 const auth = require("../middleware/auth");
+const ExcelJS = require("exceljs");
 
 // Followup team (flag) or Admin only. HR blocked, same as Loan Process.
 const canManageLoanFollowup = async (req, res, next) => {
@@ -52,6 +53,13 @@ const ownershipError = (c, req) => {
   return null;
 };
 
+const fmtDate = (d) => {
+  if (!d) return "";
+  const x = new Date(d);
+  return isNaN(x) ? "" : x.toLocaleDateString("en-GB", { timeZone: "Asia/Kolkata" }); // dd/mm/yyyy
+};
+const fmtState = (s) => (s ? s.charAt(0) + s.slice(1).toLowerCase().replace("_", " ") : "");
+
 // GET /api/loan-followup/list?tab=pending|completed&view=mine|unassigned|team&search=
 router.get("/list", auth, canManageLoanFollowup, async (req, res) => {
   try {
@@ -92,6 +100,104 @@ router.get("/list", auth, canManageLoanFollowup, async (req, res) => {
       viewCounts: { mine, unassigned, team },
     });
   } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/loan-followup/export?tab=&view=&search=&staff=
+router.get("/export", auth, canManageLoanFollowup, async (req, res) => {
+  try {
+    const tab = req.query.tab === "completed" ? "COMPLETED" : "PENDING";
+    const view = ["mine", "unassigned", "team"].includes(req.query.view) ? req.query.view : "mine";
+    const myId = myIdOf(req);
+
+    const filter = { "followup.status": tab, ...viewFilter(view, myId) };
+    if (req.query.search) {
+      filter.$or = [
+        { customerName: { $regex: req.query.search, $options: "i" } },
+        { contactNo: { $regex: req.query.search, $options: "i" } },
+      ];
+    }
+    if (req.query.staff) filter.staffName = req.query.staff;
+
+    const rows = await LoanCustomer.find(filter)
+      .select(CUSTOMER_FIELDS)
+      .sort(tab === "COMPLETED" ? { "followup.completedAt": -1 } : { "followup.handedOverAt": -1 })
+      .lean();
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Loan Followup");
+    ws.columns = [
+      { header: "SL.NO", key: "sl", width: 7 },
+      { header: "Customer Name", key: "name", width: 24 },
+      { header: "Contact No", key: "contact", width: 15 },
+      { header: "Mail ID", key: "mail", width: 28 },
+      { header: "Telecaller", key: "staff", width: 18 },
+      { header: "Loan Date", key: "loanDate", width: 12 },
+      { header: "Handed Over Date", key: "handed", width: 16 },
+      { header: "Business Type", key: "biz", width: 28 },
+      { header: "Scheme", key: "scheme", width: 10 },
+      { header: "Loan Value (₹)", key: "value", width: 15 },
+      { header: "Bank Name", key: "bank", width: 22 },
+      { header: "IFSC Code", key: "ifsc", width: 14 },
+      { header: "DIC Office Status", key: "dicState", width: 16 },
+      { header: "DIC Office Reason", key: "dicReason", width: 32 },
+      { header: "DIC Updated Date", key: "dicDate", width: 16 },
+      { header: "Bank Status", key: "bankState", width: 14 },
+      { header: "Bank Reason", key: "bankReason", width: 32 },
+      { header: "Bank Updated Date", key: "bankDate", width: 16 },
+      { header: "Last Updated Date", key: "last", width: 16 },
+      { header: "Full Reason History", key: "history", width: 60 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+
+    rows.forEach((c, i) => {
+      const f = c.followup || {};
+      const dic = f.dicOffice || {};
+      const bank = f.bank || {};
+      const times = [dic.updatedAt, bank.updatedAt].filter(Boolean).map((d) => new Date(d).getTime());
+      const last = times.length ? new Date(Math.max(...times)) : null;
+
+      const history = (f.history || [])
+        .map((h) => (h.reason || "").trim())
+        .filter(Boolean)                                   // reason illatha entries skip
+        .filter((r, i, arr) => i === 0 || r !== arr[i - 1]) // thirumba thirumba same reason vandha oru thadava mattum
+        .join("\n");
+
+      const row = ws.addRow({
+        sl: i + 1,
+        name: c.customerName,
+        contact: c.contactNo,
+        mail: c.mailId || "",
+        staff: c.staffName || "",
+        loanDate: fmtDate(c.loanDate),
+        handed: fmtDate(f.handedOverAt),
+        biz: [c.businessType, c.businessSubType].filter(Boolean).join(" - "),
+        scheme: c.scheme || "",
+        value: c.loanValue || 0,
+        bank: c.bankName || "",
+        ifsc: c.ifscCode || "",
+        dicState: fmtState(dic.state),
+        dicReason: dic.reason || "",
+        dicDate: fmtDate(dic.updatedAt),
+        bankState: fmtState(bank.state),
+        bankReason: bank.reason || "",
+        bankDate: fmtDate(bank.updatedAt),
+        last: fmtDate(last),
+        history,
+      });
+      row.getCell("value").numFmt = "₹#,##,##0";
+      row.getCell("history").alignment = { wrapText: true, vertical: "top" };
+    });
+
+    const fileName = `loan-followup-${view}-${tab.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error("FOLLOWUP EXPORT ERROR", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -185,7 +291,7 @@ router.patch("/:id/step", auth, canManageLoanFollowup, async (req, res) => {
     if (ownErr) return res.status(403).json({ success: false, message: ownErr });
 
     // Bank unlocks only after DIC Forwarded
-       if (step === "bank" && state && !DIC_DONE.includes(c.followup.dicOffice?.state)) {
+    if (step === "bank" && state && !DIC_DONE.includes(c.followup.dicOffice?.state)) {
       return res.status(400).json({ success: false, message: "DIC Office must be Forwarded before Bank Process" });
     }
     // DIC can't be moved away from Forwarded once bank has started
