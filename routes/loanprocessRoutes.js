@@ -990,7 +990,7 @@ router.get("/incentives/pending", auth, canApproveLoanIncentive, async (req, res
 router.get("/incentives/paid", auth, canApproveLoanIncentive, async (req, res) => {
   try {
     const customers = await LoanCustomer.find({ "incentive.eligibility": "Paid" })
-      .select("customerName loanValue staffId staffName incentive checklistDates checklistRemarks createdAt")
+      .select("customerName loanValue staffId staffName incentive checklistAmounts checklistDates checklistRemarks createdAt")
       .sort({ "incentive.paidAt": -1 });
     res.json({ success: true, customers });
   } catch (err) {
@@ -1030,7 +1030,7 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
     //   return res.status(400).json({ success: false, message: "Enter a valid incentive amount" });
     // }
 
-    const { remark, paidAt } = req.body;
+    const { remark, paidAt, docAmount } = req.body;
 
     // ✅ Optional custom paid date (for backdating old payments that were
     // already given before this module existed). Falls back to now.
@@ -1061,12 +1061,29 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
     }
 
     // ── Incentive amount = based on Document Payment (server-side) ──
-    const docAmt = Number(customer.checklistAmounts?.documentPayment);
-    const amt = DOC_PAYMENT_INCENTIVE_MAP[docAmt];
+    let docAmt = Number(customer.checklistAmounts?.documentPayment);
+
+// Amount already employee set pannirundha adhai dhan use pannanum.
+// Missing / invalid na mattum HR kudutha docAmount accept pannanum.
+if (!DOC_PAYMENT_INCENTIVE_MAP[docAmt]) {
+  const hrAmt = Number(docAmount);
+  if (!DOC_PAYMENT_ALLOWED.includes(hrAmt)) {
+    return res.status(400).json({
+      success: false,
+      message: "Select document payment amount (₹5,000 or ₹10,000) to continue.",
+    });
+  }
+  docAmt = hrAmt;
+  customer.checklistAmounts.documentPayment = hrAmt;
+  customer.incentive.amountSetByHr = true;
+  customer.incentive.amountSetByName = actorNameFor(req);
+  customer.incentive.amountSetAt = new Date();
+}
+const amt = DOC_PAYMENT_INCENTIVE_MAP[docAmt];
     if (!customer.checklist?.documentPayment || !amt) {
       return res.status(400).json({
         success: false,
-        message: "Document Payment is not ticked or amount is not ₹5,000 / ₹10,000. Ask the employee to update it first.",
+        message: "Document Payment is not ticked for this loan.",
       });
     }
 
