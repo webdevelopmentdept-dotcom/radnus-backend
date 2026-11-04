@@ -121,6 +121,10 @@ const loanCustomerSchema = new mongoose.Schema(
         enum: ["Not Eligible", "Eligible for Processing", "Paid", "Rejected", "Removed"],
         default: "Not Eligible",
       },
+      amountSetByHr: { type: Boolean, default: false },
+      amountSetByName: { type: String, default: "" },
+      amountSetAt: { type: Date, default: null },
+
       eligibleAt: { type: Date, default: null },
       amount: { type: Number, default: 0 },
       paidAt: { type: Date, default: null },
@@ -151,8 +155,8 @@ const loanCustomerSchema = new mongoose.Schema(
         assignedAt: { type: Date, default: null },
       },
 
-            dicOffice: {
-        state: { type: String,enum: ["", "PENDING", "REJECTED", "FORWARDED", "COMPLETED", "NOT_COMPLETED"], default: "" },
+      dicOffice: {
+        state: { type: String, enum: ["", "PENDING", "REJECTED", "FORWARDED", "COMPLETED", "NOT_COMPLETED"], default: "" },
         reason: { type: String, default: "" },
         updatedAt: { type: Date, default: null },
         updatedByName: { type: String, default: "" },
