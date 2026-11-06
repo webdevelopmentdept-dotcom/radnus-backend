@@ -42,6 +42,23 @@ const viewFilter = (view, myId) => {
   return { "followup.assignedTo.employeeId": { $nin: [null, myId] } }; // team = assigned to someone else
 };
 
+// DIC / Bank stage filter.  dic = PENDING|REJECTED|FORWARDED,  bank = PENDING|PROCESS|SANCTIONED|REJECTED
+// "Pending" also matches leads where nothing has been selected yet (state missing / empty).
+// Bank filter only makes sense after DIC is Forwarded, so it adds that condition automatically.
+const stageConditions = (dic, bank) => {
+  const D = ["PENDING", "REJECTED", "FORWARDED"];
+  const B = ["PENDING", "PROCESS", "SANCTIONED", "REJECTED"];
+  const conds = [];
+  if (D.includes(dic)) {
+    conds.push({ "followup.dicOffice.state": dic === "PENDING" ? { $in: ["PENDING", "", null] } : dic });
+  }
+  if (B.includes(bank)) {
+    conds.push({ "followup.dicOffice.state": { $in: ["FORWARDED", "COMPLETED"] } });
+    conds.push({ "followup.bank.state": bank === "PENDING" ? { $in: ["PENDING", "", null] } : bank });
+  }
+  return conds;
+};
+
 // Only the owner (or admin) may update a lead.
 const ownershipError = (c, req) => {
   if (req.user?.role === "admin") return null;
@@ -60,7 +77,7 @@ const fmtDate = (d) => {
 };
 const fmtState = (s) => (s ? s.charAt(0) + s.slice(1).toLowerCase().replace("_", " ") : "");
 
-// GET /api/loan-followup/list?tab=pending|completed&view=mine|unassigned|team&search=
+// GET /api/loan-followup/list?tab=pending|completed&view=mine|unassigned|team&search=&dic=&bank=
 router.get("/list", auth, canManageLoanFollowup, async (req, res) => {
   try {
     const tab = req.query.tab === "completed" ? "COMPLETED" : "PENDING";
@@ -74,6 +91,8 @@ router.get("/list", auth, canManageLoanFollowup, async (req, res) => {
         { contactNo: { $regex: req.query.search, $options: "i" } },
       ];
     }
+    const stageConds = stageConditions(req.query.dic, req.query.bank);
+    if (stageConds.length) filter.$and = stageConds;
 
     const rows = await LoanCustomer.find(filter)
       .select(CUSTOMER_FIELDS) // documents & checklist are NOT selected
@@ -104,7 +123,7 @@ router.get("/list", auth, canManageLoanFollowup, async (req, res) => {
   }
 });
 
-// GET /api/loan-followup/export?tab=&view=&search=&staff=
+// GET /api/loan-followup/export?tab=&view=&search=&staff=&dic=&bank=
 router.get("/export", auth, canManageLoanFollowup, async (req, res) => {
   try {
     const tab = req.query.tab === "completed" ? "COMPLETED" : "PENDING";
@@ -118,6 +137,8 @@ router.get("/export", auth, canManageLoanFollowup, async (req, res) => {
         { contactNo: { $regex: req.query.search, $options: "i" } },
       ];
     }
+    const stageConds = stageConditions(req.query.dic, req.query.bank);
+    if (stageConds.length) filter.$and = stageConds;
     if (req.query.staff) filter.staffName = req.query.staff;
 
     const rows = await LoanCustomer.find(filter)

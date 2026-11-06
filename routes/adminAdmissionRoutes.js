@@ -92,6 +92,9 @@ router.get("/access/employees", async (req, res) => {
     const filter = {};
     if (req.query.search) filter.name = { $regex: req.query.search, $options: "i" };
     if (req.query.department) filter.department = req.query.department;
+    // Relieved / Fired employees shouldn't appear in the access list
+    filter.status = { $nin: ["relieved", "fired"] };
+    filter.exitType = { $nin: ["relieved", "fired"] };
     const employees = await Employee.find(filter)
       .select("name email department canManageAdmission admissionReportAccess")
       .sort({ name: 1 });
