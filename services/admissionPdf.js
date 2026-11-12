@@ -307,7 +307,7 @@ function build(doc, s, photoBuf) {
   field(doc, "1.  Full Name*", s.fullName, M, y, lw, 84, { size: 11.5 });
   y += rr;
   field(doc, "2.  Date of Birth*", fmtDate(s.dateOfBirth), M, y, 232, 84);
-  field(doc, "3.  Blood Group*", s.bloodGroup, M + 240, y, lw - 240, 80);
+  field(doc, "3.  Blood Group", s.bloodGroup, M + 240, y, lw - 240, 80);
   y += rr;
   optionField(doc, "4.  Gender*", [["Male", s.gender === "Male"], ["Female", s.gender === "Female"], ["Others", s.gender === "Others"]], M, y, 84);
   y += rr;

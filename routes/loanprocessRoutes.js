@@ -7,6 +7,7 @@ const mongoose = require("mongoose");
 const ExcelJS = require("exceljs");
 
 const LoanCustomer = require("../models/LoanCustomer");
+const LoanDraft = require("../models/LoanDraft");
 const auth = require("../middleware/auth");
 const { createNotification } = require("../helpers/notificationHelper");
 // ── Document payment → incentive mapping (server is the source of truth) ──
@@ -158,6 +159,32 @@ const familyFields = (b) => {
 };
 const MARITAL_OK = ["Married", "Unmarried"];
 
+// ── Notify Application team (bell + web push) — used by /create and /drafts/:id/submit ──
+async function notifyApplicationHeads(customer, excludeId) {
+  try {
+    const Employee = require("../models/Employee");
+    const heads = await Employee.find({
+      isLoanProcessHead: true,
+      _id: { $ne: excludeId },
+    }).select("_id");
+
+    await Promise.all(
+      heads.map((h) =>
+        createNotification({
+          recipient_id: String(h._id),
+          recipient_role: "employee",
+          type: "loan_application",
+          title: "New application received",
+          message: `${customer.customerName} (${customer.scheme || "—"}, ₹${(customer.loanValue || 0).toLocaleString("en-IN")}) added by ${customer.staffName} — take this application.`,
+          link: "/employee/loan-process",
+        })
+      )
+    );
+  } catch (e) {
+    console.error("Application notify error:", e.message);
+  }
+}
+
 // ══════════════════════════════════════════════════════
 //  TAB 1 — CREATE CUSTOMER (with document upload)
 //  POST /api/loan-process/create
@@ -234,28 +261,10 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
       staffId: req.user.id,
       staffName: staff?.name || "Unknown",
       documents,
-    });    // ── Notify Application team (bell + web push)
-    try {
-      const heads = await Employee.find({
-        isLoanProcessHead: true,
-        _id: { $ne: req.user.id },   // customer add panravar thaane head-na avarukku venam
-      }).select("_id");
+    });
 
-      await Promise.all(
-        heads.map((h) =>
-          createNotification({
-            recipient_id: String(h._id),
-            recipient_role: "employee",
-            type: "loan_application",
-            title: "New application received",
-            message: `${customer.customerName} (${customer.scheme || "—"}, ₹${(customer.loanValue || 0).toLocaleString("en-IN")}) added by ${customer.staffName} — take this application.`,
-            link: "/employee/loan-process",
-          })
-        )
-      );
-    } catch (e) {
-      console.error("Application notify error:", e.message);
-    }
+    // ── Notify Application team (bell + web push) — helper function (keela irukku)
+    await notifyApplicationHeads(customer, req.user.id);
 
     res.json({ success: true, customer });
   } catch (err) {
@@ -263,6 +272,7 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 // ══════════════════════════════════════════════════════
 //  TAB 2 — LIST ALL CUSTOMERS (checklist view)
 //  GET /api/loan-process/all
@@ -354,7 +364,14 @@ const buildTeamSummaries = (customers) => {
       return;
     }
     const k = String(fo.employeeId);
-    if (!fuMap[k]) fuMap[k] = { _id: k, name: fo.name || "Unknown", taken: 0, pending: 0, rejected: 0, sanctioned: 0, sanctionedValue: 0 };
+        if (!fuMap[k]) {
+      fuMap[k] = {
+        _id: k, name: fo.name || "Unknown", taken: 0, pending: 0, rejected: 0, sanctioned: 0, sanctionedValue: 0,
+        // pending leads — DIC Office / Bank state-wise counts
+        dicPending: 0, dicRejected: 0, dicForwarded: 0, dicNotCompleted: 0,
+        bankPending: 0, bankProcess: 0, bankRejected: 0, bankNotCompleted: 0,
+      };
+    }
     fuMap[k].taken += 1;
     if (fu.status === "COMPLETED") {
       fuMap[k].sanctioned += 1;
@@ -362,6 +379,18 @@ const buildTeamSummaries = (customers) => {
     } else {
       fuMap[k].pending += 1; // Rejected-um pending kulla dhaan
       if (fu.dicOffice?.state === "REJECTED" || fu.bank?.state === "REJECTED") fuMap[k].rejected += 1;
+
+      const dic = fu.dicOffice?.state;
+      if (dic === "PENDING") fuMap[k].dicPending += 1;
+      else if (dic === "REJECTED") fuMap[k].dicRejected += 1;
+      else if (dic === "FORWARDED") fuMap[k].dicForwarded += 1;
+      else if (dic === "NOT_COMPLETED") fuMap[k].dicNotCompleted += 1;
+
+      const bank = fu.bank?.state;
+      if (bank === "PENDING") fuMap[k].bankPending += 1;
+      else if (bank === "PROCESS") fuMap[k].bankProcess += 1;
+      else if (bank === "REJECTED") fuMap[k].bankRejected += 1;
+      else if (bank === "NOT_COMPLETED") fuMap[k].bankNotCompleted += 1;
     }
   });
 
@@ -711,6 +740,172 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
     res.end();
   } catch (err) {
     console.error("REPORT EXCEL EXPORT ERROR", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+//  DRAFTS  (/api/loan-process/drafts...)
+//  ⚠ MUST stay ABOVE  router.get("/:id")
+// ══════════════════════════════════════════════════════
+const DRAFT_TEXT_FIELDS = [
+  "customerName", "communicationAddress", "unitAddress", "businessType", "businessSubType",
+  "contactNo", "mailId", "bankName", "ifscCode", "fatherName", "fatherOccupation",
+  "spouseName", "spouseOccupation",
+];
+const SCHEME_OK = LoanCustomer.schema.path("scheme").enumValues;
+const OPTIONAL_DOCS = ["gasBill", "ebBill"];
+
+const draftFieldsFromBody = (b) => {
+  const out = {};
+  DRAFT_TEXT_FIELDS.forEach((f) => { out[f] = String(b[f] ?? "").trim(); });
+  out.ifscCode = out.ifscCode.toUpperCase();
+  out.scheme = SCHEME_OK.includes(b.scheme) ? b.scheme : "";
+  out.maritalStatus = MARITAL_OK.includes(b.maritalStatus) ? b.maritalStatus : "";
+  out.loanValue = Number(b.loanValue) || 0;
+  out.loanDate = b.loanDate && !isNaN(new Date(b.loanDate)) ? new Date(b.loanDate) : new Date();
+  return out;
+};
+
+const draftUpload = (req, res, next) => {
+  uploadDocs(req, res, (err) => {
+    if (err) {
+      console.error("Draft upload error:", err);
+      return res.status(400).json({
+        success: false,
+        message: err.code === "LIMIT_FILE_SIZE"
+          ? "One of the documents is larger than 5MB. Please upload a smaller file."
+          : err.message || "File upload failed",
+      });
+    }
+    next();
+  });
+};
+
+// each telecaller can touch only his own drafts (admin bypass)
+const ownDraftOnly = async (req, res, next) => {
+  try {
+    const draft = await LoanDraft.findById(req.params.id);
+    if (!draft) return res.status(404).json({ success: false, message: "Draft not found" });
+    if (req.user?.role !== "admin" && String(draft.staffId) !== String(req.user?.id)) {
+      return res.status(403).json({ success: false, message: "You can only access your own drafts" });
+    }
+    req.draft = draft;
+    next();
+  } catch (err) {
+    res.status(404).json({ success: false, message: "Draft not found" });
+  }
+};
+
+// GET /api/loan-process/drafts → my drafts only
+router.get("/drafts", auth, canManageLoanProcess, async (req, res) => {
+  try {
+    const drafts = await LoanDraft.find({ staffId: req.user.id }).sort({ updatedAt: -1 });
+    res.json({ success: true, data: drafts });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/loan-process/drafts → create draft (no validation)
+router.post("/drafts", auth, canManageLoanProcess, draftUpload, async (req, res) => {
+  try {
+    const Employee = require("../models/Employee");
+    const staff = await Employee.findById(req.user.id).select("name");
+
+    const documents = {};
+    DOC_FIELDS.forEach((f) => {
+      const file = req.files?.[f]?.[0];
+      if (file) documents[f] = { url: file.path, uploadedAt: new Date() };
+    });
+
+    const draft = await LoanDraft.create({
+      ...draftFieldsFromBody(req.body),
+      staffId: req.user.id,
+      staffName: staff?.name || "Unknown",
+      documents,
+    });
+    res.json({ success: true, data: draft });
+  } catch (err) {
+    console.error("Loan draft create error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PUT /api/loan-process/drafts/:id → update (new file replaces old, else old stays)
+router.put("/drafts/:id", auth, canManageLoanProcess, ownDraftOnly, draftUpload, async (req, res) => {
+  try {
+    const draft = req.draft;
+    draft.set(draftFieldsFromBody(req.body));
+    DOC_FIELDS.forEach((f) => {
+      const file = req.files?.[f]?.[0];
+      if (file) draft.set(`documents.${f}`, { url: file.path, uploadedAt: new Date() });
+    });
+    await draft.save();
+    res.json({ success: true, data: draft });
+  } catch (err) {
+    console.error("Loan draft update error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/loan-process/drafts/:id
+router.delete("/drafts/:id", auth, canManageLoanProcess, ownDraftOnly, async (req, res) => {
+  try {
+    await LoanDraft.findByIdAndDelete(req.draft._id);
+    res.json({ success: true, message: "Draft deleted" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/loan-process/drafts/:id/submit → draft becomes a real LoanCustomer, draft is deleted
+router.post("/drafts/:id/submit", auth, canManageLoanProcess, ownDraftOnly, async (req, res) => {
+  try {
+    const d = req.draft;
+
+    if (!d.customerName || !d.contactNo) {
+      return res.status(400).json({ success: false, message: "Customer name and contact number required" });
+    }
+    if (!MARITAL_OK.includes(d.maritalStatus)) {
+      return res.status(400).json({ success: false, message: "Marital status (Married / Unmarried) is required" });
+    }
+    const missing = DOC_FIELDS.filter((f) => !OPTIONAL_DOCS.includes(f) && !d.documents?.[f]?.url);
+    if (missing.length) {
+      return res.status(400).json({ success: false, message: `Please upload all required documents (${missing.join(", ")})` });
+    }
+
+    const documents = {};
+    DOC_FIELDS.forEach((f) => {
+      const doc = d.documents?.[f];
+      if (doc?.url) documents[f] = { url: doc.url, uploadedAt: doc.uploadedAt || new Date(), status: "uploaded" };
+    });
+
+    const customer = await LoanCustomer.create({
+      customerName: d.customerName,
+      loanDate: d.loanDate || Date.now(),
+      communicationAddress: d.communicationAddress,
+      unitAddress: d.unitAddress,
+      businessType: d.businessType,
+      businessSubType: d.businessSubType,
+      scheme: d.scheme,
+      loanValue: d.loanValue || 0,
+      contactNo: d.contactNo,
+      mailId: d.mailId,
+      bankName: d.bankName,
+      ifscCode: d.ifscCode,
+      ...familyFields(d),
+      staffId: d.staffId,
+      staffName: d.staffName || "Unknown",
+      documents,
+    });
+
+    await LoanDraft.findByIdAndDelete(d._id);
+    await notifyApplicationHeads(customer, req.user.id);
+
+    res.json({ success: true, customer });
+  } catch (err) {
+    console.error("Loan draft submit error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

@@ -1142,13 +1142,14 @@ router.get('/view-doc/:docId', auth, async (req, res) => {
         : 'raw';
 
     const signedUrl = cloudinary.utils.private_download_url(
-      publicId, ext,
-      {
-        resource_type: resourceType,
-        expires_at: Math.floor(Date.now() / 1000) + 300,
-        attachment: false,
-      }
-    );
+  publicId, ext,
+  {
+    resource_type: resourceType,
+    type: 'private',        // ← indha oru line add pannu
+    expires_at: Math.floor(Date.now() / 1000) + 300,
+    attachment: false,
+  }
+);
 
     return res.json({ url: signedUrl });
 

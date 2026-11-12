@@ -97,7 +97,6 @@ function validateForComplete(s) {
   if (s.modeOfCourse === "Hybrid" && !s.hybridNote) errs.push("Enter the Hybrid details");
   if (!/^\d{12}$/.test(s.aadhaarNo || "")) errs.push("Aadhaar No must be 12 digits");
   if (!s.dateOfBirth) errs.push("Date of Birth is required");
-  if (!s.bloodGroup) errs.push("Blood Group is required");
   if (!s.gender) errs.push("Gender is required");
   if (!s.postalAddress) errs.push("Postal Address is required");
   if (!s.district) errs.push("District is required");
