@@ -3,7 +3,7 @@ const router = express.Router();
 const Appraisal = require("../models/Appraisal");
 const PerformanceReview = require("../models/PerformanceReview");
 const { computeRecognitionScore } = require("../helpers/recognitionScoreHelper");
-const auth = require("../middleware/auth"); 
+const auth = require("../middleware/auth");
 const hrOnly = require("../middleware/hrOnly");
 // ═══════════════════════════════════════════════
 // POST /api/appraisals — Create new appraisal
@@ -39,18 +39,18 @@ router.post("/", auth, hrOnly, async (req, res) => {
           0;
       }
     } catch {
-      // If PerformanceReview model doesn't exist yet, skip
     }
 
     // Auto-pull recognition score from Recognition Hub (announced awards in this period)
     let recognition_score = 0;
     let recognition_breakdown = undefined;
+    let recognition_raw = 0, recognition_cap = 0;                 // ← NEW
     try {
       const rec = await computeRecognitionScore(employee_id, period_from, period_to);
       recognition_score = rec.total;
       recognition_breakdown = rec.breakdown;
+      recognition_raw = rec.raw_total; recognition_cap = rec.cap;  // ← NEW
     } catch {
-      // If EmployeeAward model doesn't exist yet, skip
     }
 
     const appraisal = new Appraisal({
@@ -62,6 +62,9 @@ router.post("/", auth, hrOnly, async (req, res) => {
       performance_score,
       recognition_score,
       recognition_breakdown,
+      recognition_breakdown,
+      recognition_raw,                                             // ← NEW
+      recognition_cap,                                             // ← NEW
       hr_rating,
       increment_percent,
       promotion,
@@ -97,10 +100,12 @@ router.patch("/:id/refresh-recognition", auth, hrOnly, async (req, res) => {
       appraisal.period_to
     );
 
-    appraisal.recognition_score = rec.total;
+        appraisal.recognition_score = rec.total;
     appraisal.recognition_breakdown = rec.breakdown;
+    appraisal.recognition_raw = rec.raw_total;                     // ← NEW
+    appraisal.recognition_cap = rec.cap;                           // ← NEW
     await appraisal.save();
-
+    
     const populated = await Appraisal.findById(appraisal._id)
       .populate("employee_id", "name email department designation");
 
@@ -118,7 +123,7 @@ router.get("/", auth, hrOnly, async (req, res) => {
   try {
     const filter = {};
 
-    if (req.query.status)      filter.status      = req.query.status;
+    if (req.query.status) filter.status = req.query.status;
     if (req.query.employee_id) filter.employee_id = req.query.employee_id;
     if (req.query.appraisal_type) filter.appraisal_type = req.query.appraisal_type;
 

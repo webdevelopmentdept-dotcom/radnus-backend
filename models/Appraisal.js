@@ -47,10 +47,13 @@ const appraisalSchema = new mongoose.Schema(
     },
 
     recognition_breakdown: {
-      spot:         { count: { type: Number, default: 0 }, points: { type: Number, default: 0 } },
+      spot: { count: { type: Number, default: 0 }, points: { type: Number, default: 0 } },
       monthly_star: { count: { type: Number, default: 0 }, points: { type: Number, default: 0 } },
-      innovation:   { count: { type: Number, default: 0 }, points: { type: Number, default: 0 } },
+      innovation: { count: { type: Number, default: 0 }, points: { type: Number, default: 0 } },
+      awards_program: { count: { type: Number, default: 0 }, points: { type: Number, default: 0 } },
     },
+    recognition_raw: { type: Number, default: 0 },
+    recognition_cap: { type: Number, default: 0 },
 
     // HR gives this manually
     hr_rating: {
