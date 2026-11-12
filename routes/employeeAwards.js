@@ -27,6 +27,14 @@ const AWARD_CONFIG = {
   },
 };
 
+const ALLOWED_TRANSITIONS = {
+  nominated:      ['dept_validated', 'rejected'],
+  dept_validated: ['hr_approved', 'rejected'],
+  hr_approved:    ['announced', 'rejected'],
+  announced:      [],
+  rejected:       [],
+};
+
 // GET all awards
 router.get('/', auth, hrOnly, async (req, res) => {
   try {
@@ -104,6 +112,18 @@ router.post('/', auth, hrOnly, async (req, res) => {
       });
     }
 
+    if (award_type !== 'spot' && period) {
+  const dup = await EmployeeAward.findOne({
+    award_type, employee_id, period, status: { $ne: 'rejected' },
+  });
+  if (dup) {
+    return res.status(409).json({
+      success: false,
+      message: 'This employee already has a nomination for this award and period',
+    });
+  }
+}
+
     const award = new EmployeeAward({
       award_type, category, employee_id, nominated_by,
       nomination_source, period, reason,
@@ -136,6 +156,13 @@ router.patch('/:id/status', auth, hrOnly, async (req, res) => {
     const award = await EmployeeAward.findById(req.params.id)
       .populate('employee_id', 'name email department');
     if (!award) return res.status(404).json({ success: false, message: 'Award not found' });
+     
+    if (!ALLOWED_TRANSITIONS[award.status]?.includes(status)) {
+  return res.status(409).json({
+    success: false,
+    message: `Cannot move from "${award.status}" to "${status}"`,
+  });
+}
 
     award.status = status;
     if (hr_comment) award.hr_comment = hr_comment;
@@ -165,10 +192,19 @@ router.patch('/:id/status', auth, hrOnly, async (req, res) => {
   }
 });
 
-// DELETE
+// DELETE  any status. An ANNOUNCED award is already public (Wall of Fame, appraisal points),
+// so it is deleted only when the caller sends ?force=true after a stronger confirmation.
 router.delete('/:id', auth, hrOnly, async (req, res) => {
   try {
-    await EmployeeAward.findByIdAndDelete(req.params.id);
+    const award = await EmployeeAward.findById(req.params.id);
+    if (!award) return res.status(404).json({ success: false, message: 'Award not found' });
+    if (award.status === 'announced' && req.query.force !== 'true') {
+      return res.status(409).json({
+        success: false,
+        message: 'This award is already announced. Confirm the delete to remove it for good.',
+      });
+    }
+    await award.deleteOne();
     res.json({ success: true, message: 'Deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

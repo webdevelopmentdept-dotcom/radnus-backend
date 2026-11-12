@@ -26,7 +26,7 @@ const MODULES = [
     [/\/kpi/i, "KPI"],
     [/\/(okr|performance-reviews|department-scoreboard)/i, "PERFORMANCE"],
     [/\/appraisal/i, "APPRAISAL"],
-    [/\/(employee-awards|awards)/i, "AWARDS"],
+    [/\/(employee-awards|awards|award-definitions)/i, "AWARDS"],
     [/\/(grade-master|assign-grade|dept-grade-salary)/i, "GRADING"],
     [/\/feedback/i, "FEEDBACK"],
     [/\/(training|rca|hr-induction|programs|alumni)/i, "TRAINING"],
