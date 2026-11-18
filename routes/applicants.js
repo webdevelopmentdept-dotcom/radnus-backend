@@ -1,14 +1,21 @@
 const express = require("express");
 const router = express.Router();
 const Applicant = require("../models/Applicant");
-const auth = require("../middleware/auth");  
-const hrOnly = require("../middleware/hrOnly"); 
+const auth = require("../middleware/auth");
+const hrOnly = require("../middleware/hrOnly");
+const { notifyAdmin } = require("../helpers/adminNotify");
 
 // ✅ Add new academy applicant
 router.post("/", async (req, res) => {
   try {
     const applicant = new Applicant(req.body);
     await applicant.save();
+    notifyAdmin({
+      type: "admin_applicant",
+      title: "New Academy Applicant 🎓",
+      message: `${applicant.name} applied for ${applicant.course}.`,
+      link: "/admin/applicants",
+    });
     res.json({ success: true, msg: "Academy applicant added successfully!" });
   } catch (err) {
     console.error(err);
@@ -18,7 +25,7 @@ router.post("/", async (req, res) => {
 
 // ✅ Get all academy applicants (sorted by newest)
 router.get("/", auth, hrOnly, async (req, res) => {
-  try { 
+  try {
     const applicants = await Applicant.find().sort({ createdAt: -1 });
     res.json({ success: true, applicants });
   } catch (err) {

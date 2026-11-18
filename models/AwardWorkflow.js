@@ -22,4 +22,30 @@ const AwardWorkflowSchema = new mongoose.Schema({
   published_by: { type: String, default: '' },
 }, { timestamps: true });
 
+
+// ── Admin notification: award is now waiting for the MANAGEMENT step ──
+AwardWorkflowSchema.pre('save', function () {
+  this.$locals.changed = this.isNew || this.isModified('steps') || this.isModified('status');
+});
+
+AwardWorkflowSchema.post('save', function (doc) {
+  try {
+    if (!doc.$locals?.changed || doc.status !== 'in_review') return;
+    const next = (doc.steps || []).find((s) => s.status === 'pending');
+    if (!next || next.step !== 'management') return;
+
+    const AwardDefinition = require('./AwardDefinition');
+    const { notifyAdmin } = require('../helpers/adminNotify');
+    AwardDefinition.findById(doc.award_id).select('name').lean()
+      .then((a) => notifyAdmin({
+        type: 'admin_award',
+        title: 'Award waiting for your approval 🏆',
+        message: `"${a?.name || 'An award'}" results are waiting for management approval.`,
+        link: '/admin/award-approvals',
+        dedupeUnread: true,
+      }))
+      .catch(() => {});
+  } catch (_) { /* never break the award flow */ }
+});
+
 module.exports = mongoose.models.AwardWorkflow || mongoose.model('AwardWorkflow', AwardWorkflowSchema);

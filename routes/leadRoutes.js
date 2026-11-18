@@ -3,9 +3,12 @@ const crypto = require("crypto");
 const mongoose = require("mongoose");
 const Lead = require("../models/Lead");
 const Partner = require("../models/Partner");
+const { notifyAdmin } = require("../helpers/adminNotify");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const auth = require("../middleware/auth"); 
+const adminOnly = require("../middleware/adminOnly"); 
 
 const router = express.Router();
 
@@ -75,7 +78,13 @@ console.log("Expected Signature:", expectedSignature);
       remark: "",
     });
 
-    await Partner.findByIdAndUpdate(partnerId, { $inc: { leads: 1 } });
+        await Partner.findByIdAndUpdate(partnerId, { $inc: { leads: 1 } });
+    notifyAdmin({
+      type: "admin_lead",
+      title: "New Lead Added 📈",
+      message: `${name} enquired for ${course} via ${partnerName || "a channel partner"} (advance ₹${advance}).`,
+      link: "/admin/leads",
+    });
 
     res.json({ success: true, lead });
   } catch (err) {
@@ -93,7 +102,7 @@ router.get("/partner/:id", async (req, res) => {
 });
 
 /* ================= ADMIN ALL LEADS ================= */
-router.get("/all", async (req, res) => {
+router.get("/all", auth, adminOnly, async (req, res) => {
   const leads = await Lead.find().sort({ createdAt: -1 });
   res.json({ success: true, leads });
 });
@@ -105,7 +114,7 @@ router.get("/download/:filename", (req, res) => {
 });
 
 /* ================= UPDATE STATUS ================= */
-router.put("/update-status/:id", async (req, res) => {
+router.put("/update-status/:id", auth, adminOnly, async (req, res) => {
   const updated = await Lead.findByIdAndUpdate(
     req.params.id,
     {
@@ -119,7 +128,7 @@ router.put("/update-status/:id", async (req, res) => {
 });
 
 /* ================= DELETE LEAD ================= */
-router.delete("/delete/:id", async (req, res) => {
+router.delete("/delete/:id", auth, adminOnly, async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.json({ success: false });
 
@@ -180,7 +189,7 @@ router.get("/dashboard-stats/:partnerId", async (req, res) => {
    GET ADVANCE RECORDS (FROM LEADS)
    (NO SEPARATE DB / NO MAPPING ISSUE)
 ================================ */
-router.get("/advance-records", async (req, res) => {
+router.get("/advance-records", auth, adminOnly, async (req, res) => {
   try {
     const leads = await Lead.find({
       paymentStatus: "PAID",

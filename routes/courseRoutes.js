@@ -1,12 +1,13 @@
 const express = require("express");
 const Course = require("../models/Course");
-
+const auth = require("../middleware/auth"); 
+const adminOnly = require("../middleware/adminOnly"); 
 const router = express.Router();
 
 /* ======================================================
       CREATE COURSE
 ====================================================== */
-router.post("/", async (req, res) => {
+router.post("/", auth, adminOnly, async (req, res) => {
   try {
     const course = await Course.create(req.body);
     return res.status(201).json({ success: true, course });
@@ -48,7 +49,7 @@ router.get("/", async (req, res) => {
 /* ======================================================
       GET SINGLE COURSE
 ====================================================== */
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, adminOnly, async (req, res) => {
   try {
     const course = await Course.findById(req.params.id);
     if (!course)
@@ -78,7 +79,7 @@ router.put("/:id", async (req, res) => {
 /* ======================================================
       DELETE COURSE
 ====================================================== */
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, adminOnly, async (req, res) => {
   try {
     await Course.findByIdAndDelete(req.params.id);
     return res.json({ success: true, message: "Course deleted" });
