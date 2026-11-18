@@ -4,6 +4,8 @@ const Notification = require("../models/Notification");
 const Employee = require("../models/Employee");
 const auth = require("../middleware/auth");  
 const hrOnly = require("../middleware/hrOnly");
+const adminOnly = require("../middleware/adminOnly");
+const jwt = require("jsonwebtoken");
 
 // ══════════════════════════════════════════
 // ✅ WEB PUSH — must stay ABOVE the "/:recipientId" routes
@@ -27,6 +29,17 @@ router.post("/push/subscribe", async (req, res) => {
     }
     if (!recipient_id || !["employee", "hr", "admin"].includes(recipient_role)) {
       return res.status(400).json({ success: false, message: "recipient_id & recipient_role required" });
+    }
+
+    // 🔒 Admin devices must prove they are the admin (token in header or body)
+    if (recipient_role === "admin") {
+      try {
+        const token = req.headers.authorization?.split(" ")[1] || req.body.token;
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded.role !== "admin") throw new Error("not admin");
+      } catch (e) {
+        return res.status(403).json({ success: false, message: "ADMIN_ONLY" });
+      }
     }
 
     // same browser + same identity = one record (a browser can hold an HR AND an employee identity)
@@ -65,6 +78,43 @@ router.post("/push/unsubscribe", async (req, res) => {
 // ══════════════════════════════════════════
 // HR ROUTES — FIRST (important! conflict avoid)
 // ══════════════════════════════════════════
+
+// Older admin notifications (before this date) stay in DB but are hidden. Remove to show all.
+const ADMIN_NOTIF_FROM = new Date("2026-11-18T00:00:00+05:30");
+const adminFilter = { recipient_role: "admin", createdAt: { $gte: ADMIN_NOTIF_FROM } };
+
+// GET /api/notifications/admin/all
+router.get("/admin/all", auth, adminOnly, async (req, res) => {
+  try {
+    const [data, unreadCount] = await Promise.all([
+      Notification.find(adminFilter).sort({ createdAt: -1 }).limit(50),
+      Notification.countDocuments({ ...adminFilter, isRead: false }),
+    ]);
+    res.json({ success: true, data, unreadCount });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PUT /api/notifications/mark-all-read/admin
+router.put("/mark-all-read/admin", auth, adminOnly, async (req, res) => {
+  try {
+    await Notification.updateMany({ ...adminFilter, isRead: false }, { isRead: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PUT /api/notifications/admin/:id/read
+router.put("/admin/:id/read", auth, adminOnly, async (req, res) => {
+  try {
+    await Notification.updateOne({ _id: req.params.id, recipient_role: "admin" }, { isRead: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 // GET /api/notifications/hr/all
 router.get("/hr/all", auth, hrOnly, async (req, res) => {

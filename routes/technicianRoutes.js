@@ -2,6 +2,9 @@ const express = require("express");
 const router  = express.Router();
 const Technician    = require("../models/Technician");
 const StatusHistory = require("../models/StatusHistory");
+const { notifyAdmin } = require("../helpers/adminNotify");
+const auth = require("../middleware/auth");
+const adminOnly = require("../middleware/adminOnly");
 
 // ✅ NEW – CHECK 1: Mobile duplicate check
 router.post("/check-mobile", async (req, res) => {
@@ -31,10 +34,16 @@ router.post("/check-duplicate", async (req, res) => {
 });
 
 // POST /api/technician
-router.post("/", async (req, res) => {
+router.post("/",  async (req, res) => {
   try {
     const tech = new Technician(req.body);
-    await tech.save();
+        await tech.save();
+    notifyAdmin({
+      type: "admin_connect",
+      title: "New Technician Registration 🛠️",
+      message: `${tech.fullName || "A technician"}${tech.district ? " (" + tech.district + ")" : ""} registered on Radnus Connect.`,
+      link: "/admin/radnus-connect/technicians",
+    });
     res.status(201).json({ success: true, message: "Registration submitted" });
   } catch (err) {
     if (err.code === 11000)
@@ -75,7 +84,7 @@ router.get("/public", async (req, res) => {
 });
 
 // GET /api/technician  ← ADMIN list
-router.get("/", async (req, res) => {
+router.get("/", auth, adminOnly, async (req, res) => {
   try {
     const { status, district, experience, search, page = 1, limit = 50 } = req.query;
 
@@ -105,7 +114,7 @@ router.get("/", async (req, res) => {
 });
 
 // GET /api/technician/history/:id
-router.get("/history/:id", async (req, res) => {
+router.get("/history/:id", auth, adminOnly, async (req, res) => {
   try {
     const history = await StatusHistory.find({
       entityType: "technician",
@@ -118,7 +127,7 @@ router.get("/history/:id", async (req, res) => {
 });
 
 // GET /api/technician/:id
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, adminOnly, async (req, res) => {
   try {
     const item = await Technician.findById(req.params.id);
     if (!item) return res.status(404).json({ success: false, message: "Not found" });
@@ -129,7 +138,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // PUT /api/technician/status/:id
-router.put("/status/:id", async (req, res) => {
+router.put("/status/:id", auth, adminOnly, async (req, res) => {
   try {
     const { status, changedBy = "admin", note = "" } = req.body;
     const prev = await Technician.findById(req.params.id);
@@ -156,7 +165,7 @@ router.put("/status/:id", async (req, res) => {
 });
 
 // PUT /api/technician/:id
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, adminOnly, async (req, res) => {
   try {
     const updated = await Technician.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json({ success: true, data: updated });
@@ -177,7 +186,7 @@ router.patch("/featured/:id", async (req, res) => {
 });
 
 // DELETE /api/technician/:id
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, adminOnly, async (req, res) => {
   try {
     await Technician.findByIdAndDelete(req.params.id);
     res.json({ success: true });

@@ -10,6 +10,7 @@ const Employee = require("../models/Employee");
 const AdmissionStudent = require("../models/AdmissionStudent");
 const AdmissionCourse = require("../models/AdmissionCourse");
 const AdmissionSettings = require("../models/AdmissionSettings");
+const { notifyAdmin } = require("../helpers/adminNotify");
 const {
   applyBody,
   validateForComplete,
@@ -348,6 +349,12 @@ router.post("/:id/complete", auth, loadStudent(true), async (req, res) => {
     s.completedAt = new Date();
     s.applicationDate = new Date();
     await s.save();
+    notifyAdmin({
+      type: "admin_admission",
+      title: "Admission Application Completed 📝",
+      message: `${s.fullName} (${s.applicationNo}) — completed by ${s.staffName || "staff"}.`,
+      link: "/admin/admission",
+    });
 
     res.json({ success: true, data: s });
   } catch (err) {
@@ -387,7 +394,16 @@ router.post("/:id/payments", auth, loadStudent(true), async (req, res) => {
       refNo: String(req.body.refNo || "").trim(),
       receivedByName: await actorName(req),
     });
-    await s.save(); // pre-save recalculates paid / balance / status
+        await s.save(); // pre-save recalculates paid / balance / status
+    if (s.status === "FULLY_COMPLETED") {
+      notifyAdmin({
+        type: "admin_admission",
+        title: "Admission Fees Fully Paid ✅",
+        message: `${s.fullName} (${s.applicationNo || "—"}) has paid the full fees.`,
+        link: "/admin/admission",
+        dedupeUnread: true,
+      });
+    }
     res.status(201).json({ success: true, data: s });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

@@ -4,7 +4,8 @@ const bcrypt = require("bcryptjs");
 const Partner = require("../models/Partner");
 const Lead = require("../models/Lead");
 const path = require("path");
-
+const auth = require("../middleware/auth"); 
+const adminOnly = require("../middleware/adminOnly");
 const router = express.Router();
 
 /* ----------------------------------------------
@@ -24,7 +25,7 @@ const upload = multer({ storage });
 /* ----------------------------------------------
    ADD NEW PARTNER (ADMIN)
 ------------------------------------------------ */
-router.post("/add", upload.single("document"), async (req, res) => {
+router.post("/add", auth, adminOnly, upload.single("document"), async (req, res) => {
   try {
     const { name, email, phone, address, password } = req.body;
 
@@ -111,7 +112,7 @@ router.post("/login", async (req, res) => {
 /* ----------------------------------------------
    UPDATE PARTNER
 ------------------------------------------------ */
-router.put("/update/:id", upload.single("document"), async (req, res) => {
+router.put("/update/:id", auth, adminOnly, upload.single("document"), async (req, res) => {
   try {
     const id = req.params.id;
     const { name, email, phone, address } = req.body;
@@ -132,7 +133,7 @@ router.put("/update/:id", upload.single("document"), async (req, res) => {
 /* ----------------------------------------------
    DELETE PARTNER
 ------------------------------------------------ */
-router.delete("/delete/:id", async (req, res) => {
+router.delete("/delete/:id", auth, adminOnly, async (req, res) => {
   try {
     await Partner.findByIdAndDelete(req.params.id);
     return res.json({ success: true });
@@ -144,7 +145,7 @@ router.delete("/delete/:id", async (req, res) => {
 /* ----------------------------------------------
    ENABLE / DISABLE PARTNER
 ------------------------------------------------ */
-router.put("/toggle/:id", async (req, res) => {
+router.put("/toggle/:id", auth, adminOnly, async (req, res) => {
   try {
     const partner = await Partner.findById(req.params.id);
     if (!partner) return res.json({ success: false });
@@ -161,7 +162,7 @@ router.put("/toggle/:id", async (req, res) => {
 /* -----------------------------------------------------
    ✔ GET ALL PARTNERS WITH LIVE LEADS COUNT
 ------------------------------------------------------ */
-router.get("/all", async (req, res) => {
+router.get("/all", auth, adminOnly, async (req, res) => {
   try {
     const partners = await Partner.find().sort({ _id: -1 });
 

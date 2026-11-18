@@ -4,6 +4,8 @@ const Poster  = require("../models/Poster");
 const multer  = require("multer");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/cloudinary");
+const auth = require("../middleware/auth"); 
+const adminOnly = require("../middleware/adminOnly"); 
 
 const storage = new CloudinaryStorage({
   cloudinary,
@@ -35,7 +37,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.post("/", upload.single("image"), async (req, res) => {
+router.post("/", auth, adminOnly, upload.single("image"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: "Image required" });
 
@@ -56,7 +58,7 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
-router.put("/:id", upload.single("image"), async (req, res) => {
+router.put("/:id", auth, adminOnly, upload.single("image"), async (req, res) => {
   try {
     const poster = await Poster.findById(req.params.id);
     if (!poster) return res.status(404).json({ success: false });
@@ -81,7 +83,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
   }
 });
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, adminOnly, async (req, res) => {
   try {
     const poster = await Poster.findById(req.params.id);
     if (!poster) return res.status(404).json({ success: false });

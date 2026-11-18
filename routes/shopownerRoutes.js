@@ -1,8 +1,10 @@
 const express = require("express");
-const router  = express.Router();
-const ShopOwner     = require("../models/ShopOwner");
+const router = express.Router();
+const ShopOwner = require("../models/ShopOwner");
 const StatusHistory = require("../models/StatusHistory");
-
+const { notifyAdmin } = require("../helpers/adminNotify");
+const auth = require("../middleware/auth"); 
+const adminOnly = require("../middleware/adminOnly");
 /* ═══════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════ */
@@ -102,6 +104,12 @@ router.post("/", async (req, res) => {
 
     const newOwner = new ShopOwner(req.body);
     await newOwner.save();
+    notifyAdmin({
+      type: "admin_connect",
+      title: "New Shop Owner Requirement 🏪",
+      message: `${newOwner.shopName || "A shop"}${newOwner.district ? " (" + newOwner.district + ")" : ""} submitted a requirement${newOwner.ownerName ? " — " + newOwner.ownerName : ""}.`,
+      link: "/admin/radnus-connect/shop-owners",
+    });
     res.status(201).json({ success: true, message: "Requirement submitted successfully" });
   } catch (err) {
     if (err.code === 11000)
@@ -117,19 +125,19 @@ router.post("/", async (req, res) => {
 ═══════════════════════════════════════════════ */
 
 // GET /api/shop-owner — all records (admin)
-router.get("/", async (req, res) => {
+router.get("/", auth, adminOnly, async (req, res) => {
   try {
     const { status, district, search, page = 1, limit = 50 } = req.query;
 
     const filter = {};
-    if (status)   filter.jobStatus = status;
-    if (district) filter.district  = new RegExp(district, "i");
+    if (status) filter.jobStatus = status;
+    if (district) filter.district = new RegExp(district, "i");
     if (search) {
       filter.$or = [
-        { shopName:  new RegExp(search, "i") },
+        { shopName: new RegExp(search, "i") },
         { ownerName: new RegExp(search, "i") },
-        { mobile:    new RegExp(search, "i") },
-        { district:  new RegExp(search, "i") },
+        { mobile: new RegExp(search, "i") },
+        { district: new RegExp(search, "i") },
       ];
     }
 
@@ -146,7 +154,7 @@ router.get("/", async (req, res) => {
 });
 
 // GET /api/shop-owner/:id — single record
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, adminOnly, async (req, res) => {
   try {
     const item = await ShopOwner.findById(req.params.id);
     if (!item) return res.status(404).json({ success: false, message: "Not found" });
@@ -157,7 +165,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // PUT /api/shop-owner/status/:id — update jobStatus + log history
-router.put("/status/:id", async (req, res) => {
+router.put("/status/:id", auth, adminOnly, async (req, res) => {
   try {
     const { status, changedBy = "admin", note = "" } = req.body;
     const prev = await ShopOwner.findById(req.params.id);
@@ -170,9 +178,9 @@ router.put("/status/:id", async (req, res) => {
 
     await StatusHistory.create({
       entityType: "shopowner",
-      entityId:   req.params.id,
+      entityId: req.params.id,
       fromStatus: prev.jobStatus || prev.status,
-      toStatus:   status,
+      toStatus: status,
       changedBy,
       note,
     });
@@ -184,7 +192,7 @@ router.put("/status/:id", async (req, res) => {
 });
 
 // PUT /api/shop-owner/:id — full update
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, adminOnly, async (req, res) => {
   try {
     const updated = await ShopOwner.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json({ success: true, data: updated });
@@ -194,7 +202,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // PATCH /api/shop-owner/featured/:id — toggle featured
-router.patch("/featured/:id", async (req, res) => {
+router.patch("/featured/:id", auth, adminOnly, async (req, res) => {
   try {
     const item = await ShopOwner.findById(req.params.id);
     await ShopOwner.findByIdAndUpdate(req.params.id, { featured: !item.featured });
@@ -205,7 +213,7 @@ router.patch("/featured/:id", async (req, res) => {
 });
 
 // DELETE /api/shop-owner/:id — permanent delete
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, adminOnly, async (req, res) => {
   try {
     await ShopOwner.findByIdAndDelete(req.params.id);
     res.json({ success: true });
@@ -215,11 +223,11 @@ router.delete("/:id", async (req, res) => {
 });
 
 // GET /api/shop-owner/history/:id — status audit trail
-router.get("/history/:id", async (req, res) => {
+router.get("/history/:id", auth, adminOnly, async (req, res) => {
   try {
     const history = await StatusHistory.find({
       entityType: "shopowner",
-      entityId:   req.params.id,
+      entityId: req.params.id,
     }).sort({ changedAt: -1 });
     res.json(history);
   } catch {
