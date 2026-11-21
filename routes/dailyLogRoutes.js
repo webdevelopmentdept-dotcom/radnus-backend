@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const { isDateInPeriod, isPeriodOpen, GRACE_DAYS } = require('../helpers/kpiPeriodRules');
 const auth = require("../middleware/auth");  
 const hrOnly = require("../middleware/hrOnly");
+router.use(auth); 
 router.post('/', async (req, res) => {
   try {
     const { 

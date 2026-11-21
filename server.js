@@ -174,6 +174,8 @@ app.use("/api/feedback-tasks", feedbackTaskRoutes);
 app.use("/api/esop", esopRoutes);
 app.use("/api/impact-bonus", impactBonusRoutes);
 app.use("/api/departments", deptRoutes);
+app.use("/api/work-mode", require("./routes/workModeRoutes"));
+app.use("/api/work", require("./routes/workTaskRoutes"));
 app.use("/api/engagement", engagementRoutes);
 app.use("/api/clubs", clubRoutes);
 app.use("/api/leadership", leadershipRoutes);
@@ -281,4 +283,5 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  require("./jobs/workJobs").start();
 });
