@@ -7,6 +7,7 @@ const PunchSchema = new mongoose.Schema({
   method: { type: String, enum: ["manual", "hr_manual", "auto", "qr"], default: "manual" },
   location: { lat: Number, lng: Number },
   remark: { type: String, default: "" },
+  work_mode: { type: String, enum: ["office", "wfh"], default: "office" },
 }, { _id: true });
 
 // ── Main Attendance Schema ────────────────────────────────────

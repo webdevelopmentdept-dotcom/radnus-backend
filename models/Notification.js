@@ -21,7 +21,8 @@ const notificationSchema = new mongoose.Schema({
       "employee_activated", "new_applicant", "new_internship",
       "hr_message", "incentive_assigned", "incentive_review", "incentive_approved", "incentive_rejected", "incentive_paid",
       "hr_message_sent", "leave_tl_review", "leave_tl_decision", "loan_followup", "loan_application",
-     "incentive_removed", "award_published", "admin_award", "admin_connect", "admin_lead", "admin_applicant", "admin_admission"
+     "incentive_removed", "award_published", "admin_award", "admin_connect", "admin_lead", "admin_applicant",
+      "admin_admission", , "work_task", "work_reminder"
     ],
     default: "general"
   },

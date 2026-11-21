@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Attendance = require("../models/Attendance");
 const Employee = require("../models/Employee");
 const LeaveRequest = require("../models/LeaveRequest");
+const { getEffectiveWorkMode } = require("../helpers/workMode");
 // ══════════════════════════════════════════
 //  FIXED TIMING CONFIG (No Shift - Hardcoded 10:00 AM to 7:00 PM)
 // ══════════════════════════════════════════
@@ -304,7 +305,9 @@ exports.checkIn = async (req, res) => {
 
     record.punches.push({ type: "in", time: now, method, location: location || {} });
 
-    const emp = await Employee.findById(employee_id).select("shift").lean();
+        const emp = await Employee.findById(employee_id)
+      .select("shift workMode wfhFrom wfhTo wfhDays").lean();
+    record.work_mode = getEffectiveWorkMode(emp, record.date);
     const { startMins, endMins } = parseShiftMins(emp);
     const computed = computeFromPunches(record.punches, startMins, endMins);
     Object.assign(record, computed);

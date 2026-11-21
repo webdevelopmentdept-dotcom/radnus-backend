@@ -73,6 +73,15 @@ const employeeSchema = new mongoose.Schema({
   },
 
   canManageProducts: { type: Boolean, default: false },
+
+    // ── Work Mode (WFH) ──
+  workMode:      { type: String, enum: ["office", "wfh", "hybrid"], default: "office" },
+  wfhFrom:       { type: String, default: "" },   // "YYYY-MM-DD"
+  wfhTo:         { type: String, default: "" },   // "" = end date illa
+  wfhDays:       [{ type: String }],              // hybrid: ["Mon","Wed"]
+  wfhReason:     { type: String, default: "" },
+  wfhApprovedBy: { type: String, default: "" },
+  
   canManageLoanProcess: { type: Boolean, default: false },
   isLoanProcessHead: { type: Boolean, default: false },
   loanProcessReportAccess: { type: Boolean, default: false },
