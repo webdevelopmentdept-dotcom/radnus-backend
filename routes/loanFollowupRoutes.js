@@ -25,7 +25,7 @@ const canManageLoanFollowup = async (req, res, next) => {
 
 // Followup team sees ONLY customer details — no documents, no checklist.
 const CUSTOMER_FIELDS =
-  "customerName contactNo mailId loanDate scheme loanValue businessType businessSubType " +
+  "customerName contactNo alternateContactNo mailId loanDate scheme loanValue businessType businessSubType " +
   "communicationAddress unitAddress fatherName fatherOccupation maritalStatus spouseName spouseOccupation bankName ifscCode staffName followup createdAt";
 
 const actorName = (req) => req.followupEmployee?.name || (req.user?.role === "admin" ? "Admin" : "Unknown");
@@ -89,6 +89,7 @@ router.get("/list", auth, canManageLoanFollowup, async (req, res) => {
       filter.$or = [
         { customerName: { $regex: req.query.search, $options: "i" } },
         { contactNo: { $regex: req.query.search, $options: "i" } },
+        { alternateContactNo: { $regex: req.query.search, $options: "i" } },
       ];
     }
     const stageConds = stageConditions(req.query.dic, req.query.bank);
@@ -135,6 +136,7 @@ router.get("/export", auth, canManageLoanFollowup, async (req, res) => {
       filter.$or = [
         { customerName: { $regex: req.query.search, $options: "i" } },
         { contactNo: { $regex: req.query.search, $options: "i" } },
+        { alternateContactNo: { $regex: req.query.search, $options: "i" } },
       ];
     }
     const stageConds = stageConditions(req.query.dic, req.query.bank);
@@ -152,6 +154,7 @@ router.get("/export", auth, canManageLoanFollowup, async (req, res) => {
       { header: "SL.NO", key: "sl", width: 7 },
       { header: "Customer Name", key: "name", width: 24 },
       { header: "Contact No", key: "contact", width: 15 },
+      { header: "Alternate Contact No", key: "alternateContact", width: 18 },
       { header: "Mail ID", key: "mail", width: 28 },
       { header: "Telecaller", key: "staff", width: 18 },
       { header: "Loan Date", key: "loanDate", width: 12 },
@@ -190,6 +193,7 @@ router.get("/export", auth, canManageLoanFollowup, async (req, res) => {
         sl: i + 1,
         name: c.customerName,
         contact: c.contactNo,
+        alternateContact: c.alternateContactNo || "",
         mail: c.mailId || "",
         staff: c.staffName || "",
         loanDate: fmtDate(c.loanDate),
