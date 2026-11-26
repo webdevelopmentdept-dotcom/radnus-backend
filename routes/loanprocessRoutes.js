@@ -159,6 +159,16 @@ const familyFields = (b) => {
 };
 const MARITAL_OK = ["Married", "Unmarried"];
 
+// Alternate contact: optional. If filled → valid 10 digit mobile & must differ from main contact
+const ALT_PHONE_RE = /^[6-9]\d{9}$/;
+const altContactError = (main, alt) => {
+  const a = String(alt || "").trim();
+  if (!a) return null;
+  if (!ALT_PHONE_RE.test(a)) return "Alternate contact number must be a valid 10 digit mobile number";
+  if (a === String(main || "").trim()) return "Alternate contact number must be different from Contact No";
+  return null;
+};
+
 // ── Notify Application team (bell + web push) — used by /create and /drafts/:id/submit ──
 async function notifyApplicationHeads(customer, excludeId) {
   try {
@@ -215,6 +225,7 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
       scheme,
       loanValue,
       contactNo,
+      alternateContactNo,
       mailId,
       bankName,
       ifscCode,
@@ -223,6 +234,9 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
     if (!customerName || !contactNo) {
       return res.status(400).json({ success: false, message: "Customer name and contact number required" });
     }
+
+    const altErr = altContactError(contactNo, alternateContactNo);
+    if (altErr) return res.status(400).json({ success: false, message: altErr });
 
     if (!MARITAL_OK.includes(req.body.maritalStatus)) {
       return res.status(400).json({ success: false, message: "Marital status (Married / Unmarried) is required" });
@@ -254,6 +268,7 @@ router.post("/create", auth, canManageLoanProcess, (req, res, next) => {
       scheme,
       loanValue: Number(loanValue) || 0,
       contactNo,
+      alternateContactNo: String(alternateContactNo || "").trim(),
       mailId,
       bankName,
       ifscCode,
@@ -364,7 +379,7 @@ const buildTeamSummaries = (customers) => {
       return;
     }
     const k = String(fo.employeeId);
-        if (!fuMap[k]) {
+    if (!fuMap[k]) {
       fuMap[k] = {
         _id: k, name: fo.name || "Unknown", taken: 0, pending: 0, rejected: 0, sanctioned: 0, sanctionedValue: 0,
         // pending leads — DIC Office / Bank state-wise counts
@@ -562,6 +577,7 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
     sheet.columns = [
       { header: "Customer Name", key: "customerName", width: 24 },
       { header: "Contact No", key: "contactNo", width: 15 },
+      { header: "Alternate Contact No", key: "alternateContactNo", width: 18 },
       { header: "Mail ID", key: "mailId", width: 26 },
       { header: "Telecaller", key: "staffName", width: 18 },
       { header: "Loan Date", key: "loanDate", width: 14 },
@@ -598,6 +614,7 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
       sheet.addRow({
         customerName: c.customerName || "",
         contactNo: c.contactNo || "",
+        alternateContactNo: c.alternateContactNo || "",
         mailId: c.mailId || "",
         staffName: c.staffId?.name || c.staffName || "Unknown",
         loanDate: c.loanDate ? new Date(c.loanDate).toLocaleDateString("en-IN") : "",
@@ -750,7 +767,7 @@ router.all("/report/export", auth, canViewLoanProcessReport, async (req, res) =>
 // ══════════════════════════════════════════════════════
 const DRAFT_TEXT_FIELDS = [
   "customerName", "communicationAddress", "unitAddress", "businessType", "businessSubType",
-  "contactNo", "mailId", "bankName", "ifscCode", "fatherName", "fatherOccupation",
+  "contactNo", "alternateContactNo", "mailId", "bankName", "ifscCode", "fatherName", "fatherOccupation",
   "spouseName", "spouseOccupation",
 ];
 const SCHEME_OK = LoanCustomer.schema.path("scheme").enumValues;
@@ -867,6 +884,8 @@ router.post("/drafts/:id/submit", auth, canManageLoanProcess, ownDraftOnly, asyn
     if (!d.customerName || !d.contactNo) {
       return res.status(400).json({ success: false, message: "Customer name and contact number required" });
     }
+    const altErrD = altContactError(d.contactNo, d.alternateContactNo);
+    if (altErrD) return res.status(400).json({ success: false, message: altErrD });
     if (!MARITAL_OK.includes(d.maritalStatus)) {
       return res.status(400).json({ success: false, message: "Marital status (Married / Unmarried) is required" });
     }
@@ -891,6 +910,7 @@ router.post("/drafts/:id/submit", auth, canManageLoanProcess, ownDraftOnly, asyn
       scheme: d.scheme,
       loanValue: d.loanValue || 0,
       contactNo: d.contactNo,
+      alternateContactNo: d.alternateContactNo || "",
       mailId: d.mailId,
       bankName: d.bankName,
       ifscCode: d.ifscCode,
@@ -1258,23 +1278,23 @@ router.post("/:id/incentive/approve", auth, canApproveLoanIncentive, async (req,
     // ── Incentive amount = based on Document Payment (server-side) ──
     let docAmt = Number(customer.checklistAmounts?.documentPayment);
 
-// Amount already employee set pannirundha adhai dhan use pannanum.
-// Missing / invalid na mattum HR kudutha docAmount accept pannanum.
-if (!DOC_PAYMENT_INCENTIVE_MAP[docAmt]) {
-  const hrAmt = Number(docAmount);
-  if (!DOC_PAYMENT_ALLOWED.includes(hrAmt)) {
-    return res.status(400).json({
-      success: false,
-      message: "Select document payment amount (₹5,000 or ₹10,000) to continue.",
-    });
-  }
-  docAmt = hrAmt;
-  customer.checklistAmounts.documentPayment = hrAmt;
-  customer.incentive.amountSetByHr = true;
-  customer.incentive.amountSetByName = actorNameFor(req);
-  customer.incentive.amountSetAt = new Date();
-}
-const amt = DOC_PAYMENT_INCENTIVE_MAP[docAmt];
+    // Amount already employee set pannirundha adhai dhan use pannanum.
+    // Missing / invalid na mattum HR kudutha docAmount accept pannanum.
+    if (!DOC_PAYMENT_INCENTIVE_MAP[docAmt]) {
+      const hrAmt = Number(docAmount);
+      if (!DOC_PAYMENT_ALLOWED.includes(hrAmt)) {
+        return res.status(400).json({
+          success: false,
+          message: "Select document payment amount (₹5,000 or ₹10,000) to continue.",
+        });
+      }
+      docAmt = hrAmt;
+      customer.checklistAmounts.documentPayment = hrAmt;
+      customer.incentive.amountSetByHr = true;
+      customer.incentive.amountSetByName = actorNameFor(req);
+      customer.incentive.amountSetAt = new Date();
+    }
+    const amt = DOC_PAYMENT_INCENTIVE_MAP[docAmt];
     if (!customer.checklist?.documentPayment || !amt) {
       return res.status(400).json({
         success: false,
@@ -1484,10 +1504,14 @@ router.put("/:id", auth, canManageLoanProcess, ownCustomerOnly, async (req, res)
       scheme,
       loanValue,
       contactNo,
+      alternateContactNo,
       mailId,
       bankName,
       ifscCode,
     } = req.body;
+
+    const altErrU = altContactError(contactNo, alternateContactNo);
+    if (altErrU) return res.status(400).json({ success: false, message: altErrU });
 
     if (!MARITAL_OK.includes(req.body.maritalStatus)) {
       return res.status(400).json({ success: false, message: "Marital status (Married / Unmarried) is required" });
@@ -1506,6 +1530,7 @@ router.put("/:id", auth, canManageLoanProcess, ownCustomerOnly, async (req, res)
         scheme,
         loanValue: Number(loanValue) || 0,
         contactNo,
+        alternateContactNo: String(alternateContactNo || "").trim(),
         mailId,
         bankName,
         ifscCode,

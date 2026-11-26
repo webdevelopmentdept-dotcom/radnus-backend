@@ -29,6 +29,7 @@ const loanCustomerSchema = new mongoose.Schema(
     },
     loanValue: { type: Number, default: 0 },
     contactNo: { type: String, required: true, trim: true },
+    alternateContactNo: { type: String, default: "", trim: true },
     mailId: { type: String, default: "", trim: true },
     bankName: { type: String, default: "" },
     ifscCode: { type: String, default: "", uppercase: true },

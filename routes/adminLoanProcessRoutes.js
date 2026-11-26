@@ -218,6 +218,7 @@ router.all("/export/excel", async (req, res) => {
     sheet.columns = [
       { header: "Customer Name", key: "customerName", width: 24 },
       { header: "Contact No", key: "contactNo", width: 15 },
+      { header: "Alternate Contact No", key: "alternateContactNo", width: 18 },
       { header: "Mail ID", key: "mailId", width: 26 },
       { header: "Telecaller", key: "staffName", width: 18 },
       { header: "Loan Date", key: "loanDate", width: 14 },
@@ -267,6 +268,7 @@ router.all("/export/excel", async (req, res) => {
       sheet.addRow({
         customerName: c.customerName || "",
         contactNo: c.contactNo || "",
+        alternateContactNo: c.alternateContactNo || "",
         mailId: c.mailId || "",
         staffName: c.staffId?.name || c.staffName || "Unknown",
         loanDate: c.loanDate ? new Date(c.loanDate).toLocaleDateString("en-IN") : "",
